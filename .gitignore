@@ -1,0 +1,47 @@
+# Build artifacts
+build/
+cmake-build-*/
+dist/
+*.egg-info/
+__pycache__/
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+.venv/
+venv/
+env/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Documentation
+docs/_build/
+
+# Models / large files (use Git LFS if needed)
+*.step
+*.stp
+*.iges
+*.igs
+# Allow STL files in models/ directory (for robot models)
+*.stl
+!models/**/*.stl
+*.ply
+*.urdf.bak
+
+# Temporary
+*.log
+*.tmp
+*.bak
+install_deps.bat
+install_deps.ps1

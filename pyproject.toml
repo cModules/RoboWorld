@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orolp"
+version = "0.1.0"
+description = "OpenRoboOLP - Open-source Offline Programming Software for Industrial Robots"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "OpenRoboOLP Contributors"}
+]
+keywords = ["robotics", "offline-programming", "OLP", "industrial-robot", "digital-twin"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.7",
+    "jinja2>=3.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.4", "OpenGL"]
+ros2 = ["rclpy>=3.0"]
+dev = ["pytest>=7.0", "black", "flake8", "mypy", "sphinx"]
+all = ["orolp[gui,ros2,dev]"]
+
+[project.urls]
+Homepage = "https://github.com/your-org/openrobolp"
+Documentation = "https://openrobolp.readthedocs.io"
+Repository = "https://github.com/your-org/openrobolp"
+Issues = "https://github.com/your-org/openrobolp/issues"
+
+[project.scripts]
+orolp = "orolp.cli:main"
+
+[tool.setuptools]
+packages = ["orolp", "orolp.post"]
+package-dir = {"orolp" = "python/orolp"}
+
+[tool.setuptools.package-data]
+orolp = ["templates/*.j2", "assets/*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

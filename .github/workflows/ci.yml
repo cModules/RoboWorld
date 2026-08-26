@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential cmake libeigen3-dev             libpinocchio-dev libfcl-dev pybind11-dev python3-dev
+      - name: Build C++ core
+        run: |
+          mkdir build && cd build
+          cmake .. -DBUILD_PYTHON_BINDINGS=ON -DBUILD_TESTS=ON
+          make -j$(nproc)
+      - name: Run C++ tests
+        run: cd build && ctest --output-on-failure
+
+  build-python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install deps
+        run: |
+          sudo apt update
+          sudo apt install -y libeigen3-dev libpinocchio-dev libfcl-dev
+          pip install -e ".[dev]"
+      - name: Run Python tests
+        run: pytest python/tests/ -v
+      - name: Lint
+        run: |
+          black --check python/
+          flake8 python/ --max-line-length=100
