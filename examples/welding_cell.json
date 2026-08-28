@@ -1,0 +1,228 @@
+{
+  "format_version": 1,
+  "robot_urdf": "models/kuka/kr16_2/kr16_2.urdf",
+  "robot_joints_deg": [
+    0,
+    -10,
+    25,
+    0,
+    15,
+    0
+  ],
+  "objects": [
+    {
+      "name": "工作台",
+      "component_id": "worktable",
+      "params": {
+        "length": 1400,
+        "width": 900,
+        "height": 780
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        1200.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "双轴变位机",
+      "component_id": "positioner_2axis",
+      "params": {
+        "table_diameter": 700,
+        "table_height": 520,
+        "tilt_deg": 30
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        1200.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        780.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "板状工件",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 600,
+        "width": 400,
+        "thickness": 8
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        1200.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        1400.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "安全围栏",
+      "component_id": "fence",
+      "params": {
+        "length": 2000,
+        "height": 2000
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        2200.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "安全围栏_2",
+      "component_id": "fence",
+      "params": {
+        "length": 2000,
+        "height": 2000
+      },
+      "pose": [
+        2.220446049250313e-16,
+        -1.0,
+        0.0,
+        -2200.0,
+        1.0,
+        2.220446049250313e-16,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "安全围栏_3",
+      "component_id": "fence",
+      "params": {
+        "length": 2000,
+        "height": 2000
+      },
+      "pose": [
+        2.220446049250313e-16,
+        -1.0,
+        0.0,
+        2200.0,
+        1.0,
+        2.220446049250313e-16,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "控制柜",
+      "component_id": "cabinet",
+      "params": {
+        "width": 700,
+        "depth": 500,
+        "height": 1900
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -1500.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    }
+  ]
+}

@@ -45,6 +45,33 @@ class Waypoint:
         return f"Waypoint(t={self.timestamp:.2f}s, pose=({x:.1f}, {y:.1f}, {z:.1f}))"
 
 
+def _interpolate_pose(a: Pose, b: Pose, alpha: float) -> Pose:
+    """在两个位姿之间插值。
+
+    位置用线性插值，姿态用四元数球面插值（slerp）——直接对欧拉角做线性
+    插值会在大角度旋转时走出错误的路径，甚至经过奇异位形。
+
+    Args:
+        a: 起始位姿
+        b: 结束位姿
+        alpha: 插值参数，0 对应 ``a``、1 对应 ``b``
+
+    Returns:
+        插值得到的位姿
+    """
+    from scipy.spatial.transform import Rotation, Slerp
+
+    xa, ya, za, qax, qay, qaz, qaw = a.to_xyz_quat()
+    xb, yb, zb, qbx, qby, qbz, qbw = b.to_xyz_quat()
+
+    pos = np.array([xa, ya, za]) * (1.0 - alpha) + np.array([xb, yb, zb]) * alpha
+
+    # scipy 的对外四元数顺序是 (x, y, z, w)，与 Pose 一致
+    key = Rotation.from_quat([[qax, qay, qaz, qaw], [qbx, qby, qbz, qbw]])
+    qx, qy, qz, qw = Slerp([0.0, 1.0], key)(alpha).as_quat()
+    return Pose.from_xyz_quat(float(pos[0]), float(pos[1]), float(pos[2]), qx, qy, qz, qw)
+
+
 class Trajectory:
     """Represents a robot trajectory consisting of waypoints."""
 
@@ -171,31 +198,7 @@ class Trajectory:
         return f"Trajectory({len(self.waypoints)} waypoints, duration={self.duration():.2f}s)"
 
 
-def _interpolate_pose(a: Pose, b: Pose, alpha: float) -> Pose:
-    """在两个位姿之间插值。
 
-    位置用线性插值，姿态用四元数球面插值（slerp）——直接对欧拉角做线性
-    插值会在大角度旋转时走出错误的路径，甚至经过奇异位形。
-
-    Args:
-        a: 起始位姿
-        b: 结束位姿
-        alpha: 插值参数，0 对应 ``a``、1 对应 ``b``
-
-    Returns:
-        插值得到的位姿
-    """
-    from scipy.spatial.transform import Rotation, Slerp
-
-    xa, ya, za, qax, qay, qaz, qaw = a.to_xyz_quat()
-    xb, yb, zb, qbx, qby, qbz, qbw = b.to_xyz_quat()
-
-    pos = np.array([xa, ya, za]) * (1.0 - alpha) + np.array([xb, yb, zb]) * alpha
-
-    # scipy 的对外四元数顺序是 (x, y, z, w)，与 Pose 一致
-    key = Rotation.from_quat([[qax, qay, qaz, qaw], [qbx, qby, qbz, qbw]])
-    qx, qy, qz, qw = Slerp([0.0, 1.0], key)(alpha).as_quat()
-    return Pose.from_xyz_quat(float(pos[0]), float(pos[1]), float(pos[2]), qx, qy, qz, qw)
 
 
 class SimulationWorld(Scene):

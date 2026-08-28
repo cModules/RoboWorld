@@ -349,6 +349,54 @@ class RobotKinematics:
             transforms[joint.child] = T
         return transforms
 
+    def all_link_transforms(
+        self, q: Sequence[float], q_is_radians: bool = True
+    ) -> Dict[str, np.ndarray]:
+        """遍历**全部**关节（含分支与 fixed 关节），返回每个 link 的世界变换。
+
+        与 :meth:`link_transforms` 的区别在于后者只沿主链走一趟，会丢掉分支。
+        碰撞检测必须用这个方法：法兰上挂的焊枪、夹爪、TCP 标记都是 fixed
+        关节连接的，属于主链之外的分支——丢了它们，机器人就"看不见"自己
+        末端撞上了什么。
+
+        Args:
+            q: 关节值，长度须等于 :attr:`dof`
+            q_is_radians: q 是否为弧度（旋转关节）
+
+        Returns:
+            link 名 -> 4x4 齐次矩阵（米）
+        """
+        q = np.asarray(q, dtype=np.float64).ravel()
+        # 按关节名建立 q 的索引映射，确保与 :attr:`joint_names` 顺序一致，
+        # 不受遍历顺序（含分支）影响
+        q_index = {j.name: i for i, j in enumerate(self._actuated)}
+
+        transforms: Dict[str, np.ndarray] = {self._root: np.eye(4)}
+        pending = list(self.joints)
+        while pending:
+            remaining: List[JointSpec] = []
+            progressed = False
+            for joint in pending:
+                parent_T = transforms.get(joint.parent)
+                if parent_T is None:
+                    remaining.append(joint)
+                    continue
+                T = parent_T @ _transform(_rotmat_rpy(joint.origin_rpy), joint.origin_xyz)
+                idx = q_index.get(joint.name)
+                if joint.movable and idx is not None:
+                    value = float(q[idx]) if idx < q.size else 0.0
+                    if joint.is_prismatic:
+                        T = T @ _transform(np.eye(3), joint.axis * value)
+                    else:
+                        angle = value if q_is_radians else math.radians(value)
+                        T = T @ _transform(_rot_about_axis(joint.axis, angle), np.zeros(3))
+                transforms[joint.child] = T
+                progressed = True
+            pending = remaining
+            if not progressed:
+                break  # 剩余关节的父节点不可达（URDF 有环或断链），忽略
+        return transforms
+
     def forward_kinematics(
         self, q: Sequence[float], q_is_radians: bool = True
     ) -> np.ndarray:
