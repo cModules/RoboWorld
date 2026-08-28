@@ -5,10 +5,15 @@ OpenRoboOLP - OLP Terminal
 
 import sys
 import math
-import struct
 import re
 import numpy as np
 from pathlib import Path
+
+# 本文件既可作为脚本直接运行，也可被打包；确保 python/ 下的 orolp 包可被导入
+_REPO_ROOT = Path(__file__).resolve().parent
+_PYTHON_DIR = _REPO_ROOT / "python"
+if str(_PYTHON_DIR) not in sys.path:
+    sys.path.insert(0, str(_PYTHON_DIR))
 
 try:
     from PySide6 import QtWidgets, QtCore, QtOpenGLWidgets, QtGui
@@ -24,6 +29,18 @@ except ImportError:
     print("PyOpenGL not installed. Install with: pip install PyOpenGL")
     sys.exit(1)
 
+# 机器人库（组件库面板）。缺失时降级为纯手工加载 URDF，不影响主程序启动
+try:
+    from orolp.robot_library.catalog import RobotCatalog
+    from orolp.robot_library.panel import RobotLibraryPanel
+
+    _HAS_ROBOT_LIBRARY = True
+except Exception as _exc:  # pragma: no cover - 仅用于缺失依赖时的降级
+    print(f"[warning] robot library unavailable: {_exc}")
+    _HAS_ROBOT_LIBRARY = False
+    RobotCatalog = None
+    RobotLibraryPanel = None
+
 
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
@@ -37,6 +54,9 @@ GL_POINTS = 0x00000000
 GL_DEPTH_TEST = 0x00000B71
 GL_MODELVIEW = 0x00001700
 GL_PROJECTION = 0x00001701
+
+#: 首屏默认载入的示例机器人（按顺序回退）
+DEFAULT_ROBOT_KEYS = ("kuka/kr16_2", "kuka/kr6_r900", "ur/ur5e")
 
 
 class RobotRenderer:
@@ -783,23 +803,41 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         
-        info_group = QtWidgets.QGroupBox("Robot Info")
+        info_group = QtWidgets.QGroupBox("机器人信息")
         info_layout = QtWidgets.QFormLayout(info_group)
         self.name_label = QtWidgets.QLabel("N/A")
-        self.type_label = QtWidgets.QLabel("Industrial Robot")
-        self.manufacturer_label = QtWidgets.QLabel("Unknown")
-        self.dof_label = QtWidgets.QLabel("0")
-        info_layout.addRow("Name:", self.name_label)
-        info_layout.addRow("Type:", self.type_label)
-        info_layout.addRow("Manufacturer:", self.manufacturer_label)
-        info_layout.addRow("DOF:", self.dof_label)
+        self.manufacturer_label = QtWidgets.QLabel("N/A")
+        self.type_label = QtWidgets.QLabel("N/A")
+        self.payload_label = QtWidgets.QLabel("N/A")
+        self.reach_label = QtWidgets.QLabel("N/A")
+        self.repeat_label = QtWidgets.QLabel("N/A")
+        self.dof_label = QtWidgets.QLabel("N/A")
+        self.controller_label = QtWidgets.QLabel("N/A")
+        info_layout.addRow("名称:", self.name_label)
+        info_layout.addRow("厂商:", self.manufacturer_label)
+        info_layout.addRow("类型:", self.type_label)
+        info_layout.addRow("额定负载:", self.payload_label)
+        info_layout.addRow("最大臂展:", self.reach_label)
+        info_layout.addRow("重复定位精度:", self.repeat_label)
+        info_layout.addRow("轴数:", self.dof_label)
+        info_layout.addRow("控制器:", self.controller_label)
         layout.addWidget(info_group)
-        
-        joint_group = QtWidgets.QGroupBox("Joint Controls")
+
+        # 型号备注（数据来源、参数核验状态等）
+        self.note_label = QtWidgets.QLabel("")
+        self.note_label.setWordWrap(True)
+        self.note_label.setStyleSheet("color: #8a6d3b; padding: 2px;")
+        note_font = QFont()
+        note_font.setPointSize(8)
+        self.note_label.setFont(note_font)
+        self.note_label.hide()
+        layout.addWidget(self.note_label)
+
+        joint_group = QtWidgets.QGroupBox("关节控制")
         self.joint_layout = QtWidgets.QVBoxLayout(joint_group)
         layout.addWidget(joint_group)
         
-        log_group = QtWidgets.QGroupBox("Log")
+        log_group = QtWidgets.QGroupBox("日志")
         log_layout = QtWidgets.QVBoxLayout(log_group)
         self.log_text = QtWidgets.QTextEdit()
         self.log_text.setReadOnly(True)
@@ -868,11 +906,51 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.value_labels[name].setText(f"{angle:.2f}°")
         self.jointChanged.emit(name, math.radians(angle))
     
-    def update_robot_info(self, renderer):
-        self.name_label.setText(renderer.robot_name)
-        self.dof_label.setText(str(len(renderer.joints)))
-        self.log_text.append(f"Loaded: {renderer.robot_name}")
-        self.log_text.append(f"Joints: {len(renderer.joints)}")
+    def update_robot_info(self, renderer, entry=None):
+        """更新机器人信息区。
+
+        Args:
+            renderer: 已加载 URDF 的渲染器
+            entry: 机器人库条目；提供时可回显负载、臂展等完整规格
+        """
+        revolute = [j for j in renderer.joints.values() if j["type"] == "revolute"]
+        self.dof_label.setText(str(len(revolute)))
+
+        if entry is not None:
+            self.name_label.setText(entry.model_name)
+            self.manufacturer_label.setText(entry.brand_display)
+            type_map = {"industrial": "工业臂", "cobot": "协作臂", "scara": "SCARA"}
+            self.type_label.setText(type_map.get(entry.robot_type, entry.robot_type))
+            self.payload_label.setText(
+                f"{entry.payload_kg:g} kg" if entry.payload_kg is not None else "N/A"
+            )
+            self.reach_label.setText(
+                f"{entry.reach_mm:g} mm" if entry.reach_mm is not None else "N/A"
+            )
+            self.repeat_label.setText(
+                f"±{entry.repeatability_mm:g} mm"
+                if entry.repeatability_mm is not None
+                else "N/A"
+            )
+            self.controller_label.setText(entry.controller or "N/A")
+            if entry.note:
+                prefix = "" if entry.verified else "⚠ 参数未核验 — "
+                self.note_label.setText(prefix + entry.note)
+                self.note_label.show()
+            else:
+                self.note_label.hide()
+        else:
+            self.name_label.setText(renderer.robot_name)
+            self.manufacturer_label.setText("N/A")
+            self.type_label.setText("N/A")
+            self.payload_label.setText("N/A")
+            self.reach_label.setText("N/A")
+            self.repeat_label.setText("N/A")
+            self.controller_label.setText("N/A")
+            self.note_label.hide()
+
+        self.log_text.append(f"已载入: {renderer.robot_name}")
+        self.log_text.append(f"关节数: {len(revolute)}")
 
     def update_joint_displays(self, joint_values):
         for name, value in joint_values.items():
@@ -898,7 +976,28 @@ class MainWindow(QtWidgets.QMainWindow):
         super().showEvent(event)
         if self.urdf_path and Path(self.urdf_path).exists():
             self.load_robot(self.urdf_path)
+        elif _HAS_ROBOT_LIBRARY and hasattr(self, "library_panel"):
+            self._load_default_robot()
         self.gl_widget.update()
+
+    def _load_default_robot(self):
+        """未通过命令行指定模型时，载入一个示例机器人，避免首屏空白。"""
+        for key in DEFAULT_ROBOT_KEYS:
+            entry = self.library_panel.catalog.get(key)
+            if entry and entry.urdf_path and entry.urdf_path.exists():
+                self.load_robot(str(entry.urdf_path))
+                self.library_panel.select_key(key)
+                return
+
+    def show_robot_library(self):
+        """切换到机器人库标签页。"""
+        if hasattr(self, "left_tabs"):
+            self.left_tabs.setCurrentIndex(0)
+
+    def reload_robot_library(self):
+        """重新扫描 models/ 目录。"""
+        if hasattr(self, "library_panel"):
+            self.library_panel.refresh()
     
     def setup_menu(self):
         menubar = self.menuBar()
@@ -931,6 +1030,18 @@ class MainWindow(QtWidgets.QMainWindow):
         reset_view.setShortcut("R")
         reset_view.triggered.connect(self.reset_view)
         view_menu.addAction(reset_view)
+
+        if _HAS_ROBOT_LIBRARY:
+            view_menu.addSeparator()
+            show_lib = QAction("显示&机器人库", self)
+            show_lib.setShortcut("Ctrl+L")
+            show_lib.triggered.connect(self.show_robot_library)
+            view_menu.addAction(show_lib)
+
+            reload_lib = QAction("重新扫描机器人库", self)
+            reload_lib.setShortcut("F5")
+            reload_lib.triggered.connect(self.reload_robot_library)
+            view_menu.addAction(reload_lib)
     
     def _set_window_icon(self):
         import sys
@@ -950,23 +1061,33 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(2)
         
-        left_panel = QtWidgets.QWidget()
-        left_panel.setMaximumWidth(350)
-        left_panel.setMinimumWidth(250)
-        left_layout = QtWidgets.QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(5, 5, 5, 5)
-        
-        left_header = QtWidgets.QLabel("<h3>Path Code Editor</h3>")
-        left_layout.addWidget(left_header)
-
         self.code_editor = PathCodeEditor()
         self.code_editor.playbackRequested.connect(self.on_playback_requested)
         self.code_editor.playbackStopped.connect(self.on_playback_stopped)
         self.code_editor.clearRequested.connect(self.on_clear_requested)
         self.code_editor.positionsParsed.connect(self.on_positions_parsed)
-        left_layout.addWidget(self.code_editor)
-        
-        main_layout.addWidget(left_panel)
+
+        if _HAS_ROBOT_LIBRARY:
+            # 机器人库（eCatalog）与路径代码编辑器共用一个标签页容器
+            self.library_panel = RobotLibraryPanel(models_dir=_REPO_ROOT / "models")
+            self.library_panel.robotSelected.connect(self.load_robot)
+            self.library_panel.statusMessage.connect(self.statusBar().showMessage)
+
+            self.left_tabs = QtWidgets.QTabWidget()
+            self.left_tabs.addTab(self.library_panel, "机器人库")
+            self.left_tabs.addTab(self.code_editor, "路径代码")
+            self.left_tabs.setMaximumWidth(360)
+            self.left_tabs.setMinimumWidth(250)
+            main_layout.addWidget(self.left_tabs)
+        else:
+            left_panel = QtWidgets.QWidget()
+            left_panel.setMaximumWidth(350)
+            left_panel.setMinimumWidth(250)
+            left_layout = QtWidgets.QVBoxLayout(left_panel)
+            left_layout.setContentsMargins(5, 5, 5, 5)
+            left_layout.addWidget(QtWidgets.QLabel("<h3>Path Code Editor</h3>"))
+            left_layout.addWidget(self.code_editor)
+            main_layout.addWidget(left_panel)
         
         self.gl_widget = GLWidget(self)
         self.gl_widget.setMinimumSize(400, 300)
@@ -988,11 +1109,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.load_robot(file_path)
     
     def load_robot(self, path):
+        """加载 URDF 到 3D 视口，并同步属性面板。
+
+        若该文件属于机器人库中的某个型号，属性面板会回显负载、臂展等完整规格。
+        """
         if not self.gl_widget.load_robot(path):
             QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load URDF: {path}")
             return
+
+        entry = None
+        if _HAS_ROBOT_LIBRARY and hasattr(self, "library_panel"):
+            entry = self.library_panel.catalog.find_by_urdf(path)
+
         self.property_panel.setup_joints(self.gl_widget.renderer)
-        self.property_panel.update_robot_info(self.gl_widget.renderer)
+        self.property_panel.update_robot_info(self.gl_widget.renderer, entry)
         self.property_panel.jointChanged.connect(self.on_joint_changed_for_record)
         
         # 设置关节名称顺序，用于解析路径代码
