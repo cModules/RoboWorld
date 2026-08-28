@@ -20,6 +20,13 @@ from .pose import Pose
 from .robot import Robot
 from .program import Program, Motion, ProgramBuilder, MotionType
 from .simulation import SimulationWorld, Trajectory, Waypoint
+from .planner import (
+    AxisLimits,
+    Issue,
+    PlanningError,
+    ProgramReport,
+    TrajectoryPlanner,
+)
 
 __all__ = [
     "Robot",
@@ -31,4 +38,10 @@ __all__ = [
     "SimulationWorld",
     "Trajectory",
     "Waypoint",
+    # 离线编程：轨迹展开 + 节拍估算 + 程序校验
+    "TrajectoryPlanner",
+    "ProgramReport",
+    "Issue",
+    "AxisLimits",
+    "PlanningError",
 ]

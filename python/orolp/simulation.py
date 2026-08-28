@@ -75,14 +75,18 @@ def _interpolate_pose(a: Pose, b: Pose, alpha: float) -> Pose:
 class Trajectory:
     """Represents a robot trajectory consisting of waypoints."""
 
-    def __init__(self, waypoints: List[Waypoint]):
+    def __init__(self, waypoints: List[Waypoint], collisions: Optional[list] = None):
         """
         Initialize a trajectory.
 
         Args:
             waypoints: List of waypoints
+            collisions: 沿轨迹检出的干涉（:class:`~orolp.world.scene.Collision`
+                列表）。由 :meth:`orolp.planner.TrajectoryPlanner.validate` 填充，
+                未做干涉检查时为空列表
         """
         self.waypoints = waypoints
+        self.collisions = list(collisions) if collisions else []
 
     def duration(self) -> float:
         """
@@ -94,6 +98,13 @@ class Trajectory:
         if not self.waypoints:
             return 0.0
         return self.waypoints[-1].timestamp - self.waypoints[0].timestamp
+
+    def cycle_time(self) -> float:
+        """节拍时间（秒），即 :meth:`duration` 的别名。
+
+        叫 ``cycle_time`` 是因为节拍估算在 OLP 里是个独立卖点——客户拿它报价。
+        """
+        return self.duration()
 
     def num_waypoints(self) -> int:
         """

@@ -53,6 +53,16 @@ except Exception as _exc:  # pragma: no cover
     ScenePanel = None
     Scene = None
 
+# 离线编程（轨迹展开 + 节拍估算 + 程序校验面板）
+try:
+    from orolp.program_panel import ProgramPanel
+
+    _HAS_PROGRAM = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] program panel unavailable: {_exc}")
+    _HAS_PROGRAM = False
+    ProgramPanel = None
+
 
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
@@ -1075,6 +1085,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_menu()
         self.setup_ui()
         self.urdf_path = urdf_path
+        #: 供离线编程面板使用的 :class:`orolp.Robot`（含运动学）
+        self.olp_robot = None
     
     def showEvent(self, event):
         super().showEvent(event)
@@ -1160,6 +1172,14 @@ class MainWindow(QtWidgets.QMainWindow):
             check_col.setShortcut("F6")
             check_col.triggered.connect(self.check_collisions)
             view_menu.addAction(check_col)
+
+        if _HAS_PROGRAM:
+            if not _HAS_WORLD:
+                view_menu.addSeparator()
+            validate_prog = QAction("程序校验与节拍估算", self)
+            validate_prog.setShortcut("F7")
+            validate_prog.triggered.connect(self.validate_program)
+            view_menu.addAction(validate_prog)
     
     def _set_window_icon(self):
         import sys
@@ -1200,6 +1220,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.scene_panel = ScenePanel(Scene())
                 self.scene_panel.statusMessage.connect(self.statusBar().showMessage)
                 self.left_tabs.addTab(self.scene_panel, "场景")
+
+            if _HAS_PROGRAM:
+                self.program_panel = ProgramPanel()
+                self.program_panel.statusMessage.connect(self.statusBar().showMessage)
+                self.program_panel.playbackFrame.connect(self.on_playback_frame)
+                self.program_panel.playbackFinished.connect(self.on_playback_stopped)
+                self.left_tabs.addTab(self.program_panel, "离线编程")
 
             self.left_tabs.setMaximumWidth(360)
             self.left_tabs.setMinimumWidth(250)
@@ -1273,6 +1300,46 @@ class MainWindow(QtWidgets.QMainWindow):
             self.scene_panel.set_robot(str(path))
             self.gl_widget.scene = self.scene_panel.scene
 
+        # 离线编程面板需要真正的 orolp.Robot（含运动学），而不是只用于
+        # 绘制的 renderer——校验与节拍估算都建立在 FK/IK 之上
+        if _HAS_PROGRAM and hasattr(self, "program_panel"):
+            try:
+                from orolp import Robot as OrolpRobot
+
+                self.olp_robot = OrolpRobot(str(path), Path(path).stem)
+                self.program_panel.set_robot(self.olp_robot, joint_names)
+                self.program_panel.set_scene(
+                    self.scene_panel.scene if _HAS_WORLD and hasattr(self, "scene_panel") else None
+                )
+                self._sync_program_points()
+            except Exception as exc:
+                print(f"[warning] 无法为离线编程面板准备机器人: {exc}")
+                self.olp_robot = None
+
+        self.gl_widget.update()
+
+    def _sync_program_points(self) -> None:
+        """把路径代码编辑器里的示教点同步给离线编程面板。"""
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            return
+        self.program_panel.set_taught_points(self.code_editor.get_recorded_positions())
+
+    def validate_program(self) -> None:
+        """校验程序并给出节拍（F7）。"""
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            QtWidgets.QMessageBox.information(self, "程序校验", "离线编程模块不可用。")
+            return
+        if hasattr(self, "left_tabs"):
+            self.left_tabs.setCurrentWidget(self.program_panel)
+        self._sync_program_points()
+        self.program_panel.validate_program()
+
+    def on_playback_frame(self, joint_values: dict) -> None:
+        """回放帧：按插补后的密集轨迹驱动视口，而不是在示教点之间瞬移。"""
+        self.gl_widget.set_joint_values(joint_values)
+        if hasattr(self, "property_panel"):
+            self.property_panel.update_joint_displays(joint_values)
+        self._sync_scene_joints()
         self.gl_widget.update()
 
     def on_joint_changed(self, name, value):
@@ -1310,6 +1377,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.code_editor.recorded_positions = self.gl_widget.get_recorded_positions()
             self.code_editor.pos_count_label.setText(f"Positions: {count}")
             self.code_editor._update_code_with_positions()
+            self._sync_program_points()
 
     def on_playback_requested(self, index):
         positions = self.code_editor.get_recorded_positions()
@@ -1327,9 +1395,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if positions:
             self.gl_widget.set_recorded_positions(positions)
             self.gl_widget.update()
+        self._sync_program_points()
 
     def on_clear_requested(self):
         self.gl_widget.clear_recorded_positions()
+        self._sync_program_points()
         self.statusBar().showMessage("Recorded positions cleared")
 
     def save_path_code(self):

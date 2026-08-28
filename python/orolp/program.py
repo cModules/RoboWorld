@@ -7,7 +7,9 @@ from .pose import Pose
 from .robot import Robot
 
 if TYPE_CHECKING:  # 仅类型检查：simulation 依赖 pose，不反向依赖 program
+    from .planner import ProgramReport
     from .simulation import Trajectory
+    from .world.scene import Scene
 
 
 class MotionType(Enum):
@@ -60,32 +62,79 @@ class Program:
         self.robot = robot
         self.motions = motions.copy() if motions else []
 
-    def simulate(self, collision_check: bool = False) -> "Trajectory":
-        """
-        Simulate the program.
+    def plan(self) -> "Trajectory":
+        """把程序展开为真实轨迹（插补 + 逆解 + 节拍估算）。
 
-        Args:
-            collision_check: Whether to check for collisions (not implemented yet)
+        与 :meth:`simulate` 的区别只是不额外读取场景，语义上更明确：
+        "我要这条轨迹"，而不是"我要跑个仿真"。
 
         Returns:
-            Trajectory object
+            :class:`~orolp.simulation.Trajectory`，时间戳为真实估算值
         """
-        from .simulation import Trajectory, Waypoint
-        waypoints: List[Waypoint] = []
+        from .planner import TrajectoryPlanner
 
-        for i, motion in enumerate(self.motions):
-            if motion.type == MotionType.JOINTS:
-                target_joints = np.array(motion.target)
-            else:
-                target_joints = self.robot.inverse_kinematics(motion.target)
+        return TrajectoryPlanner(self.robot).plan(self)
 
-            waypoints.append(Waypoint(
-                joints=target_joints,
-                pose=self.robot.forward_kinematics(target_joints),
-                timestamp=i * 1.0,  # Simplified time
-            ))
+    def simulate(
+        self,
+        collision_check: bool = False,
+        scene: Optional["Scene"] = None,
+        margin: float = -0.5,
+    ) -> "Trajectory":
+        """展开程序为可播放的轨迹。
 
-        return Trajectory(waypoints)
+        历史实现在这里把 ``collision_check`` 收下却什么都不做（源码注释直接
+        写着 "not implemented yet"），时间戳更是硬编码成 ``i * 1.0``——
+        于是"仿真"既查不出干涉，也算不出节拍。现在两者都真实生效。
+
+        Args:
+            collision_check: 是否沿路径做干涉检查
+            scene: 工作单元场景；``collision_check=True`` 时**必须**给出，
+                否则直接报错（而不是假装检查过了）
+            margin: 干涉裕度 (mm)。负值容忍轻微接触——工件放在台面上、
+                夹具夹住工件都是零间隙接触，把接触当干涉会满屏误报
+
+        Returns:
+            :class:`~orolp.simulation.Trajectory`，时间戳为梯形速度规划的估算值
+
+        Raises:
+            ValueError: 要求干涉检查却没有给出场景
+        """
+        from .planner import TrajectoryPlanner
+
+        if collision_check and scene is None:
+            raise ValueError(
+                "collision_check=True 需要传入 scene（工作单元场景）；"
+                "没有场景就无法判断机器人撞了什么"
+            )
+
+        planner = TrajectoryPlanner(self.robot, scene=scene)
+        traj = planner.plan(self)
+        if collision_check:
+            traj.collisions = planner.check_trajectory_collisions(traj, margin=margin)
+        return traj
+
+    def validate(
+        self,
+        scene: Optional["Scene"] = None,
+        margin: float = -0.5,
+    ) -> "ProgramReport":
+        """生成代码前的全面体检。
+
+        检查项：不可达、关节越限、接近奇异、配置跳变、沿路径干涉。
+
+        Args:
+            scene: 工作单元场景；``None`` 时跳过干涉检查
+            margin: 干涉裕度 (mm)
+
+        Returns:
+            :class:`~orolp.planner.ProgramReport`
+        """
+        from .planner import TrajectoryPlanner
+
+        return TrajectoryPlanner(self.robot, scene=scene).validate(
+            self, check_collision=scene is not None, margin=margin
+        )
 
     def to_post(
         self,
@@ -260,17 +309,20 @@ class ProgramBuilder:
         """
         return Program(self.robot, self.motions)
 
-    def simulate(self, collision_check: bool = False) -> "Trajectory":
-        """
-        Simulate the program.
+    def simulate(
+        self,
+        collision_check: bool = False,
+        scene: Optional["Scene"] = None,
+        margin: float = -0.5,
+    ) -> "Trajectory":
+        """展开程序为轨迹。参数含义同 :meth:`Program.simulate`。"""
+        return self.build().simulate(collision_check, scene, margin)
 
-        Args:
-            collision_check: Whether to check for collisions (not implemented yet)
-
-        Returns:
-            Trajectory object
-        """
-        return self.build().simulate()
+    def validate(
+        self, scene: Optional["Scene"] = None, margin: float = -0.5
+    ) -> "ProgramReport":
+        """生成代码前的全面体检。参数含义同 :meth:`Program.validate`。"""
+        return self.build().validate(scene, margin)
 
     def to_post(
         self,

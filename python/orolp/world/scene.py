@@ -71,12 +71,15 @@ class Collision:
         obj_b: 第二个对象名
         part_a: 第一个对象中发生干涉的零件序号
         part_b: 第二个对象中发生干涉的零件序号
+        time: 沿轨迹检查时**首次**检出该干涉的时刻（秒）。静态检查（
+            :meth:`Scene.check_collisions`）不填，保持 ``None``
     """
 
     obj_a: str
     obj_b: str
     part_a: int = -1
     part_b: int = -1
+    time: Optional[float] = None
 
     def __str__(self) -> str:
         return f"{self.obj_a} ↔ {self.obj_b}"

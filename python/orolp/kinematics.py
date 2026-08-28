@@ -304,6 +304,16 @@ class RobotKinematics:
         """根 link 名。"""
         return self._root
 
+    @property
+    def actuated(self) -> List[JointSpec]:
+        """可驱动关节列表，顺序与 FK/IK 的 ``q`` 索引一致。
+
+        对外暴露而非让调用方访问 ``_actuated``：轨迹规划需要逐轴读取
+        ``joint_type`` 与 ``max_velocity``，只有拿到 :class:`JointSpec`
+        才能正确区分旋转关节（rad/s）与移动关节（m/s）。
+        """
+        return list(self._actuated)
+
     def limits(self) -> Tuple[np.ndarray, np.ndarray]:
         """返回 ``(lower, upper)`` 限位数组，单位与关节类型一致（rad 或 m）。"""
         lower = np.array([j.lower for j in self._actuated], dtype=np.float64)
@@ -487,7 +497,7 @@ class RobotKinematics:
         rot_tol: float = 1e-4,
         damping: float = 1e-4,
         respect_limits: bool = True,
-        seed: Optional[int] = None,
+        seed: Optional[int] = 0,
         nullspace_gain: float = 0.05,
     ) -> np.ndarray:
         """阻尼最小二乘（DLS）迭代逆解。
@@ -500,7 +510,10 @@ class RobotKinematics:
             rot_tol: 姿态收敛阈值（弧度），默认约 0.006°
             damping: DLS 阻尼系数 λ，越大越稳但收敛越慢
             respect_limits: 是否把中间解夹回关节限位内
-            seed: 随机种子；收敛失败时会用带种子的扰动重启，保证可复现
+            seed: 随机种子；收敛失败时会用带种子的扰动重启。**默认固定为 0
+                而非 None**——离线编程要求可复现：同一个程序今天和明年生成的
+                关节解必须一致，否则现场调试无从下手。需要真正的随机重启时
+                显式传 ``seed=None``。
             nullspace_gain: 零空间偏置增益。在不改变末端位姿（一阶意义）的前提
                 下把关节往限位中值拉，避免解贴着限位边界。冗余臂（7 轴）收益
                 最大；设为 ``0`` 关闭。

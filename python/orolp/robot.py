@@ -1,5 +1,6 @@
 """Robot class for representing industrial robots."""
 
+import math
 from typing import TYPE_CHECKING, List, Optional
 import numpy as np
 from .pose import Pose
@@ -117,7 +118,12 @@ class Robot:
             # 用真实关节数覆盖 URDF 基础解析的估计值
             self._dof = self._kinematics.dof
             self._joint_names = self._kinematics.joint_names
-            self._joint_positions = np.zeros(self._dof)
+            # 仅在尚未设置（或自由度变了、长度对不上）时才初始化为零位。
+            # 历史上这里无条件 ``np.zeros()``，后果是任何一次对 ``.kinematics``
+            # 的惰性访问都会把用户刚示教好的位形悄悄清零——而 FK/IK 内部都会
+            # 碰这个属性，于是"设了位形再算"这种最普通的用法会随机失效。
+            if self._joint_positions is None or len(self._joint_positions) != self._dof:
+                self._joint_positions = np.zeros(self._dof)
         except Exception as exc:
             print(f"Warning: 无法构建运动学链 {self.urdf_path}: {exc}")
             self._kinematics = None
@@ -179,16 +185,40 @@ class Robot:
         T_mm[:3, 3] *= 1000.0
         return self.base * Pose(T_mm) * self._tool
 
-    def inverse_kinematics(self, target: Pose, guess: List[float] | np.ndarray | None = None) -> np.ndarray:
-        """
-        Compute inverse kinematics.
+    def inverse_kinematics(
+        self,
+        target: Pose,
+        guess: List[float] | np.ndarray | None = None,
+        pos_tol_mm: float = 0.01,
+        rot_tol_deg: float = 0.006,
+        max_iter: int = 200,
+    ) -> np.ndarray:
+        """逆运动学（IK）。
+
+        与 :meth:`forward_kinematics` 严格互逆：FK 返回
+        ``base · flange · tool``，这里就先把 ``target`` 反解回法兰盘位姿
+        ``base⁻¹ · target · tool⁻¹`` 再交给求解器。
 
         Args:
-            target: Target tool pose in base frame
-            guess: Initial guess for solver (optional)
+            target: 目标**工具（TCP）**位姿，世界坐标系，单位毫米 + 度
+            guess: 迭代初值（度）。给出上一步的解可以保证位形连续、不翻腕
+            pos_tol_mm: 位置收敛阈值（毫米）。默认 0.01 mm 适用于示教点；
+                沿路径密集插补时可放宽到 0.05 mm 左右，避免在无工程意义的
+                精度上白白失败
+            rot_tol_deg: 姿态收敛阈值（度）
+            max_iter: 最大迭代次数
 
         Returns:
-            Joint positions as NumPy array
+            关节值数组（度），长度 :attr:`dof`
+
+        Raises:
+            KinematicsError: 逆解失败（目标超出工作空间或处于奇异位形）
+
+        Note:
+            历史实现直接拿 ``target`` 当法兰盘位姿用，于是只要设置了
+            :attr:`tool`（焊枪、夹爪……）或 :attr:`base`，FK 与 IK 就会
+            互相矛盾——机器人会被导到一个完全不同的位置。对离线编程而言
+            这是致命的：装了焊枪之后整条程序都是错的。
         """
         kin = self.kinematics
         if kin is None:
@@ -198,13 +228,20 @@ class Robot:
                 return np.asarray(guess, dtype=np.float64)
             return np.zeros(self._dof)
 
+        # 世界系 TCP → 基坐标系法兰盘：T_flange = base⁻¹ · T_tcp · tool⁻¹
+        T_flange = (self.base.inv() * target * self.tool.inv()).matrix.copy()
         # 换算到运动学内部单位：米 + 弧度
-        T_m = target.matrix.copy()
-        T_m[:3, 3] /= 1000.0
+        T_flange[:3, 3] /= 1000.0
         q_init = np.radians(guess) if guess is not None else None
 
         try:
-            q_rad = kin.inverse_kinematics(T_m, q_init=q_init)
+            q_rad = kin.inverse_kinematics(
+                T_flange,
+                q_init=q_init,
+                max_iter=max_iter,
+                pos_tol=pos_tol_mm / 1000.0,
+                rot_tol=math.radians(rot_tol_deg),
+            )
         except KinematicsError as exc:
             raise KinematicsError(
                 f"{self.name}: 逆解失败（目标可能超出工作空间或处于奇异位形）: {exc}"
