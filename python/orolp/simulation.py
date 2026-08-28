@@ -1,8 +1,16 @@
 """Simulation classes for robot trajectory simulation."""
 
-from typing import List, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, List, Optional
+
 import numpy as np
+
 from .pose import Pose
+from .world.components import COMPONENTS
+from .world.scene import Scene
+
+if TYPE_CHECKING:  # 仅用于类型标注，避免运行时循环导入
+    from .world.scene import SceneObject
 
 
 class Waypoint:
@@ -140,8 +148,10 @@ class Trajectory:
 
                 joints = (1 - alpha) * self.waypoints[i].joints + alpha * self.waypoints[i + 1].joints
 
-                # Simple pose interpolation
-                pose = Pose()  # Simplified for demo
+                # 位姿插补：位置线性插值，姿态用四元数球面插值（slerp）。
+                # 历史实现这里直接 ``Pose()`` 返回单位阵——轨迹上任意中间时刻
+                # 都被报告成"位于原点、零姿态"，属于静默给出错误结果。
+                pose = _interpolate_pose(self.waypoints[i].pose, self.waypoints[i + 1].pose, alpha)
 
                 if self.waypoints[i].velocity is not None and self.waypoints[i + 1].velocity is not None:
                     velocity = (1 - alpha) * self.waypoints[i].velocity + alpha * self.waypoints[i + 1].velocity
@@ -161,63 +171,120 @@ class Trajectory:
         return f"Trajectory({len(self.waypoints)} waypoints, duration={self.duration():.2f}s)"
 
 
-class SimulationWorld:
-    """Represents a simulation world with robots and objects."""
+def _interpolate_pose(a: Pose, b: Pose, alpha: float) -> Pose:
+    """在两个位姿之间插值。
 
-    def __init__(self):
-        """Initialize an empty simulation world."""
-        self.robots: dict = {}
-        self.objects: dict = {}
+    位置用线性插值，姿态用四元数球面插值（slerp）——直接对欧拉角做线性
+    插值会在大角度旋转时走出错误的路径，甚至经过奇异位形。
 
-    def add_robot(self, name: str, robot):
-        """
-        Add a robot to the world.
+    Args:
+        a: 起始位姿
+        b: 结束位姿
+        alpha: 插值参数，0 对应 ``a``、1 对应 ``b``
+
+    Returns:
+        插值得到的位姿
+    """
+    from scipy.spatial.transform import Rotation, Slerp
+
+    xa, ya, za, qax, qay, qaz, qaw = a.to_xyz_quat()
+    xb, yb, zb, qbx, qby, qbz, qbw = b.to_xyz_quat()
+
+    pos = np.array([xa, ya, za]) * (1.0 - alpha) + np.array([xb, yb, zb]) * alpha
+
+    # scipy 的对外四元数顺序是 (x, y, z, w)，与 Pose 一致
+    key = Rotation.from_quat([[qax, qay, qaz, qaw], [qbx, qby, qbz, qbw]])
+    qx, qy, qz, qw = Slerp([0.0, 1.0], key)(alpha).as_quat()
+    return Pose.from_xyz_quat(float(pos[0]), float(pos[1]), float(pos[2]), qx, qy, qz, qw)
+
+
+class SimulationWorld(Scene):
+    """带机器人与轨迹的仿真世界。
+    历史上这个类是个空壳——:meth:`check_collisions` 直接 ``return False``，
+    :meth:`add_object` 只存一个 :class:`Pose`、根本没有几何体，等于"仿真软件
+    永远告诉你没撞"。现已改为继承 :class:`~orolp.world.scene.Scene`，复用
+    参数化组件库与 SAT 碰撞检测，具备真实的环境建模与干涉检查能力。
+
+    保留本类（而不是直接改用 ``Scene``）是为了兼容旧的 API 名称
+    （``add_robot`` / ``remove_robot`` / ``add_object``）。
+    """
+
+    def add_robot(self, name: str, robot) -> None:
+        """登记一个机器人。
 
         Args:
-            name: Robot name
-            robot: Robot object
-        """
-        self.robots[name] = robot
+            name: 机器人名
+            robot: Robot 实例或 URDF 路径
 
-    def add_object(self, name: str, pose: Pose):
+        Raises:
+            ValueError: robot 既不是路径也不是带 urdf_path 的对象
         """
-        Add an object to the world.
+        path = robot if isinstance(robot, (str, Path)) else getattr(robot, "urdf_path", None)
+        if not path:
+            raise ValueError("robot 必须是 URDF 路径，或带 urdf_path 属性的对象")
+        self.set_robot(str(path))
+
+    def remove_robot(self, name: str) -> None:
+        """移除机器人（保留场景对象）。"""
+        self.robot_urdf = None
+        self._kinematics = None
+        self._robot_visuals = []
+        self._robot_joints_deg = []
+
+    def add_object(
+        self,
+        name: str,
+        component_id: Optional[str] = None,
+        pose: Optional["Pose"] = None,
+        params: Optional[dict] = None,
+        parent: Optional[str] = None,
+    ) -> "SceneObject":
+        """往场景中添加对象。
+
+        旧签名 ``add_object(name, pose)`` 已废弃：只有位姿没有几何，
+        碰撞检测无从谈起。请显式给出 ``component_id``。
 
         Args:
-            name: Object name
-            pose: Object pose
-        """
-        self.objects[name] = pose
-
-    def remove_robot(self, name: str):
-        """
-        Remove a robot from the world.
-
-        Args:
-            name: Robot name
-        """
-        if name in self.robots:
-            del self.robots[name]
-
-    def remove_object(self, name: str):
-        """
-        Remove an object from the world.
-
-        Args:
-            name: Object name
-        """
-        if name in self.objects:
-            del self.objects[name]
-
-    def check_collisions(self) -> bool:
-        """
-        Check for collisions in the world.
+            name: 对象名
+            component_id: 组件 id（见 :data:`orolp.world.COMPONENTS`）
+            pose: 位姿；``None`` 表示原点
+            params: 组件参数；``None`` 取默认值
+            parent: 父对象名
 
         Returns:
-            True if any collisions detected
-        """
-        # Simplified for demo - always return False
-        return False
+            新建的 :class:`~orolp.world.scene.SceneObject`
 
-    def __repr__(self) -> str:
-        return f"SimulationWorld(robots={list(self.robots.keys())}, objects={list(self.objects.keys())})"
+        Raises:
+            ValueError: 未给出 component_id
+        """
+        if component_id is None:
+            raise ValueError(
+                "add_object 需要 component_id；仅给出位姿的对象没有几何体，"
+                "无法参与碰撞检测。可用组件："
+                + ", ".join(sorted(COMPONENTS))
+            )
+        return self.add(
+            component_id, pose=pose, name=name, params=params, parent=parent
+        )
+
+    def remove_object(self, name: str) -> None:
+        """删除对象（子对象自动上提到祖父）。"""
+        self.remove(name)
+
+    def has_collisions(self, include_robot: bool = True, margin: float = -0.5) -> bool:
+        """是否存在干涉（布尔版）。
+
+        注意：这里**没有**覆盖 :meth:`Scene.check_collisions`——后者返回
+        :class:`~orolp.world.scene.Collision` 列表（空列表即无干涉）。
+        在布尔语境下空列表本身就是假，因此 ``if world.check_collisions():``
+        依然成立；本方法只是让意图更明确。
+
+        Args:
+            include_robot: 是否计入机器人连杆
+            margin: 安全裕度（毫米）。负值表示容忍轻微接触——工件放在台面上、
+                夹具夹住工件都是零间隙接触，若把接触当干涉会满屏误报
+
+        Returns:
+            ``True`` 表示存在干涉
+        """
+        return bool(self.check_collisions(include_robot=include_robot, margin=margin))

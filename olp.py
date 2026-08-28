@@ -41,6 +41,18 @@ except Exception as _exc:  # pragma: no cover - 仅用于缺失依赖时的降�
     RobotCatalog = None
     RobotLibraryPanel = None
 
+# 环境建模（工作单元场景 + 参数化组件库 + 干涉检查）
+try:
+    from orolp.world.panel import ScenePanel
+    from orolp.world.scene import Scene
+
+    _HAS_WORLD = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] world modeling unavailable: {_exc}")
+    _HAS_WORLD = False
+    ScenePanel = None
+    Scene = None
+
 
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
@@ -49,6 +61,9 @@ GL_QUADS = 0x00000007
 GL_QUAD_STRIP = 0x00000008
 GL_TRIANGLE_FAN = 0x00000006
 GL_LINES = 0x00000001
+GL_FRONT_AND_BACK = 0x00000408
+GL_LINE = 0x00001B01
+GL_FILL = 0x00001B02
 GL_LINE_STRIP = 0x00000003
 GL_POINTS = 0x00000000
 GL_DEPTH_TEST = 0x00000B71
@@ -179,6 +194,9 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.camera_az = 45.0
         self.camera_el = 30.0
         self.dragging = False
+        # 工作单元场景（由 MainWindow 注入）；场景内部使用毫米，
+        # 而本视口沿用 URDF 的米，绘制时统一乘 MM_TO_M
+        self.scene = None
         self.last_pos = None
         self.recorded_positions = []
         self.recorded_ee_positions = []
@@ -409,9 +427,95 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         gl.glTranslated(float(-eye[0]), float(-eye[1]), float(-eye[2]))
 
         self._draw_grid()
+        if self.scene is not None:
+            self._draw_scene()
         self._draw_robot()
         if self.show_path and len(self.recorded_positions) > 1:
             self._draw_recorded_path()
+
+    # ------------------------------------------------------------------ #
+    # 工作单元场景绘制
+    # ------------------------------------------------------------------ #
+
+    #: 场景毫米 → 视口米
+    MM_TO_M = 0.001
+
+    def _draw_scene(self) -> None:
+        """绘制场景中的所有可见对象。
+
+        场景用毫米、视口用米，因此这里对平移做整体缩放。旋转部分不受
+        各向同性缩放影响，可直接透传。
+        """
+        if not _HAS_WORLD or self.scene is None:
+            return
+        try:
+            for name in list(self.scene.objects):
+                obj = self.scene.objects.get(name)
+                if obj is None or not obj.visible:
+                    continue
+                for part in self.scene.object_parts(name):
+                    self._draw_part(part)
+
+            # 干涉对用红色线框高亮，让问题一眼可见
+            for hit in self._last_collisions:
+                self._highlight_object(hit.obj_b)
+        except Exception as _exc:  # 渲染异常不应拖垮整个视口
+            print(f"[warning] scene draw failed: {_exc}")
+
+    _last_collisions: list = []
+
+    def set_collision_results(self, hits) -> None:
+        """记录最近一次干涉检查结果，供绘制时高亮。
+
+        Args:
+            hits: :class:`~orolp.world.scene.Collision` 列表
+        """
+        self._last_collisions = list(hits)
+        self.update()
+
+    def _highlight_object(self, name: str) -> None:
+        """用红色线框标出发生干涉的对象。"""
+        obj = self.scene.objects.get(name)
+        if obj is None:
+            return
+        gl.glPushMatrix()
+        gl.glColor3f(1.0, 0.25, 0.15)
+        gl.glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+        gl.glLineWidth(2.0)
+        for part in self.scene.object_parts(name):
+            self._draw_part(part)
+        gl.glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        gl.glLineWidth(1.0)
+        gl.glPopMatrix()
+
+    def _draw_part(self, part, tf_parent=None) -> None:
+        """绘制单个零件（基本体 + 局部变换）。
+
+        Args:
+            part: :class:`~orolp.world.components.Part`
+            tf_parent: 父级变换（已含世界变换）；``None`` 表示 part 自带世界变换
+        """
+        m = np.array(part.transform, dtype=np.float64)
+        if tf_parent is not None:
+            m = tf_parent @ m
+        m = m.copy()
+        m[:3, 3] *= self.MM_TO_M
+
+        gl.glPushMatrix()
+        # OpenGL 采用列主序，numpy 为行主序，需转置后再展平
+        gl.glMultMatrixd(m.T.flatten())
+        gl.glColor3f(*part.color)
+
+        prim = part.prim
+        kind = getattr(prim, "kind", "")
+        if kind == "box":
+            sx, sy, sz = prim.size
+            self._draw_box(sx * self.MM_TO_M, sy * self.MM_TO_M, sz * self.MM_TO_M)
+        elif kind == "cylinder":
+            self._draw_cylinder(prim.radius * self.MM_TO_M, prim.length * self.MM_TO_M)
+        elif kind == "sphere":
+            self._draw_sphere(prim.radius * self.MM_TO_M)
+        gl.glPopMatrix()
 
     def _draw_grid(self):
         gl.glBegin(GL_LINES)
@@ -1049,6 +1153,13 @@ class MainWindow(QtWidgets.QMainWindow):
             reload_lib.setShortcut("F5")
             reload_lib.triggered.connect(self.reload_robot_library)
             view_menu.addAction(reload_lib)
+
+        if _HAS_WORLD:
+            view_menu.addSeparator()
+            check_col = QAction("工作单元干涉检查", self)
+            check_col.setShortcut("F6")
+            check_col.triggered.connect(self.check_collisions)
+            view_menu.addAction(check_col)
     
     def _set_window_icon(self):
         import sys
@@ -1083,6 +1194,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.left_tabs = QtWidgets.QTabWidget()
             self.left_tabs.addTab(self.library_panel, "机器人库")
             self.left_tabs.addTab(self.code_editor, "路径代码")
+
+            if _HAS_WORLD:
+                # 注意：此时 gl_widget 尚未创建，信号连接在 setup_ui 末尾进行
+                self.scene_panel = ScenePanel(Scene())
+                self.scene_panel.statusMessage.connect(self.statusBar().showMessage)
+                self.left_tabs.addTab(self.scene_panel, "场景")
+
             self.left_tabs.setMaximumWidth(360)
             self.left_tabs.setMinimumWidth(250)
             main_layout.addWidget(self.left_tabs)
@@ -1105,7 +1223,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.property_panel.setMinimumWidth(250)
         self.property_panel.jointChanged.connect(self.on_joint_changed)
         main_layout.addWidget(self.property_panel)
-        
+
+        # 场景改动需要触发视口重绘，此连接必须等 gl_widget 建好后才能做
+        if _HAS_WORLD and hasattr(self, "scene_panel"):
+            self.scene_panel.sceneChanged.connect(self.gl_widget.update)
+
         self.statusBar().showMessage("Ready")
     
     def open_model(self):
@@ -1145,11 +1267,38 @@ class MainWindow(QtWidgets.QMainWindow):
         if recorded:
             self.gl_widget.set_recorded_positions(recorded)
         self.statusBar().showMessage(f"Loaded: {Path(path).name}")
+
+        # 同步机器人到工作单元场景，使其参与干涉检查
+        if _HAS_WORLD and hasattr(self, "scene_panel"):
+            self.scene_panel.set_robot(str(path))
+            self.gl_widget.scene = self.scene_panel.scene
+
         self.gl_widget.update()
 
     def on_joint_changed(self, name, value):
         self.gl_widget.renderer.joint_values[name] = value
+        self._sync_scene_joints()
         self.gl_widget.update()
+
+    def _sync_scene_joints(self) -> None:
+        """把当前关节角同步给场景，让干涉检查反映实时位形。"""
+        if not (_HAS_WORLD and hasattr(self, "scene_panel")):
+            return
+        if not self.scene_panel.scene.has_robot:
+            return
+        names = list(self.gl_widget.renderer.joints.keys())
+        self.scene_panel.update_robot_joints(
+            [math.degrees(self.gl_widget.renderer.joint_values.get(n, 0.0)) for n in names]
+        )
+
+    def check_collisions(self) -> None:
+        """执行工作单元干涉检查（F6），并把结果高亮到视口。"""
+        if not (_HAS_WORLD and hasattr(self, "scene_panel")):
+            QtWidgets.QMessageBox.information(self, "干涉检查", "环境建模模块不可用。")
+            return
+        self.left_tabs.setCurrentWidget(self.scene_panel)
+        hits = self.scene_panel.run_collision_check()
+        self.gl_widget.set_collision_results(hits)
 
     def on_joint_changed_for_record(self, name, value):
         self.gl_widget.renderer.joint_values[name] = value
