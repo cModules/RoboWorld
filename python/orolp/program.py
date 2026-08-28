@@ -1,10 +1,13 @@
 """Program class for robot motion programming and post-processing."""
 
-from typing import List, Optional, Dict, Any, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 import numpy as np
 from enum import Enum
 from .pose import Pose
 from .robot import Robot
+
+if TYPE_CHECKING:  # 仅类型检查：simulation 依赖 pose，不反向依赖 program
+    from .simulation import Trajectory
 
 
 class MotionType(Enum):
@@ -84,63 +87,75 @@ class Program:
 
         return Trajectory(waypoints)
 
-    def to_post(self, post_processor: str = "ur_polyscope") -> str:
-        """
-        Generate robot code using post-processor.
+    def to_post(
+        self,
+        post_processor: str | None = None,
+        metadata: Dict[str, Any] | None = None,
+    ) -> str:
+        """生成目标控制器的机器人代码。
 
         Args:
-            post_processor: Name of post-processor to use
+            post_processor: 后处理器名称（如 ``kuka_krc4``）；为 ``None`` 时
+                根据机器人 URDF 所在目录自动推断品牌
+            metadata: 附加信息（程序名、机器人名、版本号等）
 
         Returns:
-            Generated robot code as string
-        """
-        # Import post-processor
-        try:
-            if post_processor == "ur_polyscope":
-                from .post.ur_script import UrScriptPostProcessor
-                pp = UrScriptPostProcessor(self.robot)
-            elif post_processor == "kuka_krc4":
-                from .post.kuka_krc4 import KukaKrc4PostProcessor
-                pp = KukaKrc4PostProcessor(self.robot)
-            elif post_processor == "abb_rapid":
-                from .post.abb_rapid import AbbRapidPostProcessor
-                pp = AbbRapidPostProcessor(self.robot)
-            elif post_processor == "fanuc_tp":
-                from .post.fanuc_tp import FanucTpPostProcessor
-                pp = FanucTpPostProcessor(self.robot)
-            elif post_processor == "huichuan_inoteach":
-                from .post.huichuan_inoteach import HuichuanInoteachPostProcessor
-                pp = HuichuanInoteachPostProcessor(self.robot)
-            else:
-                raise ValueError(f"Unknown post-processor: {post_processor}")
+            生成的机器人源代码文本
 
-            return pp.process(self.motions)
-        except Exception as e:
-            print(f"Warning: Post-processor error: {e}")
-            return self._fallback_post_processing()
+        Raises:
+            PostProcessError: 后处理器不存在、品牌无法推断，或指令转换失败
 
-    def _fallback_post_processing(self) -> str:
+        Note:
+            历史实现用 ``except Exception`` 兜住一切错误并输出 ``; Motion 1: ...``
+            这类注释占位文本，导致调用方（含 GUI）误以为生成成功。这里改为
+            **一律抛出**——宁可让调用方看到明确报错，也不要悄悄产出废代码。
         """
-        Simple fallback post-processing.
+        from .post import get_post_processor
+
+        name = post_processor or self._infer_post_processor()
+        pp = get_post_processor(name)
+
+        meta: Dict[str, Any] = {
+            "robot_name": self.robot.name,
+            "dof": self.robot.dof,
+        }
+        if metadata:
+            meta.update(metadata)
+
+        return pp.generate(self.motions, metadata=meta)
+
+    def _infer_post_processor(self) -> str:
+        """根据 URDF 路径中的品牌目录推断后处理器。
 
         Returns:
-            Generated code as string
+            后处理器的 ``full_name``
+
+        Raises:
+            PostProcessError: 路径中找不到品牌目录，或该品牌尚无后处理器
         """
-        lines = []
-        lines.append(f"; Program for {self.robot.name}")
-        lines.append("")
+        from pathlib import Path
 
-        for i, motion in enumerate(self.motions):
-            line = f"; Motion {i+1}: {motion.type.value}"
-            if motion.type == MotionType.JOINTS:
-                line += f" - joints: {[f'{x:.2f}' for x in motion.target]}"
-            else:
-                x, y, z, rx, ry, rz = motion.target.to_xyz_rpy()
-                line += f" - pose: ({x:.1f}, {y:.1f}, {z:.1f}, {rx:.1f}°, {ry:.1f}°, {rz:.1f}°)"
-            line += f", speed: {motion.speed:.1f}%"
-            lines.append(line)
+        from .post import list_post_processors, resolve_for_brand
+        from .post.base import PostProcessError
 
-        return "\n".join(lines)
+        urdf_path = getattr(self.robot, "urdf_path", "") or ""
+        parts = Path(urdf_path).parts
+        if "models" in parts:
+            idx = parts.index("models")
+            if idx + 1 < len(parts):
+                brand = parts[idx + 1]
+                pp = resolve_for_brand(brand)
+                if pp is not None:
+                    return pp.full_name
+                raise PostProcessError(
+                    f"品牌 {brand!r} 尚无后处理器；"
+                    f"可用：{', '.join(list_post_processors())}"
+                )
+
+        raise PostProcessError(
+            f"无法从 URDF 路径推断品牌（{urdf_path!r}），请显式指定 post_processor；"
+            f"可用：{', '.join(list_post_processors())}"
+        )
 
 
 class ProgramBuilder:
@@ -257,17 +272,24 @@ class ProgramBuilder:
         """
         return self.build().simulate()
 
-    def to_post(self, post_processor: str = "ur_polyscope") -> str:
-        """
-        Generate robot code.
+    def to_post(
+        self,
+        post_processor: str | None = None,
+        metadata: Dict[str, Any] | None = None,
+    ) -> str:
+        """生成机器人代码。
 
         Args:
-            post_processor: Name of post-processor
+            post_processor: 后处理器名称；``None`` 时按机器人品牌自动推断
+            metadata: 附加信息
 
         Returns:
-            Generated code as string
+            生成的源代码文本
+
+        Raises:
+            PostProcessError: 后处理失败
         """
-        return self.build().to_post(post_processor)
+        return self.build().to_post(post_processor, metadata=metadata)
 
     def __call__(self) -> Program:
         """

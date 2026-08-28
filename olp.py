@@ -1017,7 +1017,14 @@ class MainWindow(QtWidgets.QMainWindow):
         load_action.setShortcut("Ctrl+O")
         load_action.triggered.connect(self.load_path_code)
         file_menu.addAction(load_action)
-        
+
+        file_menu.addSeparator()
+
+        gen_action = QAction("&Generate Robot Code...", self)
+        gen_action.setShortcut("Ctrl+G")
+        gen_action.triggered.connect(self.generate_robot_code)
+        file_menu.addAction(gen_action)
+
         file_menu.addSeparator()
         
         exit_action = QAction("E&xit", self)
@@ -1117,6 +1124,11 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load URDF: {path}")
             return
 
+        # 记录当前模型路径：后处理需要据此推断品牌与关节结构。
+        # 历史实现从不更新该字段，导致即使已载入机器人，
+        # 依赖 urdf_path 的功能（如生成控制器代码）仍认为"未加载模型"。
+        self.urdf_path = str(path)
+
         entry = None
         if _HAS_ROBOT_LIBRARY and hasattr(self, "library_panel"):
             entry = self.library_panel.catalog.find_by_urdf(path)
@@ -1179,6 +1191,128 @@ class MainWindow(QtWidgets.QMainWindow):
             with open(file_path, 'w') as f:
                 f.write(self.code_editor.toPlainText())
             self.statusBar().showMessage(f"Saved: {Path(file_path).name}")
+
+    def generate_robot_code(self):
+        """把示教点编译成目标控制器的机器人代码。
+
+        与"保存路径代码"不同，这里走的是完整的后处理链路
+        （``orolp.program.Program.to_post``），输出 KRL / RAPID / TP / URScript
+        等**控制器可直接加载**的源码，而不是中间的 Python 形态路径文本。
+
+        出错时弹窗明确提示——不做静默降级。历史上后处理器一旦失败就会输出
+        一堆 ``; Motion 1: ...`` 注释占位，界面却显示成功，极易误导。
+        """
+        positions = self.code_editor.get_recorded_positions()
+        if not positions:
+            QtWidgets.QMessageBox.information(
+                self, "生成机器人代码",
+                "当前没有示教点。\n请先在 3D 视口中调整关节角度并点击「记录」按钮。",
+            )
+            return
+
+        urdf_path = getattr(self, "urdf_path", None)
+        if not urdf_path or not Path(urdf_path).exists():
+            QtWidgets.QMessageBox.warning(
+                self, "生成机器人代码",
+                "未加载机器人模型，无法确定目标品牌与后处理器。\n"
+                "请先从「机器人库」载入一个型号。",
+            )
+            return
+
+        try:
+            from orolp import Motion, MotionType, Program, Robot
+            from orolp.post import list_post_processors
+            from orolp.post.base import PostProcessError
+
+            robot = Robot(str(urdf_path), Path(urdf_path).stem)
+            joint_names = self.code_editor.joint_names or robot.joint_names
+
+            motions = []
+            for pos in positions:
+                # 示教点内部以弧度保存，Motion 期望角度
+                joints_deg = [
+                    math.degrees(float(pos.get(name, 0.0))) for name in joint_names
+                ]
+                motions.append(
+                    Motion(MotionType.JOINTS, joints_deg, speed=50.0, blend=0.0)
+                )
+
+            program = Program(robot, motions)
+            code = program.to_post(metadata={"program_name": "OROLP_PATH"})
+
+        except PostProcessError as exc:
+            # 后处理失败必须让用户看见，而不是退回注释占位文本
+            QtWidgets.QMessageBox.critical(
+                self, "代码生成失败",
+                f"{exc}\n\n可用后处理器：\n  " + "\n  ".join(list_post_processors()),
+            )
+            return
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self, "代码生成失败",
+                f"{type(exc).__name__}: {exc}",
+            )
+            return
+
+        self._show_generated_code(code, robot)
+
+    def _show_generated_code(self, code: str, robot) -> None:
+        """展示生成的控制器代码，并询问是否保存到文件。"""
+        from orolp.post import resolve_for_brand
+
+        brand = ""
+        urdf_path = getattr(self, "urdf_path", "") or ""
+        parts = Path(urdf_path).parts
+        if "models" in parts and parts.index("models") + 1 < len(parts):
+            brand = parts[parts.index("models") + 1]
+
+        pp = resolve_for_brand(brand) if brand else None
+        ext = pp.file_extension if pp else "txt"
+        lang = pp.language_name if pp else "unknown"
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(f"生成的机器人代码 — {lang}")
+        dialog.resize(720, 520)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        info = QtWidgets.QLabel(
+            f"机器人：{robot.name}    目标语言：{lang}    指令数：{len(code.splitlines())}"
+        )
+        layout.addWidget(info)
+
+        editor = QtWidgets.QPlainTextEdit()
+        editor.setPlainText(code)
+        editor.setReadOnly(True)
+        font = QFont("Monospace", 10)
+        font.setStyleHint(QFont.Monospace)
+        editor.setFont(font)
+        layout.addWidget(editor)
+
+        buttons = QtWidgets.QDialogButtonBox()
+        save_btn = buttons.addButton("保存为文件…", QtWidgets.QDialogButtonBox.AcceptRole)
+        buttons.addButton("关闭", QtWidgets.QDialogButtonBox.RejectRole)
+        save_btn.clicked.connect(
+            lambda: self._save_generated_code(code, ext, lang, dialog)
+        )
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        dialog.exec()
+
+    def _save_generated_code(self, code: str, ext: str, lang: str, parent) -> None:
+        """把生成的代码写入文件。"""
+        default = f"orolp_path.{ext}"
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            parent, f"保存 {lang} 代码", default,
+            f"{lang} Files (*.{ext});;Text Files (*.txt);;All Files (*)",
+        )
+        if file_path:
+            try:
+                with open(file_path, "w", encoding="utf-8") as fh:
+                    fh.write(code)
+                self.statusBar().showMessage(f"已保存 {lang} 代码: {Path(file_path).name}")
+            except OSError as exc:
+                QtWidgets.QMessageBox.critical(parent, "保存失败", str(exc))
     
     def load_path_code(self):
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
