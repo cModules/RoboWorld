@@ -6,6 +6,8 @@ OpenRoboOLP - OLP Terminal
 import sys
 import math
 import re
+from typing import Dict, List, Tuple  # noqa: F401
+
 import numpy as np
 from pathlib import Path
 
@@ -63,6 +65,19 @@ except Exception as _exc:  # pragma: no cover
     _HAS_PROGRAM = False
     ProgramPanel = None
 
+# 渲染模型（URDF 解析 + STL/OBJ 网格）。支持多 visual、mesh、材质引用，
+# 并按 URDF 规范使用 T·R 变换；缺失时回退到内置的最小解析器。
+try:
+    from orolp.render import MeshData, RobotModel, UrdfParseError
+
+    _HAS_RENDER_MODEL = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] render model unavailable: {_exc}")
+    _HAS_RENDER_MODEL = False
+    RobotModel = None
+    UrdfParseError = None
+    MeshData = None
+
 
 GL_COLOR_BUFFER_BIT = 0x00004000
 GL_DEPTH_BUFFER_BIT = 0x00000100
@@ -83,50 +98,244 @@ GL_PROJECTION = 0x00001701
 #: 首屏默认载入的示例机器人（按顺序回退）
 DEFAULT_ROBOT_KEYS = ("kuka/kr16_2", "kuka/kr6_r900", "ur/ur5e")
 
+#: 曲面细分参数：把圆周按目标弦长切段，再钳到 [16, 72] 段。
+#: 视觉上 72 段的圆柱在 4K 屏上已看不出棱角；再往上只是浪费顶点。
+#: 目标弦长 6 mm——视口单位是米，因此工业臂最粗的底座（半径约 0.13 m）用满 72 段，
+#: 而法兰上的 M6 螺栓（半径约 3 mm）只用 16 段，不会为看不见的细节付费。
+_TESSELLATION_CHORD_M = 0.006
+_TESSELLATION_MIN_SEGMENTS = 16
+_TESSELLATION_MAX_SEGMENTS = 72
+
+
+def _segments_for_radius(radius: float) -> int:
+    """按半径推算圆柱/球需要的周向分段数。
+
+    Args:
+        radius: 半径（米）。
+
+    Returns:
+        分段数，钳制在 ``[16, 72]`` 区间内。
+    """
+    if radius <= 0.0:
+        return _TESSELLATION_MIN_SEGMENTS
+    circumference = 2.0 * math.pi * radius
+    segments = int(math.ceil(circumference / _TESSELLATION_CHORD_M))
+    return max(_TESSELLATION_MIN_SEGMENTS, min(_TESSELLATION_MAX_SEGMENTS, segments))
+
+
+#: 各轴"待机位姿"的目标角（度）。工业臂的经典 HOME 是「大臂后仰至水平、
+#: 小臂竖起、法兰朝前」，形如举手；全零位姿会让整条臂竖直朝天，既不像真实
+#: 机器人，也无法一眼看清各轴关系。超出该轴限位时钳到限位内（留 3% 余量）。
+HOME_POSE_PATTERN_DEG = (0.0, -90.0, 90.0, 0.0, 90.0, 0.0, 0.0)
+
+#: 待机位姿相对限位的收缩比例，避免正好停在限位上导致后续 moveJ 报越界
+HOME_POSE_MARGIN = 0.03
+
 
 class RobotRenderer:
+    """URDF 渲染模型。
+
+    底层解析交给 :class:`orolp.render.urdf_model.RobotModel`——它支持
+    **每个连杆多个 visual**、**STL/OBJ 网格**、**材质引用**，并严格按 URDF 规范
+    使用 ``T·R`` 变换。本类在其之上额外维护一份**旧版字典形态**的 ``links`` /
+    ``joints``，供关节滑杆、信息面板等既有代码继续使用。
+
+    Attributes:
+        model: 完整的 :class:`RobotModel`；绘制路径只用它。
+        links: 兼容旧接口的字典，每个连杆取**第一个** visual 的信息。
+        joints: 兼容旧接口的关节字典。
+        joint_values: 关节名 → 当前弧度值。
+        mesh_errors: 网格加载失败清单（不静默降级，交由 UI 提示）。
+    """
+
     def __init__(self):
+        self.model = None
         self.links = {}
         self.joints = {}
         self.root_link = None
         self.joint_values = {}
         self.urdf_dir = None
         self.robot_name = "Unknown"
+        self.mesh_errors = []
 
+    # ------------------------------------------------------------------ #
+    # 加载
+    # ------------------------------------------------------------------ #
     def load_urdf(self, path):
-        import xml.etree.ElementTree as ET
-        tree = ET.parse(path)
-        root = tree.getroot()
+        """加载 URDF，并把关节姿态初始化为待机位姿。
 
+        Args:
+            path: URDF 文件路径。
+
+        Returns:
+            是否至少含有一个连杆。
+
+        Raises:
+            UrdfParseError: URDF 结构非法（仅在渲染模型模块可用时抛出）。
+        """
         self.links.clear()
         self.joints.clear()
         self.joint_values.clear()
+        self.mesh_errors = []
+        self.model = None
         self.urdf_dir = Path(path).parent
-        self.robot_name = root.get("name", "Unknown")
 
+        if _HAS_RENDER_MODEL:
+            model = RobotModel.from_urdf(path)
+            self.model = model
+            self.robot_name = model.name
+            self.root_link = model.root
+            self.mesh_errors = list(model.mesh_errors)
+            self._fill_legacy_dicts(model)
+        else:  # pragma: no cover - 渲染模型缺失时的最小回退
+            self._load_legacy(path)
+            return len(self.links) > 0
+
+        self._apply_home_pose()
+
+        print(
+            f"Loaded {len(self.links)} links / {len(self.joints)} joints "
+            f"from URDF (root={self.root_link}, "
+            f"{model.visual_count} visuals, {model.triangle_count} triangles)"
+        )
+        if self.mesh_errors:
+            for name, reason in self.mesh_errors:
+                print(f"  [mesh] 加载失败: {name} — {reason}")
+        return len(self.links) > 0
+
+    def _fill_legacy_dicts(self, model: "RobotModel") -> None:
+        """把 :class:`RobotModel` 投影成旧版的 ``links`` / ``joints`` 字典。
+
+        只保留每个连杆的第一个 visual 作为代表几何——旧接口是单几何模型，
+        这里仅用于滑杆排序与信息面板，绘制不依赖它。
+        """
+        for name, link in model.links.items():
+            visual = link.visuals[0] if link.visuals else None
+            if visual is None:
+                self.links[name] = {
+                    "name": name,
+                    "type": None,
+                    "params": (),
+                    "origin_xyz": (0.0, 0.0, 0.0),
+                    "origin_rpy": (0.0, 0.0, 0.0),
+                    "color": (0.7, 0.7, 0.75),
+                }
+                continue
+
+            prim = visual.primitive
+            # 从 visual 的 4×4 矩阵里拆出平移与 rpy，保持旧字段语义
+            translation = visual.matrix[:3, 3]
+            self.links[name] = {
+                "name": name,
+                "type": prim.kind,
+                "params": tuple(
+                    p / 1000.0 if prim.kind == "cylinder" and i == 1 else p
+                    for i, p in enumerate(prim.params)
+                ) if prim.kind != "mesh" else (),
+                "origin_xyz": tuple(float(v) for v in translation),
+                "origin_rpy": _matrix_to_rpy(visual.matrix),
+                "color": tuple(float(v) for v in visual.color),
+            }
+
+        for name, joint in model.joints.items():
+            self.joints[name] = {
+                "name": name,
+                "type": joint.type,
+                "parent": joint.parent,
+                "child": joint.child,
+                "origin_xyz": tuple(float(v) for v in joint.matrix[:3, 3]),
+                "origin_rpy": _matrix_to_rpy(joint.matrix),
+                "axis": tuple(float(v) for v in joint.axis),
+                "limit": {
+                    "lower": joint.limits.lower,
+                    "upper": joint.limits.upper,
+                    "velocity": joint.limits.velocity,
+                    "effort": joint.limits.effort,
+                },
+            }
+            self.joint_values[name] = 0.0
+
+    def _apply_home_pose(self) -> None:
+        """把可动关节设置到待机位姿（全零位姿竖直朝天，不像真实机器人）。"""
+        if self.model is None:
+            return
+        for index, joint in enumerate(self.model.actuated_joints):
+            lower = joint.limits.lower
+            upper = joint.limits.upper
+            pattern = (
+                HOME_POSE_PATTERN_DEG[index]
+                if index < len(HOME_POSE_PATTERN_DEG)
+                else 0.0
+            )
+            target = math.radians(pattern)
+            if upper > lower:
+                margin = HOME_POSE_MARGIN * (upper - lower)
+                target = min(max(target, lower + margin), upper - margin)
+            self.joint_values[joint.name] = target
+
+    # ------------------------------------------------------------------ #
+    # 关节
+    # ------------------------------------------------------------------ #
+    def actuated_names(self) -> List[str]:
+        """可动关节名（拓扑顺序）。"""
+        if self.model is not None:
+            return self.model.actuated_names
+        return [n for n, j in self.joints.items() if j["type"] != "fixed"]
+
+    def joint_vector(self) -> List[float]:
+        """当前关节值向量，顺序与 :meth:`actuated_names` 一致。"""
+        return [float(self.joint_values.get(n, 0.0)) for n in self.actuated_names()]
+
+    def set_joints(self, q) -> None:
+        """按顺序给可动关节赋值。
+
+        Args:
+            q: 关节值序列（弧度）；顺序与 :meth:`actuated_names` 一致。
+
+        Raises:
+            ValueError: 传入数量与自由度不符。
+        """
+        names = self.actuated_names()
+        values = [float(v) for v in q]
+        if len(values) != len(names):
+            raise ValueError(
+                f"关节值数量 {len(values)} 与自由度 {len(names)} 不符（关节: {names}）"
+            )
+        for name, value in zip(names, values):
+            self.joint_values[name] = value
+
+    def link_poses(self) -> Dict[str, "np.ndarray"]:
+        """返回每个连杆在根坐标系下的 4×4 位姿（正向运动学）。
+
+        无渲染模型时返回空字典，调用方需自行回退。
+        """
+        if self.model is None:
+            return {}
+        return self.model.forward_kinematics(self.joint_vector())
+
+    def _load_legacy(self, path) -> None:  # pragma: no cover - 降级路径
+        """渲染模型模块不可用时的最小 URDF 解析（仅基本体、单 visual）。"""
+        import xml.etree.ElementTree as ET
+
+        root = ET.parse(path).getroot()
+        self.robot_name = root.get("name", "Unknown")
         for link in root.findall("link"):
-            name = link.get("name")
             visual = link.find("visual")
             if visual is None:
                 continue
-
             geom = visual.find("geometry")
             material = visual.find("material")
             mat = material.find("color") if material is not None else None
             rgba = [0.7, 0.7, 0.75, 1.0]
             if mat is not None:
                 rgba = [float(x) for x in mat.get("rgba", "0.7 0.7 0.75 1").split()]
-
             origin = visual.find("origin")
             xyz = [0.0, 0.0, 0.0]
             rpy = [0.0, 0.0, 0.0]
             if origin is not None:
                 xyz = [float(x) for x in origin.get("xyz", "0 0 0").split()]
                 rpy = [float(x) for x in origin.get("rpy", "0 0 0").split()]
-
-            geo_type = None
-            params = ()
-            
+            geo_type, params = None, ()
             if geom.find("cylinder") is not None:
                 cyl = geom.find("cylinder")
                 geo_type = "cylinder"
@@ -136,12 +345,10 @@ class RobotRenderer:
                 geo_type = "box"
                 params = tuple(float(x) for x in box.get("size", "0.1 0.1 0.1").split())
             elif geom.find("sphere") is not None:
-                sph = geom.find("sphere")
                 geo_type = "sphere"
-                params = (float(sph.get("radius", "0.02")),)
-
-            self.links[name] = {
-                "name": name,
+                params = (float(geom.find("sphere").get("radius", "0.02")),)
+            self.links[link.get("name")] = {
+                "name": link.get("name"),
                 "type": geo_type,
                 "params": params,
                 "origin_xyz": xyz,
@@ -149,13 +356,8 @@ class RobotRenderer:
                 "color": rgba[:3],
             }
 
-        print(f"Loaded {len(self.links)} links from URDF")
-
         for joint in root.findall("joint"):
             jname = joint.get("name")
-            jtype = joint.get("type", "fixed")
-            parent = joint.find("parent").get("link")
-            child = joint.find("child").get("link")
             origin = joint.find("origin")
             jxyz = [0.0, 0.0, 0.0]
             jrpy = [0.0, 0.0, 0.0]
@@ -166,34 +368,54 @@ class RobotRenderer:
             axis_el = joint.find("axis")
             if axis_el is not None:
                 axis = [float(x) for x in axis_el.get("xyz", "0 0 1").split()]
-
-            limit_lower = -math.pi
-            limit_upper = math.pi
+            lower, upper = -math.pi, math.pi
             limit = joint.find("limit")
             if limit is not None:
-                limit_lower = float(limit.get("lower", "-3.14159"))
-                limit_upper = float(limit.get("upper", "3.14159"))
-
+                lower = float(limit.get("lower", "-3.14159"))
+                upper = float(limit.get("upper", "3.14159"))
             self.joints[jname] = {
                 "name": jname,
-                "type": jtype,
-                "parent": parent,
-                "child": child,
+                "type": joint.get("type", "fixed"),
+                "parent": joint.find("parent").get("link"),
+                "child": joint.find("child").get("link"),
                 "origin_xyz": jxyz,
                 "origin_rpy": jrpy,
                 "axis": axis,
-                "limit": {"lower": limit_lower, "upper": limit_upper}
+                "limit": {"lower": lower, "upper": upper},
             }
             self.joint_values[jname] = 0.0
 
-        child_links = set(j["child"] for j in self.joints.values())
+        child_links = {j["child"] for j in self.joints.values()}
         for name in self.links:
             if name not in child_links:
                 self.root_link = name
                 break
 
-        print(f"Loaded {len(self.joints)} joints, root={self.root_link}")
-        return len(self.links) > 0
+
+def _matrix_to_rpy(matrix: "np.ndarray") -> Tuple[float, float, float]:
+    """从 4×4 齐次矩阵里还原 URDF 语义的 ``(roll, pitch, yaw)``。
+
+    与 :func:`orolp.render.urdf_model.rpy_to_matrix` 互为逆运算，
+    即 ``R = Rz(yaw)·Ry(pitch)·Rx(roll)``。
+
+    Args:
+        matrix: 4×4 齐次矩阵（只用其左上 3×3）。
+
+    Returns:
+        ``(roll, pitch, yaw)``，弧度。
+    """
+    r = matrix[:3, :3]
+    # R[2,0] = -sin(pitch)  ⇒ pitch = asin(-R[2,0])
+    pitch = math.asin(max(-1.0, min(1.0, -float(r[2, 0]))))
+    cos_pitch = math.cos(pitch)
+    if abs(cos_pitch) < 1e-9:
+        # 万向锁：pitch = ±90°，此时 roll 与 yaw 不可分离，约定 yaw=0
+        roll = math.atan2(-float(r[0, 1]), float(r[1, 1]))
+        yaw = 0.0
+    else:
+        roll = math.atan2(float(r[2, 1]), float(r[2, 2]))
+        yaw = math.atan2(float(r[1, 0]), float(r[0, 0]))
+    return (roll, pitch, yaw)
 
 
 class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
@@ -211,11 +433,94 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.recorded_positions = []
         self.recorded_ee_positions = []
         self.show_path = True
+        #: 相机注视点（米）。载入机器人后按模型尺度自动对准，否则小协作臂
+        #: 只占画面一角、大臂又超出视野。
+        self.view_center = (0.0, 0.0, 0.4)
 
     def load_robot(self, path):
         success = self.renderer.load_urdf(path)
+        if success:
+            self.frame_robot()
         self.update()
         return success
+
+    def frame_robot(self) -> None:
+        """按当前位姿的包围球自动取景（相机距离 + 注视点）。
+
+        机器人尺寸跨度很大：UR3e 臂展 500 mm，IRB 6700 臂展 3200 mm。
+        固定相机距离会让小机器人只占画面一角、大机器人直接出画。
+
+        包围球按**每个 visual 的实际几何**算，而不是只取连杆原点——后者会
+        低估尺寸（连杆原点只是几个点，几何体本身还有体积），导致大臂贴边出画。
+        """
+        bounds = self._robot_bounds()
+        if bounds is None:
+            return
+        lo, hi = bounds
+
+        center = np.array(
+            [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0],
+            dtype=np.float64,
+        )
+        radius = 0.5 * float(np.linalg.norm(np.asarray(hi) - np.asarray(lo)))
+        if radius <= 1e-6:
+            radius = 0.1
+
+        # 包围球半径 r 要在 45° 垂直 FOV（半角 22.5°）内完整入画，需
+        # dist = r / sin(22.5°)；再留 10% 余量避免贴边。用包围球而非包围盒，
+        # 是因为相机会绕模型公转，包围盒在不同方位下投影差异很大。
+        self.camera_dist = max(0.3, radius / math.sin(math.radians(22.5)) * 1.10)
+        self.view_center = (float(center[0]), float(center[1]), float(center[2]))
+
+    def _robot_bounds(self):
+        """返回当前位姿下机器人所有 visual 的世界包围盒 ``(lo, hi)``。
+
+        Returns:
+            ``(lo, hi)`` 两个长度 3 的数组；无模型时返回 ``None``。
+        """
+        model = self.renderer.model
+        poses = self.renderer.link_poses()
+        if model is None or not poses:
+            return None
+
+        lo = np.array([np.inf, np.inf, np.inf], dtype=np.float64)
+        hi = np.array([-np.inf, -np.inf, -np.inf], dtype=np.float64)
+        found = False
+
+        for link_name in model.link_chain():
+            link = model.links.get(link_name)
+            pose = poses.get(link_name)
+            if link is None or pose is None:
+                continue
+            for visual in link.visuals:
+                origin = (pose @ visual.matrix)[:3, 3]
+                radius = self._primitive_radius(visual.primitive)
+                lo = np.minimum(lo, origin - radius)
+                hi = np.maximum(hi, origin + radius)
+                found = True
+
+        return (lo, hi) if found else None
+
+    @staticmethod
+    def _primitive_radius(primitive: object) -> float:
+        """求基本体的包围球半径（米），用于快速估算取景范围。"""
+        import math as _math
+
+        kind = primitive.kind
+        if kind == "box":
+            sx, sy, sz = (float(p) for p in primitive.params[:3])
+            return 0.5 * _math.sqrt(sx * sx + sy * sy + sz * sz)
+        if kind == "cylinder":
+            radius, length = (float(p) for p in primitive.params[:2])
+            return _math.sqrt(radius * radius + (length / 2.0) ** 2)
+        if kind == "sphere":
+            return float(primitive.params[0])
+        if kind == "mesh":
+            mesh = primitive.mesh
+            if mesh is not None and not mesh.is_empty:
+                extent = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
+                return 0.5 * float(np.linalg.norm(extent))
+        return 0.0
 
     def set_joints(self, q):
         self.renderer.set_joints(q)
@@ -256,139 +561,97 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.set_joint_values(original_joint_values)
 
     def _compute_end_effector_position(self):
-        """计算末端执行器的3D位置"""
+        """计算末端执行器（TCP）的三维位置，单位米。
+
+        走 :class:`RobotModel` 的正向运动学——它与 Pinocchio 的对拍误差为 0，
+        且严格遵循 URDF 的 ``T·R`` 变换语义。旧实现是手写的 R·T 版本，
+        一旦关节带 rpy 就会算错，这里直接换成已验证的实现。
+        """
         if self.renderer.root_link is None:
             return (0.0, 0.0, 0.0)
-        
-        # 找到末端链接（没有子节点的链接）
-        def find_end_effector(link_name):
-            has_child = False
-            for joint in self.renderer.joints.values():
-                if joint["parent"] == link_name:
-                    has_child = True
-                    result = find_end_effector(joint["child"])
-                    if result is not None:
-                        return result
-            if not has_child:
-                return link_name
-            return None
-        
-        ee_link_name = find_end_effector(self.renderer.root_link)
-        if ee_link_name is None:
+
+        poses = self.renderer.link_poses()
+        if not poses:
             return (0.0, 0.0, 0.0)
-        
-        # 递归计算变换矩阵
-        def compute_transform(link_name, parent_joint=None):
-            transform = np.eye(4, dtype=np.float64)
-            
-            if parent_joint is not None:
-                jx, jy, jz = parent_joint["origin_xyz"]
-                jrx, jry, jrz = parent_joint["origin_rpy"]
-                
-                # 应用关节原点平移
-                trans = np.eye(4)
-                trans[0, 3] = jx
-                trans[1, 3] = jy
-                trans[2, 3] = jz
-                transform = trans @ transform
-                
-                # 应用关节原点旋转 (Z-Y-X)
-                if jrz != 0:
-                    c, s = math.cos(jrz), math.sin(jrz)
-                    rot = np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
-                    transform = rot @ transform
-                if jry != 0:
-                    c, s = math.cos(jry), math.sin(jry)
-                    rot = np.array([[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1]])
-                    transform = rot @ transform
-                if jrx != 0:
-                    c, s = math.cos(jrx), math.sin(jrx)
-                    rot = np.array([[1, 0, 0, 0], [0, c, -s, 0], [0, s, c, 0], [0, 0, 0, 1]])
-                    transform = rot @ transform
-                
-                # 应用关节旋转
-                q = self.renderer.joint_values.get(parent_joint["name"], 0.0)
-                if parent_joint["type"] == "revolute" and q != 0:
-                    ax, ay, az = parent_joint["axis"]
-                    # 绕任意轴旋转
-                    angle = q
-                    c, s = math.cos(angle), math.sin(angle)
-                    t = 1 - c
-                    rot = np.array([
-                        [t*ax*ax + c, t*ax*ay - s*az, t*ax*az + s*ay, 0],
-                        [t*ax*ay + s*az, t*ay*ay + c, t*ay*az - s*ax, 0],
-                        [t*ax*az - s*ay, t*ay*az + s*ax, t*az*az + c, 0],
-                        [0, 0, 0, 1]
-                    ])
-                    transform = rot @ transform
-            
-            link = self.renderer.links.get(link_name)
-            if link is None:
-                return transform
-            
-            # 应用链接原点变换
-            ox, oy, oz = link["origin_xyz"]
-            orx, ory, orz = link["origin_rpy"]
-            
-            if orx != 0 or ory != 0 or orz != 0:
-                if orz != 0:
-                    c, s = math.cos(orz), math.sin(orz)
-                    rot = np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
-                    transform = rot @ transform
-                if ory != 0:
-                    c, s = math.cos(ory), math.sin(ory)
-                    rot = np.array([[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1]])
-                    transform = rot @ transform
-                if orx != 0:
-                    c, s = math.cos(orx), math.sin(orx)
-                    rot = np.array([[1, 0, 0, 0], [0, c, -s, 0], [0, s, c, 0], [0, 0, 0, 1]])
-                    transform = rot @ transform
-            
-            trans = np.eye(4)
-            trans[0, 3] = ox
-            trans[1, 3] = oy
-            trans[2, 3] = oz
-            transform = trans @ transform
-            
-            return transform
-        
-        # 从根节点到末端链接计算完整变换
-        def get_path_to_ee(link_name, target_name):
-            if link_name == target_name:
-                return []
-            for joint in self.renderer.joints.values():
-                if joint["parent"] == link_name:
-                    path = get_path_to_ee(joint["child"], target_name)
-                    if path is not None:
-                        return [joint] + path
-            return None
-        
-        path = get_path_to_ee(self.renderer.root_link, ee_link_name)
-        if path is None:
+
+        # 末端 = 运动链上最后一个连杆；优先使用 TCP 标记
+        model = self.renderer.model
+        if model is not None:
+            chain = model.link_chain()
+            target = "tcp" if "tcp" in poses else (chain[-1] if chain else None)
+        else:
+            target = "tcp" if "tcp" in poses else None
+
+        if target is None:
+            target = next(reversed(list(poses)))
+        pose = poses.get(target)
+        if pose is None:
             return (0.0, 0.0, 0.0)
-        
-        # 计算完整变换矩阵
-        transform = np.eye(4)
-        current_link = self.renderer.root_link
-        for joint in path:
-            link = self.renderer.links.get(current_link)
-            if link:
-                # 应用父链接的变换
-                transform = compute_transform(current_link, None) @ transform
-            current_link = joint["child"]
-        
-        # 最后应用末端链接的变换
-        final_transform = compute_transform(ee_link_name, None)
-        transform = final_transform @ transform
-        
-        # 原点经过变换后的位置
-        origin = np.array([0.0, 0.0, 0.0, 1.0])
-        result = transform @ origin
-        return (float(result[0]), float(result[1]), float(result[2]))
+        return (float(pose[0, 3]), float(pose[1, 3]), float(pose[2, 3]))
 
     def initializeGL(self):
         gl.glClearColor(0.15, 0.15, 0.18, 1.0)
-        gl.glEnable(GL_DEPTH_TEST)
+        gl.glEnable(gl.GL_DEPTH_TEST)
+        self._mesh_lists = {}
+
+        # ---- 光照 ---- #
+        # 这是"显示失真"的首要成因：没有 GL_LIGHTING 时所有 glNormal3f 全部失效，
+        # 箱体的六个面颜色完全一致，三维模型被渲染成二维纯色剪影。
+        gl.glEnable(gl.GL_LIGHTING)
+        gl.glEnable(gl.GL_LIGHT0)  # 主光：暖白，来自右上前
+        gl.glEnable(gl.GL_LIGHT1)  # 补光：冷色，来自左后，避免背光面死黑
+        gl.glEnable(gl.GL_LIGHT2)  # 反弹光：自下往上，压掉底部阴影
+        gl.glEnable(gl.GL_NORMALIZE)  # 非均匀缩放会破坏法线单位长度
+        gl.glShadeModel(gl.GL_SMOOTH)
+        # 双面光照：URDF 常见开放曲面与内翻面法线，单面光照会出现黑洞
+        gl.glLightModeli(gl.GL_LIGHT_MODEL_TWO_SIDE, 1)
+
+        # 让 glColor3f 直接驱动环境/漫反射，这样既有的 glColor3f 调用无需改动
+        gl.glEnable(gl.GL_COLOR_MATERIAL)
+        gl.glColorMaterial(gl.GL_FRONT_AND_BACK, gl.GL_AMBIENT_AND_DIFFUSE)
+        # 高光用统一材质参数：金属漆感（弱高光 + 中等锐度）
+        gl.glMaterialfv(
+            gl.GL_FRONT_AND_BACK,
+            gl.GL_SPECULAR,
+            np.array([0.32, 0.34, 0.38, 1.0], dtype=np.float32),
+        )
+        gl.glMaterialf(gl.GL_FRONT_AND_BACK, gl.GL_SHININESS, 38.0)
+
+    def _setup_lights(self):
+        """在相机矩阵就位后设置光源（方向光，世界坐标系）。
+
+        必须在 ``paintGL`` 里、模型视图矩阵已切换为相机视角之后调用——光源位置会被
+        调用时刻的模型视图矩阵变换，放错地方光源就会跟着相机转，明暗不再随模型变化。
+        """
+        gl.glLightfv(
+            gl.GL_LIGHT0, gl.GL_POSITION,
+            np.array([0.55, -0.75, 1.05, 0.0], dtype=np.float32),
+        )
+        gl.glLightfv(
+            gl.GL_LIGHT0, gl.GL_DIFFUSE,
+            np.array([0.95, 0.94, 0.90, 1.0], dtype=np.float32),
+        )
+        gl.glLightfv(
+            gl.GL_LIGHT1, gl.GL_POSITION,
+            np.array([-0.85, -0.35, 0.45, 0.0], dtype=np.float32),
+        )
+        gl.glLightfv(
+            gl.GL_LIGHT1, gl.GL_DIFFUSE,
+            np.array([0.30, 0.36, 0.48, 1.0], dtype=np.float32),
+        )
+        gl.glLightfv(
+            gl.GL_LIGHT2, gl.GL_POSITION,
+            np.array([0.10, 0.60, -0.70, 0.0], dtype=np.float32),
+        )
+        gl.glLightfv(
+            gl.GL_LIGHT2, gl.GL_DIFFUSE,
+            np.array([0.18, 0.18, 0.20, 1.0], dtype=np.float32),
+        )
+        # 全局环境光：保证最暗处仍有轮廓可辨
+        gl.glLightModelfv(
+            gl.GL_LIGHT_MODEL_AMBIENT,
+            np.array([0.24, 0.25, 0.28, 1.0], dtype=np.float32),
+        )
 
     def paintGL(self):
         gl.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -409,12 +672,17 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
         az = math.radians(self.camera_az)
         el = math.radians(self.camera_el)
-        cx = self.camera_dist * math.cos(el) * math.cos(az)
-        cy = self.camera_dist * math.cos(el) * math.sin(az)
-        cz = self.camera_dist * math.sin(el)
-
-        eye = np.array([cx, cy, cz], dtype=np.float64)
-        center = np.array([0.0, 0.0, 0.4], dtype=np.float64)
+        # 相机绕注视点公转，而不是绕世界原点——否则 frame_robot() 把
+        # view_center 挪到模型中心后，相机仍按原点摆位，机器人直接出画。
+        center = np.asarray(self.view_center, dtype=np.float64)
+        eye = center + np.array(
+            [
+                self.camera_dist * math.cos(el) * math.cos(az),
+                self.camera_dist * math.cos(el) * math.sin(az),
+                self.camera_dist * math.sin(el),
+            ],
+            dtype=np.float64,
+        )
         up_vec = np.array([0.0, 0.0, 1.0], dtype=np.float64)
 
         f = center - eye
@@ -427,21 +695,34 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             s = s / norm
         u = np.cross(s, f)
 
+        # glLoadMatrixf 按**列主序**读取这 16 个数：flat[col*4 + row]。
+        # 若按行写成 [s; u; -f]，GL 拿到的是转置矩阵 Rᵀ = R⁻¹（R 正交），
+        # 相机等于装了反向旋转，视线偏到画面外——这是"显示失真"的根因之一。
         rot = [
-            float(s[0]), float(s[1]), float(s[2]), 0.0,
-            float(u[0]), float(u[1]), float(u[2]), 0.0,
-            float(-f[0]), float(-f[1]), float(-f[2]), 0.0,
-            0.0, 0.0, 0.0, 1.0
+            float(s[0]), float(u[0]), float(-f[0]), 0.0,
+            float(s[1]), float(u[1]), float(-f[1]), 0.0,
+            float(s[2]), float(u[2]), float(-f[2]), 0.0,
+            0.0, 0.0, 0.0, 1.0,
         ]
         gl.glLoadMatrixf(rot)
         gl.glTranslated(float(-eye[0]), float(-eye[1]), float(-eye[2]))
 
+        # 光源必须在相机矩阵就位后再设，否则会跟着相机一起转
+        self._setup_lights()
+
+        # 网格与路径是"示意线"，不该参与光照（否则会被明暗调制成灰暗的虚线）
+        gl.glDisable(gl.GL_LIGHTING)
         self._draw_grid()
+        gl.glEnable(gl.GL_LIGHTING)
+
         if self.scene is not None:
             self._draw_scene()
         self._draw_robot()
+
         if self.show_path and len(self.recorded_positions) > 1:
+            gl.glDisable(gl.GL_LIGHTING)
             self._draw_recorded_path()
+            gl.glEnable(gl.GL_LIGHTING)
 
     # ------------------------------------------------------------------ #
     # 工作单元场景绘制
@@ -541,11 +822,102 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         gl.glEnd()
 
     def _draw_robot(self):
-        if self.renderer.root_link is None:
+        """绘制机器人。
+
+        不再递归压栈拼变换，而是先用 :meth:`RobotRenderer.link_poses` 一次性算出
+        每个连杆的世界位姿，再逐个 visual 用 ``model · visual.matrix`` 直接定位。
+        这样变换只算一遍，且严格遵循 URDF 的 ``T·R`` 语义（旧实现是 ``R·T``，
+        带 rpy 的连杆会绕错误的点旋转）。
+        """
+        model = self.renderer.model
+        if model is None or model.root is None:
+            # 渲染模型模块不可用：回退到旧的单几何递归绘制
+            if self.renderer.root_link is not None:
+                self._draw_link_recursive(self.renderer.root_link)
             return
-        self._draw_link_recursive(self.renderer.root_link)
+
+        poses = self.renderer.link_poses()
+        for link_name in model.link_chain():
+            link = model.links.get(link_name)
+            base_pose = poses.get(link_name)
+            if link is None or base_pose is None:
+                continue
+            for visual in link.visuals:
+                self._draw_visual(base_pose, visual)
+
+    def _draw_visual(self, base_pose: "np.ndarray", visual: object) -> None:
+        """在世界位姿 ``base_pose`` 下绘制一个 visual。"""
+        if visual.alpha < 0.999:
+            gl.glEnable(gl.GL_BLEND)
+            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+            gl.glDepthMask(gl.GL_FALSE)
+
+        gl.glPushMatrix()
+        # OpenGL 要求列主序；numpy 是行主序，故转置后再展平
+        combined = np.asarray(base_pose @ visual.matrix, dtype=np.float64)
+        gl.glMultMatrixd(np.ascontiguousarray(combined.T))
+        gl.glColor3f(*visual.color)
+        self._draw_primitive(visual.primitive)
+        gl.glPopMatrix()
+
+        if visual.alpha < 0.999:
+            gl.glDepthMask(gl.GL_TRUE)
+            gl.glDisable(gl.GL_BLEND)
+
+    def _draw_primitive(self, primitive: object) -> None:
+        """按几何体类型分派绘制。"""
+        kind = primitive.kind
+        if kind == "box":
+            self._draw_box(*primitive.params)
+        elif kind == "cylinder":
+            self._draw_cylinder(primitive.params[0], primitive.params[1])
+        elif kind == "sphere":
+            self._draw_sphere(primitive.params[0])
+        elif kind == "mesh":
+            mesh = primitive.mesh
+            if mesh is not None and not mesh.is_empty:
+                self._draw_mesh(mesh)
+
+    # ------------------------------------------------------------------ #
+    # 网格（STL / OBJ）
+    # ------------------------------------------------------------------ #
+    def _draw_mesh(self, mesh: "MeshData") -> None:
+        """绘制网格，并把它编译进显示列表缓存。
+
+        一个机器人可能带十几兆、近 20 万个三角形的网格。逐帧走顶点数组尚可接受，
+        但编译成显示列表后 GPU 端几乎零开销——首次绘制后同一网格只是 ``glCallList``。
+
+        Args:
+            mesh: 已加载并算好法线的网格数据。
+        """
+        if not hasattr(self, "_mesh_lists"):
+            self._mesh_lists = {}
+        cached = self._mesh_lists.get(mesh.source)
+        if cached is None:
+            cached = gl.glGenLists(1)
+            if cached == 0:  # pragma: no cover - 极老的驱动可能分配失败
+                self._emit_mesh(mesh)
+                return
+            gl.glNewList(cached, gl.GL_COMPILE)
+            self._emit_mesh(mesh)
+            gl.glEndList()
+            self._mesh_lists[mesh.source] = cached
+        gl.glCallList(cached)
+
+    def _emit_mesh(self, mesh: "MeshData") -> None:
+        """用顶点数组提交一次三角形绘制。"""
+        vertices = np.ascontiguousarray(mesh.vertices, dtype=np.float32)
+        normals = np.ascontiguousarray(mesh.normals, dtype=np.float32)
+        gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
+        gl.glEnableClientState(gl.GL_NORMAL_ARRAY)
+        gl.glVertexPointer(3, gl.GL_FLOAT, 0, vertices)
+        gl.glNormalPointer(gl.GL_FLOAT, 0, normals)
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, vertices.shape[0])
+        gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
+        gl.glDisableClientState(gl.GL_NORMAL_ARRAY)
 
     def _draw_link_recursive(self, link_name, parent_joint=None):
+        """旧版递归绘制路径，仅在渲染模型模块不可用时使用。"""
         link = self.renderer.links.get(link_name)
         if link is None:
             return
@@ -555,7 +927,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         if parent_joint is not None:
             jx, jy, jz = parent_joint["origin_xyz"]
             gl.glTranslatef(jx, jy, jz)
-            
+
             jrx, jry, jrz = parent_joint["origin_rpy"]
             if any(v != 0 for v in [jrx, jry, jrz]):
                 gl.glRotatef(math.degrees(jrz), 0, 0, 1)
@@ -594,23 +966,42 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         gl.glPopMatrix()
 
     def _draw_cylinder(self, radius, length):
-        segments = 24
+        """绘制沿局部 Z 轴的圆柱（URDF 约定）。
+
+        两处改动直接改善观感：
+
+        * **逐顶点径向法线**（旧代码每个四边形只设一次法线）→ Gouraud 平滑着色，
+          圆柱不再是一个个平面拼出的多面体。
+        * **按半径自适应分段**（旧代码固定 24 段）→ 粗轴不露棱角，细螺栓不过度细分。
+        """
+        segments = _segments_for_radius(radius)
         half_len = length / 2.0
-        gl.glBegin(GL_QUADS)
+
+        cos_table = [math.cos(2 * math.pi * i / segments) for i in range(segments + 1)]
+        sin_table = [math.sin(2 * math.pi * i / segments) for i in range(segments + 1)]
+
+        # 侧面：每个四边形拆两个三角形，绕向 A→B→C→D 保证法线朝外
+        gl.glBegin(GL_TRIANGLES)
         for i in range(segments):
-            a1 = 2 * math.pi * i / segments
-            a2 = 2 * math.pi * (i + 1) / segments
-            x1 = radius * math.cos(a1)
-            y1 = radius * math.sin(a1)
-            x2 = radius * math.cos(a2)
-            y2 = radius * math.sin(a2)
-            gl.glNormal3f(x1, y1, 0)
-            gl.glVertex3f(x1, y1, -half_len)
-            gl.glVertex3f(x1, y1, half_len)
-            gl.glNormal3f(x2, y2, 0)
-            gl.glVertex3f(x2, y2, half_len)
-            gl.glVertex3f(x2, y2, -half_len)
+            c1, s1 = cos_table[i], sin_table[i]
+            c2, s2 = cos_table[i + 1], sin_table[i + 1]
+            # A(-h, i) → B(-h, i+1) → C(+h, i+1) → D(+h, i)
+            gl.glNormal3f(c1, s1, 0.0)
+            gl.glVertex3f(radius * c1, radius * s1, -half_len)
+            gl.glNormal3f(c2, s2, 0.0)
+            gl.glVertex3f(radius * c2, radius * s2, -half_len)
+            gl.glNormal3f(c2, s2, 0.0)
+            gl.glVertex3f(radius * c2, radius * s2, half_len)
+
+            gl.glNormal3f(c1, s1, 0.0)
+            gl.glVertex3f(radius * c1, radius * s1, -half_len)
+            gl.glNormal3f(c2, s2, 0.0)
+            gl.glVertex3f(radius * c2, radius * s2, half_len)
+            gl.glNormal3f(c1, s1, 0.0)
+            gl.glVertex3f(radius * c1, radius * s1, half_len)
         gl.glEnd()
+
+        # 顶盖：从 +Z 看逆时针
         gl.glBegin(GL_TRIANGLE_FAN)
         gl.glNormal3f(0, 0, 1)
         gl.glVertex3f(0, 0, half_len)
@@ -618,10 +1009,11 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             a = 2 * math.pi * i / segments
             gl.glVertex3f(radius * math.cos(a), radius * math.sin(a), half_len)
         gl.glEnd()
+        # 底盖：从 -Z 看逆时针（顶点序反转）
         gl.glBegin(GL_TRIANGLE_FAN)
         gl.glNormal3f(0, 0, -1)
         gl.glVertex3f(0, 0, -half_len)
-        for i in range(segments + 1):
+        for i in range(segments, -1, -1):
             a = 2 * math.pi * i / segments
             gl.glVertex3f(radius * math.cos(a), radius * math.sin(a), -half_len)
         gl.glEnd()
@@ -649,9 +1041,18 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         gl.glVertex3f(x, -y, z); gl.glVertex3f(-x, -y, z)
         gl.glEnd()
 
-    def _draw_sphere(self, radius):
-        stacks = 12
-        slices = 16
+    def _draw_sphere(self, radius, stacks=None, slices=None):
+        """绘制球（逐顶点径向法线 + 按半径自适应细分）。
+
+        Args:
+            radius: 半径。
+            stacks: 纬向分段数；``None`` 时按半径自适应。
+            slices: 经向分段数；``None`` 时按半径自适应。
+        """
+        if slices is None:
+            segments = _segments_for_radius(radius)
+            slices = max(12, segments)
+            stacks = max(8, slices // 2)
         for i in range(stacks):
             lat0 = math.pi * (-0.5 + i / stacks)
             lat1 = math.pi * (-0.5 + (i + 1) / stacks)

@@ -158,7 +158,7 @@ python examples/test_opengl.py
 python examples/gui_demo/python_viewer.py
 
 # 指定 URDF 文件
-python examples/gui_demo/python_viewer.py models/ur/test_6dof.urdf
+python examples/gui_demo/python_viewer.py examples/assets/test_6dof.urdf
 ```
 
 **操作说明：**
@@ -207,7 +207,7 @@ python examples/pick_and_place.py
 pip install PySide6 PyOpenGL numpy
 
 # 2. 运行 3D 查看器
-python examples/gui_demo/python_viewer.py models/ur/test_6dof.urdf
+python examples/gui_demo/python_viewer.py examples/assets/test_6dof.urdf
 ```
 
 ### 完整编译（包含 C++ 核心）

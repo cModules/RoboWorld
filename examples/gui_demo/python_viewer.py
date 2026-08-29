@@ -4,7 +4,7 @@ OpenRoboOLP Python 3D Viewer (Minimal Demo)
 A lightweight alternative using PySide6 + OpenGL, no C++ compilation needed.
 
 Usage:
-    python examples/gui_demo/python_viewer.py models/ur/test_6dof.urdf
+    python examples/gui_demo/python_viewer.py examples/assets/test_6dof.urdf
 """
 
 import sys

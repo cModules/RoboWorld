@@ -21,7 +21,7 @@ python examples/pick_and_place.py
 方式二：Python 3D 视窗（零编译）
 ```bash
 pip install PySide6 numpy
-python examples/gui_demo/python_viewer.py models/ur/test_6dof.urdf
+python examples/gui_demo/python_viewer.py examples/assets/test_6dof.urdf
 ```
 
 方式三：C++ Qt6 原生视窗（性能最佳）
@@ -32,7 +32,7 @@ sudo apt install qt6-base-dev libqt6opengl6-dev libqt6openglwidgets6 \
 mkdir build && cd build
 cmake .. -DBUILD_GUI=ON -DBUILD_PYTHON_BINDINGS=ON
 make -j$(nproc)
-./bin/orolp_viewer ../models/ur/test_6dof.urdf
+./bin/orolp_viewer ../examples/assets/test_6dof.urdf
 ```
 
 
@@ -56,7 +56,7 @@ make -j$(nproc)
 
 ### 运行
 ```bash
-./bin/orolp_viewer ../models/ur/test_6dof.urdf
+./bin/orolp_viewer ../examples/assets/test_6dof.urdf
 ```
 
 ## 功能特性

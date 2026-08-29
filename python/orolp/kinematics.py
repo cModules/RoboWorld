@@ -113,8 +113,27 @@ def _parse_vec3(text: Optional[str], default: Sequence[float]) -> np.ndarray:
 
 
 def _rotmat_rpy(rpy: np.ndarray) -> np.ndarray:
-    """固定轴 XYZ 序（等价于 URDF 的 rpy）转 3x3 旋转矩阵。"""
-    return Rotation.from_euler("XYZ", rpy).as_matrix()
+    """URDF 的 ``rpy``（固定轴 / 外旋，X→Y→Z 依次绕**世界**轴）转 3×3 旋转矩阵。
+
+    数学上等于 ``Rz(yaw) · Ry(pitch) · Rx(roll)``。
+
+    scipy 的大小写语义是这里唯一的坑：
+
+    * ``"XYZ"``（大写）= **内旋**，绕运动轴，得到 ``Rx·Ry·Rz``
+    * ``"xyz"``（小写）= **外旋**，绕固定轴，得到 ``Rz·Ry·Rx`` ← URDF 要的是这个
+
+    URDF 规范明确 rpy 是固定轴（fixed axis）旋转，因此必须用小写。单轴旋转
+    （如 ``(0, π/2, 0)``）下两者恰好等价，所以这个错误在只含单轴 rpy 的
+    程序化模型上不会暴露——但真实 CAD 导出的 URDF 几乎都带完整三轴 rpy，
+    一旦出现，正逆解的末端位姿会明显偏离真值。
+
+    Args:
+        rpy: ``(roll, pitch, yaw)``，弧度。
+
+    Returns:
+        3×3 旋转矩阵。
+    """
+    return Rotation.from_euler("xyz", rpy).as_matrix()
 
 
 def _transform(R: np.ndarray, t: np.ndarray) -> np.ndarray:

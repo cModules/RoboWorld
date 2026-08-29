@@ -620,9 +620,13 @@ def test_industrial_brands_plan_cartesian_motions():
 def test_unreachable_cartesian_motion_fails_cleanly():
     """够不到的目标必须变成可报告的问题，而不是崩掉或假装成功。
 
-    LeRobot SO-101 是 hobby 级桌面臂，从自动生成的折叠姿态出发，沿工具轴
-    退刀 10mm 恰好落在工作空间外——这是一个真实存在的"够不到"，正好用来
-    检验失败路径是否体面。
+    LeRobot SO-101 是 hobby 级桌面臂，臂展有限：从自动生成的折叠姿态出发，
+    沿工具轴退刀 150mm 明确落在工作空间之外，用来检验失败路径是否体面。
+
+    同时用 10mm 退刀做**正向对照**：同一个姿态下小幅退刀必须可达。这条
+    对照是 rpy 组合顺序回归的守门员——URDF 的 rpy 是固定轴（外旋），
+    若误按内旋 ``Rx·Ry·Rz`` 组合，正解给出的末端位姿自相矛盾，反而会把
+    近在咫尺的目标判成不可达。
     """
     path = REPO_ROOT / "models/lerobot/so101/urdf/so101.urdf"
     if not path.exists():
@@ -632,8 +636,14 @@ def test_unreachable_cartesian_motion_fails_cleanly():
     robot.set_joints(ready_pose(robot))
     p0 = robot.forward_kinematics()
     approach = np.asarray(p0.matrix[:3, 2], dtype=np.float64)
-    target = p0.with_position(*(tcp_xyz(p0) - 10.0 * approach))
 
+    # 正向对照：小幅退刀必须可达，证明运动学本身是自洽的
+    near = p0.with_position(*(tcp_xyz(p0) - 10.0 * approach))
+    assert ProgramBuilder(robot).moveL(near).build().validate().ok, (
+        "10mm 退刀本应可达——检查 rpy 是否又退化成内旋组合"
+    )
+
+    target = p0.with_position(*(tcp_xyz(p0) - 150.0 * approach))
     report = ProgramBuilder(robot).moveL(target).build().validate()
     assert not report.ok, "明明够不到却报告成功"
     # 必须能定位到具体指令、给出可读原因，且轨迹不是"补齐"出来的
@@ -653,3 +663,28 @@ def test_axis_limits_read_from_urdf():
     # URDF 里存的是弧度，来回换算会有 ~1e-4 度的误差，容差按此取
     assert limits.lower[1] == pytest.approx(-155.0, abs=1e-3)
     assert limits.upper[1] == pytest.approx(35.0, abs=1e-3)
+
+
+def test_urdf_rpy_is_fixed_axis_not_intrinsic():
+    """URDF 的 ``rpy`` 是固定轴（外旋），组合结果必须是 ``Rz·Ry·Rx``。
+
+    scipy 的大小写语义极易搞反：``"XYZ"`` 是内旋（得到 ``Rx·Ry·Rz``），
+    ``"xyz"`` 才是外旋。两者只在单轴旋转时等价，而程序化生成的工业机型
+    恰好全是单轴 rpy，所以这个错误能悄悄潜伏——直到遇到 CAD 导出的、
+    带完整三轴 rpy 的真实模型（如 SO-101）才暴露。
+    """
+    from orolp.kinematics import _rotmat_rpy
+
+    rpy = np.array([0.3, -0.75, 1.1])  # 三轴都非零，内外旋必然分道扬镳
+
+    cx, sx = math.cos(rpy[0]), math.sin(rpy[0])
+    cy, sy = math.cos(rpy[1]), math.sin(rpy[1])
+    cz, sz = math.cos(rpy[2]), math.sin(rpy[2])
+    rx_m = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    ry_m = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    rz_m = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+
+    # URDF 规范：固定轴 X→Y→Z 依次绕世界轴，等价于 Rz(yaw)·Ry(pitch)·Rx(roll)
+    np.testing.assert_allclose(_rotmat_rpy(rpy), rz_m @ ry_m @ rx_m, atol=1e-12)
+    # 与内旋（绕运动轴）必须有明显区别，否则说明又写成了大写 "XYZ"
+    assert not np.allclose(_rotmat_rpy(rpy), rx_m @ ry_m @ rz_m, atol=1e-6)

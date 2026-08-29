@@ -7,7 +7,7 @@ Demonstrates joint moves, linear moves, tool frames, and post-processor generati
 import orolp as orp
 
 # Load a test 6-DOF robot model
-robot = orp.Robot("models/ur/test_6dof.urdf", name="TestRobot_6DOF")
+robot = orp.Robot("examples/assets/test_6dof.urdf", name="TestRobot_6DOF")
 
 # Define tool frame: 150mm gripper offset along Z
 robot.tool = orp.Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
