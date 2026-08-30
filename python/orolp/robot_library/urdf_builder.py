@@ -49,8 +49,9 @@ from __future__ import annotations
 
 import math
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple  # noqa: F401
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Tuple  # noqa: F401
 
 from xml.dom import minidom
 
@@ -167,11 +168,61 @@ AXIS_Z: Tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
-class _Part:
-    """构成某个连杆的一个基本体。
+class _MeshSpec:
+    """程序化网格的构建规格。
+
+    冻结且仅含可哈希成员（数字与元组），这样 :class:`_Part` 仍能参与
+    集合去重与相等比较。真正生成网格由 :func:`build_mesh` 完成。
 
     Attributes:
-        shape: ``'box'`` / ``'cylinder'`` / ``'sphere'``。
+        kind: ``'loft'`` / ``'rbox'`` / ``'revolve'`` / ``'tube'`` / ``'capsule'``。
+        args: 传给对应原语的位置参数。
+    """
+
+    kind: str
+    args: Tuple = ()
+
+
+def build_mesh(spec_: _MeshSpec):
+    """按规格生成网格。
+
+    Args:
+        spec_: 网格构建规格。
+
+    Returns:
+        :class:`~orolp.render.mesh.MeshData`。
+
+    Raises:
+        ValueError: 未知的原语类型。
+    """
+    # 延迟导入：urdf_builder 在无 OpenGL 的纯生成场景下也能工作，
+    # 而 primitives 依赖 numpy（必然可用），这里只为缩短导入链
+    from ..render.primitives import capsule, loft, revolve, rounded_box, tube
+
+    kind = spec_.kind
+    if kind == "loft":
+        sections, segments = spec_.args
+        return loft(sections, segments=segments)
+    if kind == "rbox":
+        return rounded_box(*spec_.args)
+    if kind == "revolve":
+        profile, segments = spec_.args
+        return revolve(profile, segments=segments)
+    if kind == "tube":
+        points, radius, segments = spec_.args
+        return tube(points, radius, segments=segments)
+    if kind == "capsule":
+        return capsule(*spec_.args)
+    raise ValueError(f"未知网格原语: {kind}")
+
+
+@dataclass(frozen=True)
+class _Part:
+    """构成某个连杆的一个零件。
+
+    Attributes:
+        shape: ``'box'`` / ``'cylinder'`` / ``'sphere'``。带 :attr:`mesh` 时
+            该项仅作为"无网格模式"的回退几何。
         params: ``box`` → ``(sx, sy, sz)``；``cylinder`` → ``(radius, length)``；
             ``sphere`` → ``(radius,)``。
         xyz: 相对连杆坐标系原点的平移（米）。
@@ -180,6 +231,8 @@ class _Part:
         role: 配色角色，取 ``primary`` / ``accent`` / ``metal`` / ``dark`` / ``marker``。
         collision: 是否参与碰撞体。碰撞检测只保留每个连杆最粗的一个包络体，
             避免 SAT 计算量随精细度线性膨胀。
+        mesh: 程序化网格规格；非 ``None`` 时优先输出 ``<mesh>`` 几何。
+            但**不合并**不同材质的零件——分层配色本身就是精细感来源。
     """
 
     shape: str
@@ -188,6 +241,7 @@ class _Part:
     rpy: Tuple[float, float, float] = AXIS_Z
     role: str = "primary"
     collision: bool = False
+    mesh: Optional[_MeshSpec] = None
 
 
 @dataclass(frozen=True)
@@ -593,8 +647,60 @@ def _axis_sequence(dof: int) -> List[Tuple[float, float, float]]:
     raise ValueError(f"Unsupported DOF for procedural generation: {dof}")
 
 
-def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
-    """构造除 base_link 以外的全部关节-连杆段。"""
+def _parts_for(
+    kind: str,
+    g: GeometryProfile,
+    pal: _Palette,
+    cobot: bool,
+    hifi: bool,
+) -> List[_Part]:
+    """按 ``kind`` 取一个连杆的零件列表，在基本体与高保真网格两套配方间切换。
+
+    两套配方**共用同一个分派键**，因此外观切换只需改一个布尔值，便于
+    A/B 对比与回退——高保真网格只是"渲染用的皮"，运动学与碰撞完全不变。
+
+    Args:
+        kind: 连杆类别，如 ``'upper_arm'``。
+        g: 几何尺寸。
+        pal: 调色板。
+        cobot: 是否为协作臂风格。
+        hifi: ``True`` 用程序化曲面网格，``False`` 用基本体。
+
+    Returns:
+        零件列表。
+    """
+    if hifi:
+        from .hifi import HIFI_BUILDERS
+
+        return list(HIFI_BUILDERS[kind](g, pal, cobot))
+    return list(_LEGACY_BUILDERS[kind](g, pal, cobot))
+
+
+#: 基本体配方分派表（与 :data:`orolp.robot_library.hifi.HIFI_BUILDERS` 一一对应）
+_LEGACY_BUILDERS = {
+    "base": lambda g, pal, c: _base_parts(g, pal, c),
+    "turret": lambda g, pal, c: _turret_parts(g, pal, c),
+    "upper_arm": lambda g, pal, c: _upper_arm_parts(g, pal, c),
+    "forearm": lambda g, pal, c: _forearm_parts(g, pal, c),
+    "elbow": lambda g, pal, c: _elbow_parts(g, pal, c),
+    "wrist_roll": lambda g, pal, c: _wrist_roll_parts(g, pal, c),
+    "wrist_pitch": lambda g, pal, c: _wrist_pitch_parts(g, pal, c),
+    "flange": lambda g, pal, c: _flange_parts(g, pal, c),
+    # TCP 配方不区分协作/工业风格，签名少一个参数
+    "tcp": lambda g, pal, c: _tcp_parts(g, pal),
+}
+
+
+def _build_segments(
+    spec: RobotSpec, g: GeometryProfile, hifi: bool = False
+) -> List[_Segment]:
+    """构造除 base_link 以外的全部关节-连杆段。
+
+    Args:
+        spec: 型号规格。
+        g: 几何尺寸。
+        hifi: 使用高保真曲面网格配方（需配合 ``mesh_dir`` 写出 STL）。
+    """
     pal = _make_palette(spec)
     cobot = spec.robot_type == "cobot"
     thickness = g.link_thickness
@@ -619,7 +725,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
             color=pal.accent,
             limit_deg=limits[0],
             speed_deg_s=speeds[0],
-            parts=tuple(_turret_parts(g, pal, cobot)),
+            parts=tuple(_parts_for("turret", g, pal, cobot, hifi)),
             palette=pal,
         ),
         # --- J2：大臂俯仰 ---
@@ -635,7 +741,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
             color=pal.primary,
             limit_deg=limits[1],
             speed_deg_s=speeds[1],
-            parts=tuple(_upper_arm_parts(g, pal, cobot)),
+            parts=tuple(_parts_for("upper_arm", g, pal, cobot, hifi)),
             palette=pal,
         ),
     ]
@@ -656,7 +762,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
                 color=pal.accent,
                 limit_deg=limits[2],
                 speed_deg_s=speeds[2],
-                parts=tuple(_elbow_parts(g, pal, cobot)),
+                parts=tuple(_parts_for("elbow", g, pal, cobot, hifi)),
                 palette=pal,
             )
         )
@@ -674,7 +780,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
                 color=pal.primary,
                 limit_deg=limits[3],
                 speed_deg_s=speeds[3],
-                parts=tuple(_forearm_parts(g, pal, cobot)),
+                parts=tuple(_parts_for("forearm", g, pal, cobot, hifi)),
                 palette=pal,
             )
         )
@@ -692,7 +798,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
                 color=pal.accent,
                 limit_deg=limits[4],
                 speed_deg_s=speeds[4],
-                parts=tuple(_wrist_roll_parts(g, pal, cobot)),
+                parts=tuple(_parts_for("wrist_roll", g, pal, cobot, hifi)),
                 palette=pal,
             )
         )
@@ -710,7 +816,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
                 color=pal.primary,
                 limit_deg=limits[5],
                 speed_deg_s=speeds[5],
-                parts=tuple(_wrist_pitch_parts(g, pal, cobot)),
+                parts=tuple(_parts_for("wrist_pitch", g, pal, cobot, hifi)),
                 palette=pal,
             )
         )
@@ -728,7 +834,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
                 color=pal.accent,
                 limit_deg=limits[6],
                 speed_deg_s=speeds[6],
-                parts=tuple(_flange_parts(g, pal, cobot)),
+                parts=tuple(_parts_for("flange", g, pal, cobot, hifi)),
                 palette=pal,
             )
         )
@@ -749,7 +855,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
             color=pal.primary,
             limit_deg=limits[2],
             speed_deg_s=speeds[2],
-            parts=tuple(_forearm_parts(g, pal, cobot)),
+            parts=tuple(_parts_for("forearm", g, pal, cobot, hifi)),
             palette=pal,
         ),
         # --- J4：小臂自转 ---
@@ -765,7 +871,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
             color=pal.accent,
             limit_deg=limits[3],
             speed_deg_s=speeds[3],
-            parts=tuple(_wrist_roll_parts(g, pal, cobot)),
+            parts=tuple(_parts_for("wrist_roll", g, pal, cobot, hifi)),
             palette=pal,
         ),
         # --- J5：腕俯仰 ---
@@ -781,7 +887,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
             color=pal.primary,
             limit_deg=limits[4],
             speed_deg_s=speeds[4],
-            parts=tuple(_wrist_pitch_parts(g, pal, cobot)),
+            parts=tuple(_parts_for("wrist_pitch", g, pal, cobot, hifi)),
             palette=pal,
         ),
         # --- J6：法兰自转 ---
@@ -797,7 +903,7 @@ def _build_segments(spec: RobotSpec, g: GeometryProfile) -> List[_Segment]:
             color=pal.accent,
             limit_deg=limits[5],
             speed_deg_s=speeds[5],
-            parts=tuple(_flange_parts(g, pal, cobot)),
+            parts=tuple(_parts_for("flange", g, pal, cobot, hifi)),
             palette=pal,
         ),
     ]
@@ -864,11 +970,26 @@ def _add_envelope(link_el: ET.Element, seg: _Segment, length: float) -> None:
         )
 
 
-def _add_parts(link_el: ET.Element, seg: _Segment, pal: _Palette) -> None:
-    """写入全部 visual 基本体。
+def _add_parts(
+    link_el: ET.Element,
+    seg: _Segment,
+    pal: _Palette,
+    mesh_dir: Optional[Path] = None,
+) -> None:
+    """写入全部 visual 几何体。
 
     rpy 现在可以放心使用——``olp.py`` 的渲染器已按 URDF 规范实现 ``T·R``。
+
+    Args:
+        link_el: 目标 ``<link>`` 节点。
+        seg: 连杆段。
+        pal: 调色板。
+        mesh_dir: 网格输出目录。为 ``None`` 时，带 :attr:`_Part.mesh` 的零件
+            退回其等效基本体（:attr:`_Part.shape` / ``params``），因此不指定
+            目录依然能生成一份零依赖、可直接分发的轻量 URDF。
     """
+    from ..render.primitives import write_stl
+
     for index, part in enumerate(seg.parts):
         node = ET.SubElement(link_el, "visual")
         ET.SubElement(
@@ -877,34 +998,51 @@ def _add_parts(link_el: ET.Element, seg: _Segment, pal: _Palette) -> None:
             {"xyz": _vec(part.xyz), "rpy": _vec(part.rpy)},
         )
         geom = ET.SubElement(node, "geometry")
-        _write_geometry(geom, part)
+        if part.mesh is not None and mesh_dir is not None:
+            # 文件名带上连杆名与序号，便于定位"哪一坨几何是哪一个零件"
+            filename = f"{seg.link_name}_{index:02d}.stl"
+            written = write_stl(build_mesh(part.mesh), mesh_dir / filename)
+            if written:
+                ET.SubElement(geom, "mesh", {"filename": f"meshes/{filename}"})
+            else:  # pragma: no cover - 退化网格，退回基本体
+                _write_geometry(geom, part)
+        else:
+            _write_geometry(geom, part)
         mat = ET.SubElement(node, "material", {"name": f"{seg.link_name}_mat_{index}"})
         ET.SubElement(mat, "color", {"rgba": _rgb(pal.get(part.role))})
 
 
-def build_urdf_string(spec: RobotSpec) -> str:
+def build_urdf_string(spec: RobotSpec, mesh_dir: Optional[Path] = None) -> str:
     """生成指定型号的 URDF 文本内容。
 
     Args:
-        spec: 型号规格
+        spec: 型号规格。
+        mesh_dir: 网格输出目录。给定后，带 :attr:`_Part.mesh` 的零件会被
+            程序化生成并写成 STL，URDF 用 ``<mesh filename="meshes/..."/>``
+            引用；为 ``None`` 时全部退回基本体，产出零依赖的轻量 URDF。
 
     Returns:
-        格式化的 URDF XML 字符串
+        格式化的 URDF XML 字符串。
     """
     g = derive_geometry(spec)
     pal = _make_palette(spec)
     cobot = spec.robot_type == "cobot"
-    segments = _build_segments(spec, g)
-    n_parts = len(_base_parts(g, pal, cobot)) + sum(len(s.parts) for s in segments) + 1
+    # 只要给出了网格目录就走高保真配方；否则退回基本体，产出零依赖 URDF。
+    # hifi 只影响 visual，运动学、限位、碰撞包络完全不变。
+    hifi = mesh_dir is not None
+    segments = _build_segments(spec, g, hifi=hifi)
+    base_parts = _parts_for("base", g, pal, cobot, hifi)
+    n_parts = len(base_parts) + sum(len(s.parts) for s in segments) + 1
 
     robot = ET.Element("robot", {"name": spec.urdf_name})
 
+    style = "high-fidelity procedural mesh" if mesh_dir is not None else "primitive"
     comment = ET.Comment(
         f" {spec.brand.name_en} {spec.model_name} — procedurally generated by "
         f"orolp.robot_library.urdf_builder "
         f"(payload {spec.payload_kg:g} kg, reach {spec.reach_mm:g} mm, "
         f"{spec.dof} DOF, repeatability ±{spec.repeatability_mm:g} mm). "
-        f"Appearance: {n_parts} primitives in '{spec.robot_type}' style "
+        f"Appearance: {n_parts} parts in '{spec.robot_type}' style, {style}"
         f"(primary/accent/metal/dark 4-role palette). "
         f"No vendor CAD assets. "
         f"Parameters verified={spec.verified}. "
@@ -913,14 +1051,14 @@ def build_urdf_string(spec: RobotSpec) -> str:
 
     # ---- base_link ---- #
     base = ET.SubElement(robot, "link", {"name": "base_link"})
-    base_parts = _base_parts(g, pal, cobot)
-    for index, part in enumerate(base_parts):
-        node = ET.SubElement(base, "visual")
-        ET.SubElement(node, "origin", {"xyz": _vec(part.xyz), "rpy": _vec(part.rpy)})
-        geom = ET.SubElement(node, "geometry")
-        _write_geometry(geom, part)
-        mat = ET.SubElement(node, "material", {"name": f"base_link_mat_{index}"})
-        ET.SubElement(mat, "color", {"rgba": _rgb(pal.get(part.role))})
+    _add_parts(
+        base,
+        _Segment("", "base_link", (0, 0, 1), (0, 0, 0), g.base_height,
+                 "cylinder", max(g.base_radius, g.link_thickness), 0.0,
+                 pal.accent, (0, 0), 0.0, tuple(base_parts), pal),
+        pal,
+        mesh_dir,
+    )
     # 底座碰撞包络：一根涵盖全高的圆柱
     _add_envelope(
         base,
@@ -954,7 +1092,7 @@ def build_urdf_string(spec: RobotSpec) -> str:
         )
 
         link = ET.SubElement(robot, "link", {"name": seg.link_name})
-        _add_parts(link, seg, pal)
+        _add_parts(link, seg, pal, mesh_dir)
         _add_envelope(link, seg, seg.length)
 
         parent_link = seg.link_name

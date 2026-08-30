@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import shutil
 import sys
 from pathlib import Path
 
@@ -74,6 +75,17 @@ def main() -> int:
     parser.add_argument("--brand", help="仅生成指定品牌（如 kuka）")
     parser.add_argument("--check", action="store_true", help="只做数值校验，不写文件")
     parser.add_argument("--models-dir", default=str(REPO_ROOT / "models"))
+    parser.add_argument(
+        "--primitive",
+        action="store_true",
+        help="只生成基本体外观（零依赖、无 STL 网格）；默认生成高保真曲面网格",
+    )
+    parser.add_argument(
+        "--quality",
+        type=int,
+        default=0,
+        help="网格质量档位 0=标准 1=精细 2=极细（默认 0，用于 LOD 权衡）",
+    )
     args = parser.parse_args()
 
     models_dir = Path(args.models_dir)
@@ -83,11 +95,16 @@ def main() -> int:
         print(f"No robots matched (brand={args.brand})", file=sys.stderr)
         return 1
 
-    print(f"{'KEY':<28}{'DOF':>4}{'REACH(mm)':>11}{'HOME(m)':>10}{'STRETCH(m)':>12}{'ERR':>9}")
-    print("-" * 74)
+    print(
+        f"{'KEY':<28}{'DOF':>4}{'REACH(mm)':>11}{'HOME(m)':>10}"
+        f"{'STRETCH(m)':>12}{'ERR':>9}{'TRIS':>8}{'STL(KB)':>9}"
+    )
+    print("-" * 91)
 
     failures = 0
     written = 0
+    total_tris = 0
+    total_bytes = 0
 
     for spec in robots:
         home_h, horizontal, nominal = check_kinematics(spec)
@@ -99,31 +116,78 @@ def main() -> int:
         else:
             flag = ""
 
+        out_dir = models_dir / spec.brand_id / spec.model_id
+
+        # 生成前先清空旧的 meshes 目录，避免改配方后残留过期 STL
+        stale = out_dir / "meshes"
+        if stale.exists():
+            shutil.rmtree(stale)
+
+        if args.primitive:
+            mesh_dir = None
+            tris = kb = 0
+        else:
+            mesh_dir = out_dir / "meshes"
+            mesh_dir.mkdir(parents=True, exist_ok=True)
+
+        urdf_text = build_urdf_string(spec, mesh_dir=mesh_dir)
+
+        if mesh_dir is not None:
+            tris, kb = _mesh_stats(mesh_dir)
+            total_tris += tris
+            total_bytes += kb
+
         print(
             f"{spec.key:<28}{spec.dof:>4}{spec.reach_mm:>11.0f}"
-            f"{home_h:>10.3f}{horizontal:>12.3f}{err:>8.2f}%{flag}"
+            f"{home_h:>10.3f}{horizontal:>12.3f}{err:>8.2f}%"
+            f"{tris:>8}{kb:>9.1f}{flag}"
         )
 
         if args.check:
             continue
 
-        out_dir = models_dir / spec.brand_id / spec.model_id
         out_dir.mkdir(parents=True, exist_ok=True)
         urdf_path = out_dir / f"{spec.model_id}.urdf"
-        urdf_path.write_text(build_urdf_string(spec), encoding="utf-8")
+        urdf_path.write_text(urdf_text, encoding="utf-8")
         written += 1
 
-    print("-" * 74)
-    print(f"Total: {len(robots)} models, {written} URDF written, {failures} failed.")
+    print("-" * 91)
+    style = "primitive" if args.primitive else "high-fidelity mesh"
+    print(
+        f"Total: {len(robots)} models, {written} URDF written, {failures} failed "
+        f"({style}, {total_tris} triangles, {total_bytes / 1024:.1f} MB STL)."
+    )
 
     if not args.check:
-        _write_brand_readmes(models_dir, robots)
+        _write_brand_readmes(models_dir, robots, hifi=not args.primitive)
 
     return 1 if failures else 0
 
 
-def _write_brand_readmes(models_dir: Path, robots) -> None:
+def _mesh_stats(mesh_dir: Path) -> tuple[int, float]:
+    """统计一个型号的全部 STL 三角面数与体积。
+
+    Args:
+        mesh_dir: ``meshes/`` 目录。
+
+    Returns:
+        ``(三角面总数, 体积 KB)``。二进制 STL 头部 84 字节起，每三角形 50 字节。
+    """
+    tris = 0
+    size = 0
+    for stl in sorted(mesh_dir.glob("*.stl")):
+        size += stl.stat().st_size
+        tris += max(0, (stl.stat().st_size - 84) // 50)
+    return tris, size / 1024.0
+
+
+def _write_brand_readmes(models_dir: Path, robots, hifi: bool = True) -> None:
     """为每个品牌生成一份 README，列出型号参数表。"""
+    appearance = (
+        "高保真程序化曲面网格（`meshes/*.stl`，视觉件）+ 单基本体碰撞包络"
+        if hifi
+        else "基本几何体（box / cylinder / sphere）"
+    )
     by_brand: dict[str, list[RobotSpec]] = {}
     for spec in robots:
         by_brand.setdefault(spec.brand_id, []).append(spec)
@@ -135,7 +199,7 @@ def _write_brand_readmes(models_dir: Path, robots) -> None:
             "",
             f"- 国别：{brand.country}",
             f"- 典型控制器：{brand.controller}",
-            "- 模型来源：由 `orolp.robot_library.urdf_builder` 程序化生成（仅基本几何体，不含厂商 CAD）",
+            f"- 模型来源：由 `orolp.robot_library.urdf_builder` 程序化生成（{appearance}，不含厂商 CAD）",
             "",
             "## 型号列表",
             "",

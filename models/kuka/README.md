@@ -2,7 +2,7 @@
 
 - 国别：德国
 - 典型控制器：KRC4 / KRC5
-- 模型来源：由 `orolp.robot_library.urdf_builder` 程序化生成（仅基本几何体，不含厂商 CAD）
+- 模型来源：由 `orolp.robot_library.urdf_builder` 程序化生成（高保真程序化曲面网格（`meshes/*.stl`，视觉件）+ 单基本体碰撞包络，不含厂商 CAD）
 
 ## 型号列表
 
