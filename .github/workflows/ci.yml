@@ -7,7 +7,22 @@ on:
     branches: [main, develop]
 
 jobs:
+  # 公开仓库一旦提交就无法撤回（git 历史会一直留着），所以把卫生检查
+  # 放在最前面、且设成 fail-fast，避免后面的构建白跑。
+  repo-hygiene:
+    name: Repo hygiene (no secrets / no private host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check for credentials and private repo hosts
+        # 只用标准库，无需安装依赖
+        run: python3 tools/check_no_secrets.py
+
   build-cpp:
+    needs: repo-hygiene
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +39,7 @@ jobs:
         run: cd build && ctest --output-on-failure
 
   build-python:
+    needs: repo-hygiene
     runs-on: ubuntu-latest
     strategy:
       matrix:

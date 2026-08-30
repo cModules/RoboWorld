@@ -45,7 +45,45 @@ pytest python/tests/ -v
 # Format code
 black python/
 clang-format -i src/core/*.cpp src/core/*.h
+
+# Install the hygiene pre-commit hook (blocks credentials before they land)
+python3 tools/check_no_secrets.py --install-hook
 ```
+
+## Repository Hygiene
+
+This repository is **public** (Apache-2.0). Anything you commit is public
+forever — deleting it later does not help, because it stays in git history.
+So keep the following out of the repository:
+
+| Do not commit | Put it here instead |
+|---|---|
+| Private repo host URLs (CNB, internal GitLab, …) | Local `.git/config`, or a placeholder in docs |
+| Access tokens / passwords | Environment variables, a secret manager, or `git credential helper` |
+| `https://<user>:<token>@<host>/…` URLs | SSH keys, or a credential helper |
+| Private keys (`*.pem`, `id_rsa*`, …) | Your `~/.ssh/` — never the repo |
+| Local env files (`.env`) | `.env.example` with dummy values only |
+
+Two safeguards are in place:
+
+1. **`.gitignore`** blocks the usual credential filenames, so `git add .`
+   will not pick them up by accident.
+2. **`tools/check_no_secrets.py`** scans the tree for private hosts, inline
+   credentials, private keys, and hardcoded tokens. It runs in CI
+   (`repo-hygiene` job) and, once installed, as a local `pre-commit` hook:
+
+   ```bash
+   python3 tools/check_no_secrets.py              # scan the working tree
+   python3 tools/check_no_secrets.py --staged     # scan staged files only
+   ```
+
+   Known-leaked tokens are matched by **SHA-256 fingerprint only** — the
+   plaintext is never written into the script, and the tool's own output is
+   scrubbed, so running it cannot leak anything further.
+
+If something sensitive does get committed, do not just delete it in a new
+commit: rewrite the history (`git filter-repo`) and **rotate the credential
+first**.
 
 ## Pull Request Process
 

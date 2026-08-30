@@ -45,3 +45,46 @@ docs/_build/
 *.bak
 install_deps.bat
 install_deps.ps1
+
+# ---------------------------------------------------------------------------
+# 凭据与本地环境（绝不进库）
+#
+# 本仓库是 Apache-2.0 公开的：一旦提交就等于永久公开，即使后面删除，
+# git 历史里仍然留着。下面这些是防御性规则——即便有人手滑建了这类文件，
+# `git add .` 也不会把它们带上。
+#
+# 仓库地址、访问令牌这类信息应放在本机的 .git/config、环境变量或密钥管理
+# 服务里，不要落成文件。兜底检查见 tools/check_no_secrets.py
+# （CI 与 pre-commit 都会跑）。
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# 令牌 / 密钥文件
+*.token
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*_rsa
+*_ed25519
+
+# 各类凭据存储
+credentials
+credentials.*
+*.credentials
+.git-credentials
+.netrc
+cnb.config.*
+.cnb/
+
+# 云端 / 代码托管 CLI 配置（常含长期令牌）
+.aws/
+.azure/
+.kube/config
