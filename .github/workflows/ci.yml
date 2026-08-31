@@ -56,7 +56,9 @@ jobs:
           sudo apt install -y libeigen3-dev libpinocchio-dev libfcl-dev
           pip install -e ".[dev]"
       - name: Run Python tests
-        run: pytest python/tests/ -v
+        # 真实回归套件在 tests/（test_olp.py / test_post.py）；
+        # python/tests/ 是早期占位，一并跑以防回归。
+        run: pytest tests/ python/tests/ -v
       - name: Lint
         run: |
           black --check python/
