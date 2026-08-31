@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="jaka_zu30_real">
+  <!-- JAKA zu30 — 真机 CAD（厂商官网 STEP，build_vendor_urdf.py 生成）。几何为真实外形，运动学（轴/限位）复用程序化 URDF。 -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/base_link.stl"/></geometry>
+      <material name="base_link_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/base_link.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="link_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_1.stl"/></geometry>
+      <material name="link_1_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_1.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="link_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_2.stl"/></geometry>
+      <material name="link_2_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_2.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="link_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_3.stl"/></geometry>
+      <material name="link_3_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_3.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="link_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_4.stl"/></geometry>
+      <material name="link_4_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_4.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="link_5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_5.stl"/></geometry>
+      <material name="link_5_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/link_5.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="tool0">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/tool0.stl"/></geometry>
+      <material name="tool0_m"><color rgba="0.80 0.82 0.85 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes_real/tool0.stl"/></geometry>
+    </collision>
+  </link>
+  <link name="tcp">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><sphere radius="0.008"/></geometry>
+      <material name="tcp_m"><color rgba="0.15 0.85 0.55 1"/></material>
+    </visual>
+  </link>
+  <joint name="joint_1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link_1"/>
+    <origin xyz="0.093 3.41061e-13 -0.065" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.28318" upper="6.28318" effort="220" velocity="2.0944"/>
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <parent link="link_1"/>
+    <child link="link_2"/>
+    <origin xyz="-0.093 -0.101 -0.2245" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.48353" upper="4.62512" effort="220" velocity="2.0944"/>
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <parent link="link_2"/>
+    <child link="link_3"/>
+    <origin xyz="0.5885 -0.02885 0.093" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.05433" upper="3.05433" effort="220" velocity="2.0944"/>
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <parent link="link_3"/>
+    <child link="link_4"/>
+    <origin xyz="0.5725 0.0016 -2.84217e-14" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.48353" upper="4.62512" effort="220" velocity="3.83972"/>
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <parent link="link_4"/>
+    <child link="link_5"/>
+    <origin xyz="0.0565871 -0.0099682 0.0784" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-6.28318" upper="6.28318" effort="220" velocity="3.83972"/>
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <parent link="link_5"/>
+    <child link="tool0"/>
+    <origin xyz="0.00649446 0.0282682 0.013145" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.28318" upper="6.28318" effort="220" velocity="3.83972"/>
+  </joint>
+  <joint name="tcp_joint" type="fixed">
+    <parent link="tool0"/>
+    <child link="tcp"/>
+    <origin xyz="0 0 0.081" rpy="0 0 0"/>
+  </joint>
+</robot>
