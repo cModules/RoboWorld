@@ -230,10 +230,15 @@ class TestErrorHandling:
             pp.generate(motions)
 
     def test_unsupported_motion_raises(self, name):
+        """SPLINE 现在已支持，应降级为 PTP/LIN 出码，而非抛错。
+
+        真正的"不支持"仍由圆弧缺 via 等场景守住（见
+        ``test_circular_without_via_raises``）。
+        """
         pp = get_post_processor(name)
         motions = [Motion(MotionType.SPLINE, target=[0, 0, 0, 0, 0, 0])]
-        with pytest.raises(PostProcessError):
-            pp.generate(motions)
+        code = pp.generate(motions)  # 不应抛错
+        assert code.strip()
 
     def test_error_carries_motion_index(self, name):
         # 第 2 条指令（关节目标含非数值）转换崩，报错应指出是第 2 条

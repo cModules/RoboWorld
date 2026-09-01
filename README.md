@@ -16,11 +16,13 @@
 
 | 功能 | 状态 | 说明 |
 |---------|--------|-------------|
-| **多品牌机器人** | ✅ MVP | 基于 URDF 的统一建模；支持 UR、KUKA、ABB、FANUC、汇川 |
-| **离线编程** | ✅ MVP | Python API + 可链式运动指令（MoveJ / MoveL） |
-| **后处理器** | ✅ MVP | 基于模板（Jinja2）的代码生成；社区可扩展 |
-| **运动学** | ✅ MVP | 基于 Pinocchio 的正/逆运动学；解析 + 数值求解器 |
-| **碰撞检测** | 🔄 脚手架 | FCL 集成计划 v0.2 完成 |
+| **多品牌机器人** | ✅ MVP | 基于 URDF 的统一建模；支持 UR、KUKA、ABB、FANUC、ESTUN、汇川、JAKA |
+| **离线编程** | ✅ 完成 | 链式 API（MoveJ / MoveL / MoveC / MoveSpline）+ 轨迹展开 + 节拍估算 + 校验 |
+| **代码上传** | ✅ 完成 | `ControllerLink` 抽象：`FileLink` 离线导出、`SimLink` 仿真回读；真实控制器按同接口接入 |
+| **在线调试** | ✅ 完成 | `DebugSession`：单步/连续播放、读回实际位姿、与规划值偏差比对、示教 jog |
+| **后处理器** | ✅ 完成 | 7 品牌 Jinja2 模板（KUKA/ABB/FANUC/UR/JAKA/ESTUN/汇川）；SPLINE 降级为 PTP/LIN |
+| **运动学** | ✅ MVP | 纯 Python 运动学回退（C++ 核心可选）；正/逆解 + 雅可比 |
+| **碰撞检测** | 🔄 脚手架 | 场景级 SAT 干涉检查可用；FCL 集成计划 v0.2 |
 | **3D GUI** | 📋 规划中 | Qt6 + OpenGL 视口（v0.3） |
 | **ROS2 数字孪生** | 📋 规划中 | 原生 rclpy 桥接，实现实时同步 |
 | **轨迹优化** | 📋 规划中 | TOPP-RA 时间最优参数化 |

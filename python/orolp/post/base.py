@@ -144,7 +144,7 @@ class BasePostProcessor(ABC):
         converted: List[Dict[str, Any]] = []
         for i, motion in enumerate(motions):
             try:
-                converted.append(self._convert_motion(motion))
+                converted.append(self._dispatch_motion(motion))
             except PostProcessError:
                 raise
             except Exception as exc:  # 保留异常链，便于定位具体指令
@@ -187,6 +187,48 @@ class BasePostProcessor(ABC):
     @abstractmethod
     def _get_template(self) -> str:
         """返回 Jinja2 模板字符串。"""
+
+    def _dispatch_motion(self, motion: Motion) -> Dict[str, Any]:
+        """把一条 Motion 分派给具体转换逻辑。
+
+        SPLINE 目前**统一降级**为等价的 PTP（关节目标）或 LIN（位姿目标）：
+        目的地与 SPLINE 完全一致，且所有品牌控制器都能直接加载，无需各自
+        实现样条块。若某品牌想改用原生样条指令（KUKA ``SPLINE`` 块、ABB ``Spl``
+        等），只需在子类里实现 :meth:`_convert_spline` 覆盖即可。
+
+        Args:
+            motion: 运动指令
+
+        Returns:
+            供 Jinja2 模板使用的字典
+        """
+        if motion.type == MotionType.SPLINE:
+            if type(self)._convert_spline is not BasePostProcessor._convert_spline:
+                return self._convert_spline(motion)
+            return self._convert_motion(self._lower_spline(motion))
+        return self._convert_motion(motion)
+
+    def _lower_spline(self, motion: Motion) -> Motion:
+        """把 SPLINE 运动降级为等价的 PTP / LIN 运动（目的地不变）。
+
+        Args:
+            motion: SPLINE 指令
+
+        Returns:
+            关节目标转成 :class:`MotionType.JOINTS`，位姿目标转成
+            :class:`MotionType.LINEAR`；速度与过渡半径沿用原指令
+        """
+        if isinstance(motion.target, Pose):
+            return Motion(MotionType.LINEAR, motion.target, speed=motion.speed, blend=motion.blend)
+        joints = [float(v) for v in np.asarray(motion.target, dtype=np.float64).ravel()]
+        return Motion(MotionType.JOINTS, joints, speed=motion.speed, blend=motion.blend)
+
+    def _convert_spline(self, motion: Motion) -> Dict[str, Any]:
+        """SPLINE 的原生转换（默认未启用，子类可覆盖以输出品牌样条指令）。"""
+        raise PostProcessError(
+            f"{self.full_name} 尚未实现原生 SPLINE 指令；"
+            f"默认已将其降级为 PTP/LIN（目的地一致）"
+        )
 
     # ------------------------- 格式化工具 ------------------------- #
 

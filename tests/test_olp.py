@@ -330,13 +330,16 @@ def test_failed_motion_does_not_fake_a_trajectory():
     assert len(traj.waypoints) == 1
 
 
-def test_spline_is_rejected_loudly():
-    """未实现的插补类型必须明确报错。"""
+def test_spline_now_supported():
+    """SPLINE 插补已实现：规划可达、节拍为正，不再被拒绝。"""
     robot = make_robot()
-    prog = Program(robot, [Motion(MotionType.SPLINE, [0.0] * 6)])
+    prog = Program(
+        robot,
+        [Motion(MotionType.JOINTS, [0.0] * 6), Motion(MotionType.SPLINE, [10.0] * 6)],
+    )
     report = prog.validate()
-    assert not report.ok
-    assert "SPLINE" in report.errors[0].message
+    assert report.ok, report.format()
+    assert report.cycle_time and report.cycle_time > 0
 
 
 def test_issue_string_is_actionable():

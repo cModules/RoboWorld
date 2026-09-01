@@ -27,6 +27,8 @@ from .planner import (
     ProgramReport,
     TrajectoryPlanner,
 )
+from .link import ControllerLink, FileLink, SimLink, Deployment
+from .debug import DebugSession, Deviation
 
 __all__ = [
     "Robot",
@@ -44,4 +46,11 @@ __all__ = [
     "Issue",
     "AxisLimits",
     "PlanningError",
+    # 离线编程最后一公里：代码上传 + 在线调试
+    "ControllerLink",
+    "FileLink",
+    "SimLink",
+    "Deployment",
+    "DebugSession",
+    "Deviation",
 ]

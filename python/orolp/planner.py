@@ -505,10 +505,7 @@ class TrajectoryPlanner:
                 elif motion.type == MotionType.CIRCULAR:
                     pts, poses, dt, plen = self._expand_circular(q_cur, motion, idx)
                 elif motion.type == MotionType.SPLINE:
-                    raise PlanningError(
-                        "SPLINE 插补尚未实现；请改用 moveL 密集点位，"
-                        "或先拆分为多段直线/圆弧"
-                    )
+                    pts, poses, dt, plen = self._expand_spline(q_cur, motion, idx)
                 else:
                     raise PlanningError(f"未知的指令类型：{motion.type!r}")
             except PlanningError as exc:
@@ -749,6 +746,98 @@ class TrajectoryPlanner:
             pts.append(q.copy())
             poses.append(self._fk(q))
         # 每步时长：整段时间均分（关节空间线性插补，控制器即如此）
+        return pts, poses, total / n, 0.0
+
+    def _resolve_q_end(
+        self, motion: "Motion", q_start: np.ndarray, index: int, is_target: bool = True
+    ) -> np.ndarray:
+        """把指令终点解析成关节角（deg）。
+
+        ``target`` 是关节列表时直接采用；是 :class:`~orolp.pose.Pose` 时做逆解
+        （用上一步的关节作初值，保证位形连续、且能命中与相邻指令一致的配置）。
+
+        Args:
+            motion: 当前指令
+            q_start: 起始关节角（逆解初值）
+            index: 指令序号（仅用于错误信息）
+            is_target: 是否为示教点（决定逆解容差）
+
+        Returns:
+            关节角（deg）
+
+        Raises:
+            PlanningError: 关节数不符、逆解失败或（对 moveJ 类）目标越限
+        """
+        from .program import MotionType
+
+        if isinstance(motion.target, Pose):
+            q = self._ik(motion.target, np.asarray(q_start), 1.0, is_target=is_target)
+            return np.asarray(q, dtype=np.float64).ravel()
+        try:
+            q_end = np.asarray(motion.target, dtype=np.float64).ravel()
+        except Exception as exc:
+            raise PlanningError(
+                f"指令 {index + 1} 的 target 既不是关节列表也不是位姿：{exc}"
+            ) from exc
+        if q_end.size != q_start.size:
+            raise PlanningError(
+                f"指令 {index + 1} 目标关节数 {q_end.size} 与自由度 {q_start.size} 不符"
+            )
+        return q_end
+
+    def _expand_spline(
+        self, q_start: np.ndarray, motion: "Motion", index: int
+    ) -> Tuple[List[np.ndarray], List[Pose], float, float]:
+        """moveSpline：关节空间最小抖动（5 次多项式）平滑插补，等效平滑 PTP。
+
+        比 :meth:`_expand_joint` 的线性插补多了加减速的连续段——起点/终点速度、
+        加速度均为零，适合需要柔和过渡、减少机械冲击的搬运/装配段。
+
+        这是 SPLINE 插补的**最小可用实现**：在两端点之间做一条平滑曲线。
+        若需要"穿过多个示教点的笛卡尔样条路径"，按历史实现的建议用 moveL
+        密集点位近似即可（控制器也是逐段直线逼近样条）。
+
+        Returns:
+            ``(joints_list, pose_list, dt, path_length)``，
+            ``path_length`` 对 moveSpline 恒为 0（关节空间运动，TCP 不走直线）
+        """
+        from .program import MotionType
+
+        q_end = self._resolve_q_end(motion, q_start, index)
+        # 目标越限同样必须报错，与 moveJ 一致——示教点写错了就该让用户知道，
+        # 夹回后机器人走到的是别的位置，现场对不上点位极难排查
+        violation = self._limits.violation(q_end)
+        if violation:
+            raise PlanningError(f"moveSpline 目标{violation}")
+
+        delta = q_end - q_start
+        if not np.any(np.abs(delta) > 1e-9):
+            return [], [], 0.0, 0.0
+
+        scale = self._speed_scale(motion)
+
+        # 步数：随最大单轴行程定（与 moveJ 同），保证每步不超过插补分辨率
+        step_res = np.where(
+            np.array([j.is_prismatic for j in self.robot.kinematics.actuated]),
+            self.linear_res,
+            self.angular_res,
+        )
+        n = int(np.ceil(float(np.max(np.abs(delta) / step_res))))
+        n = int(np.clip(n, 2, MAX_STEPS_PER_MOTION))
+
+        vmax = self._limits.max_speed * scale
+        amax = self._limits.max_accel * scale
+        total = _synchronized_time(np.abs(delta), vmax, amax)
+
+        pts: List[np.ndarray] = []
+        poses: List[Pose] = []
+        for i in range(1, n + 1):
+            alpha = i / n
+            # 5 次最小抖动基函数：s(0)=0, s(1)=1, s'(0)=s'(1)=0, s''(0)=s''(1)=0
+            s = 10.0 * alpha**3 - 15.0 * alpha**4 + 6.0 * alpha**5
+            q = q_start + delta * s
+            pts.append(q.copy())
+            poses.append(self._fk(q))
         return pts, poses, total / n, 0.0
 
     def _expand_linear(

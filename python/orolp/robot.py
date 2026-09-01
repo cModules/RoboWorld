@@ -1,7 +1,7 @@
 """Robot class for representing industrial robots."""
 
 import math
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 import numpy as np
 from .pose import Pose
 from .kinematics import KinematicsError, RobotKinematics
@@ -293,6 +293,19 @@ class Robot:
         """
         from .program import ProgramBuilder
         return ProgramBuilder(self).moveC(via, target, speed, blend)
+
+    def moveSpline(
+        self,
+        target: Union[List[float], "Pose"],
+        speed: float = 100.0,
+        blend: float = 0.0,
+    ) -> "ProgramBuilder":
+        """Create a smooth (minimum-jerk) joint-space motion.
+
+        详见 :meth:`orolp.program.ProgramBuilder.moveSpline`。
+        """
+        from .program import ProgramBuilder
+        return ProgramBuilder(self).moveSpline(target, speed, blend)
 
     def __repr__(self) -> str:
         return f"Robot(name='{self.name}', dof={self._dof})"

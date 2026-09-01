@@ -173,6 +173,80 @@ class Program:
 
         return pp.generate(self.motions, metadata=meta)
 
+    def deploy(
+        self,
+        link: "ControllerLink",
+        post_processor: str | None = None,
+        name: str | None = None,
+        metadata: Dict[str, Any] | None = None,
+    ) -> "Deployment":
+        """把程序部署到一台控制器（在线或仿真）。
+
+        离线编程的最后一公里：先 :meth:`to_post` 生成代码，再交给连接层落盘/
+        烧录。等同于手动 ``code = prog.to_post(...); link.upload_program(...)``
+        的组合，但会把品牌、扩展名等一并写进部署清单。
+
+        Args:
+            link: 控制器连接（:class:`~orolp.link.FileLink` /
+                :class:`~orolp.link.SimLink` / 真实控制器）
+            post_processor: 后处理器名；``None`` 时按机器人品牌自动推断
+            name: 程序名；``None`` 时取 metadata 的 ``program_name`` 或 ``"program"``
+            metadata: 附加信息
+
+        Returns:
+            :class:`~orolp.link.Deployment`
+
+        Raises:
+            PostProcessError: 后处理失败（与 :meth:`to_post` 一致）
+        """
+        from .link import Deployment
+
+        code = self.to_post(post_processor, metadata)
+        chosen_pp = post_processor or self._infer_post_processor()
+
+        meta: Dict[str, Any] = {
+            "post_processor": chosen_pp,
+            "robot_name": self.robot.name,
+        }
+        # 品牌：复用 _infer_post_processor 的目录推断（仅用于清单，不报错）
+        try:
+            from pathlib import Path as _Path
+
+            from .post import resolve_for_brand as _resolve
+
+            parts = _Path(self.robot.urdf_path).parts
+            if "models" in parts:
+                _brand = parts[parts.index("models") + 1]
+                if _resolve(_brand) is not None:
+                    meta["brand"] = _brand
+        except Exception:
+            pass
+        if metadata:
+            meta.update(metadata)
+
+        # 让部署目录按正确的文件扩展名落盘（如 UR 的 .script、KUKA 的 .src）
+        try:
+            from .post import get_post_processor as _get_pp
+
+            meta.setdefault("ext", _get_pp(chosen_pp).file_extension)
+        except Exception:
+            meta.setdefault("ext", "src")
+
+        prog_name = name or meta.get("program_name") or "program"
+        handle = link.upload_program(prog_name, code, meta)
+        return Deployment(
+            program_name=prog_name,
+            post_processor=chosen_pp,
+            brand=meta.get("brand"),
+            code=code,
+            handle=handle,
+            ok=True,
+            notes=(
+                "支持实际位置回读" if getattr(link, "is_actual_feedback", False)
+                else "离线导出，无实际位置回读"
+            ),
+        )
+
     def _infer_post_processor(self) -> str:
         """根据 URDF 路径中的品牌目录推断后处理器。
 
@@ -282,6 +356,29 @@ class ProgramBuilder:
             This builder for chaining
         """
         self.motions.append(Motion(MotionType.CIRCULAR, target, via=via, speed=speed, blend=blend))
+        return self
+
+    def moveSpline(
+        self,
+        target: Union[List[float], "Pose"],
+        speed: float = 100.0,
+        blend: float = 0.0,
+    ) -> "ProgramBuilder":
+        """Add a smooth (minimum-jerk) joint-space motion.
+
+        比 :meth:`moveJ` 多一段连续加减速，适合需要柔和过渡的搬运/装配段。
+        ``target`` 是关节列表时直接走关节空间平滑曲线；是位姿时先逆解到关节再
+        平滑过去。
+
+        Args:
+            target: 目标关节角或工具位姿
+            speed: 速度百分比 (0-100)
+            blend: 融合半径 (mm)
+
+        Returns:
+            This builder for chaining
+        """
+        self.motions.append(Motion(MotionType.SPLINE, target, speed=speed, blend=blend))
         return self
 
     def then(self, other: Union["ProgramBuilder", "Program"]) -> "ProgramBuilder":
