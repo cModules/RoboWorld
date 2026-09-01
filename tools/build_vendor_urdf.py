@@ -7,11 +7,12 @@
 每个网格处在世界坐标系、姿态是厂商出厂 CAD 的折叠姿态，并没有和 URDF 的连杆链
 对上。本工具补上这最后一步：
 
-1. 用 XCAF 读装配树，按 base→tip 顺序拿到 7 个刚体组件（JAKA 是
-   base + link_1..5 + tool0，外加一个非物理的 ``tcp`` 标记）。
-2. 几何按与 ``vendor_cad_import`` 一致的 Y-up mm → Z-up m 变换，落到世界系。
+1. 用 ``TopoDS_Iterator`` 按 base→tip 顺序拿到顶层「已烘焙定位」的组件形状（与
+   ``vendor_cad_import`` 完全同坐标系，保证和已渲染的 ``grp_*.stl`` 严格对齐）。
+2. 几何按各品牌的轴系约定（JAKA 是 Y-up mm → Z-up m 换轴+缩放；KUKA/ABB/FANUC/
+   Estun 等工业 CAD 多为 Z-up mm）落到世界系。
 3. 运动学（关节轴 / 限位 / 父子关系）**直接复用已验证的程序化 URDF**——那是对
-   的 JAKA 参数；只把每个关节原点改成 CAD 实际姿态算出来的旋转中心，让真机外形
+   的真实参数；只把每个关节原点改成 CAD 实际姿态算出来的旋转中心，让真机外形
    与既有运动学对齐。
 4. 每个连杆网格存成「相对本连杆坐标系」的 STL（顶点减去旋转中心），写进
    ``models/<brand>/<model>/meshes_real/``，并生成 ``<model>_real.urdf``。
@@ -19,12 +20,19 @@
 这样产出的机器人：外形是真机的，关节轴/限位是验证过的，零位姿态就是 CAD 出厂
 姿态，且能正确摆动（每个关节绕真实的连杆连接中心旋转）。
 
+多品牌：所有品牌共用同一套代码，差异只在 ``BRANDS`` 配置表（轴系约定、目录、
+已验证标记）。新品牌只需在表里加一行。运动学来源是 ``models/<brand>/<model>/
+<model>.urdf``（程序化模型）。没有 STEP 时可用 ``--probe`` 先看组件数与包围盒，
+用来确认轴系约定。
+
 依赖：``cadquery-ocp``（OpenCASCADE 绑定）。
 
 用法::
 
-    python3 tools/build_vendor_urdf.py --model zu3
-    python3 tools/build_vendor_urdf.py --all
+    python3 tools/build_vendor_urdf.py --brand jaka --all
+    python3 tools/build_vendor_urdf.py --brand kuka --model kr6_r900
+    python3 tools/build_vendor_urdf.py --brand kuka --probe      # 先看 STEP 结构
+    python3 tools/build_vendor_urdf.py --all                     # 所有有 STEP 的品牌
 """
 
 from __future__ import annotations
@@ -45,29 +53,69 @@ MODELS_DIR = REPO_ROOT / "models"
 
 
 # --------------------------------------------------------------------------- #
-# 几何变换（与 vendor_cad_import.convert 完全一致）
+# 品牌配置表
 # --------------------------------------------------------------------------- #
-def _yz_swap_scale_trsf(scale: float = 0.001):
+@dataclass
+class BrandSpec:
+    key: str
+    label: str            # 厂商名（也用于 STEP 文件名归一化匹配）
+    model_dir: str        # models/<model_dir>/<model>/<model>.urdf
+    step_subdir: str      # assets/vendor/<step_subdir>/*.STEP
+    coord: str = "z_up_mm"   # y_up_mm | z_up_mm | z_up_m
+    verified: bool = False    # 是否已用真实 STEP 验证过轴系/组件映射
+    note: str = ""
+
+
+# 轴系约定说明：
+#   y_up_mm —— 源 Y-up（如 JAKA 出厂 CAD），需 YZ 换轴到 Z-up，mm→m 缩放 0.001
+#   z_up_mm —— 源 Z-up（多数工业 CAD），仅 mm→m 缩放 0.001
+#   z_up_m  —— 源 Z-up 且单位已是 m，无缩放
+BRANDS: Dict[str, BrandSpec] = {
+    "jaka":  BrandSpec("jaka",  "JAKA",  "jaka",  "jaka/step",  coord="y_up_mm", verified=True,
+                       note="已验证：7 型号全过，Y-up mm→Z-up m；组件即连杆（base+link_1..5+tool0），多出的并入 tool0"),
+    "kuka":  BrandSpec("kuka",  "KUKA",  "kuka",  "kuka/step",  coord="z_up_mm", verified=False,
+                       note="待验证：KUKA CAD 多为 Z-up mm；组件映射待 STEP 到位后调"),
+    "abb":   BrandSpec("abb",   "ABB",   "abb",   "abb/step",   coord="z_up_mm", verified=False,
+                       note="待验证：ABB CAD 多为 Z-up mm；组件映射待 STEP 到位后调"),
+    "fanuc": BrandSpec("fanuc", "FANUC", "fanuc", "fanuc/step", coord="z_up_mm", verified=False,
+                       note="待验证：FANUC CAD 多为 Z-up mm；组件映射待 STEP 到位后调"),
+    "estun": BrandSpec("estun", "ESTUN", "estun", "estun/step", coord="z_up_mm", verified=False,
+                       note="待验证：Estun CAD 多 Z-up mm；组件映射待 STEP 到位后调"),
+}
+
+
+# --------------------------------------------------------------------------- #
+# 几何变换（与 vendor_cad_import.convert 一致的轴系/单位约定）
+# --------------------------------------------------------------------------- #
+def _coord_trsf(coord: str):
+    """按品牌轴系约定，返回 源→Z-up m 的 gp_Trsf。"""
     from OCP.gp import gp_Trsf, gp_Pnt, gp_Dir, gp_Ax3
 
-    trsf = gp_Trsf()
-    src_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0))  # Y-up
-    dst_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))  # Z-up
-    trsf.SetTransformation(src_ax, dst_ax)
-    scale_trsf = gp_Trsf()
-    scale_trsf.SetScaleFactor(scale)
-    return scale_trsf * trsf
+    rot = gp_Trsf()
+    if coord == "y_up_mm":
+        # 源 Y-up → 目标 Z-up（右手系保持：(x,y,z)->(x,-z,y)）
+        src_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0))
+        dst_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))
+        rot.SetTransformation(src_ax, dst_ax)
+    elif coord in ("z_up_mm", "z_up_m"):
+        pass  # 已是 Z-up，无需换轴
+    else:
+        raise ValueError(f"未知 coord: {coord}")
+
+    scale = gp_Trsf()
+    scale.SetScaleFactor(0.001 if coord.endswith("mm") else 1.0)
+    return scale * rot
 
 
 # --------------------------------------------------------------------------- #
-# STEP → 组件（XCAF）
+# STEP → 组件（与 vendor_cad_import.convert 完全一致的 TopoDS_Iterator 路径）
 # --------------------------------------------------------------------------- #
 def load_step_components(step_path: Path, trsf) -> List[Tuple[str, "TopoDS_Shape"]]:
     """读取 STEP，返回 (组件名, 已变换到世界系的形状) 列表，base→tip 顺序。
 
     与 ``vendor_cad_import.convert`` **完全一致**的做法：先对整个 root 施加
-    Y-up mm → Z-up m 的换轴+缩放，再用 ``TopoDS_Iterator`` 取顶层「已烘焙」形状。
-    这样得到的几何与已验证、已渲染的 ``grp_*.stl`` 严格同坐标系。
+    轴系+缩放变换，再用 ``TopoDS_Iterator`` 取顶层「已烘焙」形状。这样得到的几何
+    与已验证、已渲染的 ``grp_*.stl`` 严格同坐标系。
     """
     from OCP.STEPControl import STEPControl_Reader
     from OCP.IFSelect import IFSelect_RetDone
@@ -95,11 +143,10 @@ def load_step_components(step_path: Path, trsf) -> List[Tuple[str, "TopoDS_Shape
 # --------------------------------------------------------------------------- #
 # 网格化（OpenCASCADE 内置 IncrementalMesh → 取三角形顶点）
 # --------------------------------------------------------------------------- #
-def mesh_component(shape, rel_deflection: float = 0.01, angular: float = 0.5,
-                   trsf=None) -> np.ndarray:
+def mesh_component(shape, rel_deflection: float = 0.01, angular: float = 0.5) -> np.ndarray:
     """把一个已定位形状三角化，返回 (N*3,3) 的世界系顶点数组（Z-up m）。
 
-    注意：形状传入前应已施加 Y-up→Z-up 的换轴+缩放（见 ``load_step_components``），
+    注意：形状传入前应已施加轴系+缩放变换（见 ``load_step_components``），
     本函数不再做坐标变换。
     """
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -200,7 +247,7 @@ def parse_kinematics(urdf_path: Path) -> Kinematics:
                 if kv[0] in ("lower", "upper", "effort", "velocity"):
                     d[kv[0]] = float(kv[1])
         kin.joints[jname] = d
-        if jname == "tcp_joint" or c and c.group(1) == "tcp":
+        if jname == "tcp_joint" or (c and c.group(1) == "tcp"):
             kin.tcp_offset = d["xyz"]
     return kin
 
@@ -226,64 +273,122 @@ def compute_frames(centroids: List[np.ndarray]) -> List[np.ndarray]:
 
 
 # --------------------------------------------------------------------------- #
+# STEP 文件名 ↔ 型号 归一化匹配（解决前缀冲突：zu3 vs zu30、kr6 vs kr60）
+# --------------------------------------------------------------------------- #
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _match_step(brand_norm: str, model_norm: str, stem_norm: str) -> bool:
+    """STEP stem 归一化后，是否对应 (brand, model)。
+
+    要点：model 可能是别的 model 的前缀（zu3⊂zu30），所以用「下一位非数字」来
+    卡边界，避免 zu3 误匹配 Zu30。
+    """
+    pref = brand_norm + model_norm
+    if not stem_norm.startswith(pref):
+        return False
+    nxt = stem_norm[len(pref):len(pref) + 1]
+    return nxt == "" or not nxt.isdigit()
+
+
+def step_path_for(brand: str, model: str) -> Optional[Path]:
+    bspec = BRANDS[brand]
+    brand_norm = _norm(bspec.label)
+    model_norm = _norm(model)
+    cands = []
+    sub = VENDOR_STEP / bspec.step_subdir
+    if sub.exists():
+        for p in sub.glob("*.STEP"):
+            if _match_step(brand_norm, model_norm, _norm(p.stem)):
+                cands.append(p)
+    return sorted(cands)[0] if cands else None
+
+
+def model_list(brand: str) -> List[str]:
+    """该品牌全部有程序化 URDF 的型号（目录名 == urdf 名）。"""
+    bspec = BRANDS[brand]
+    out = []
+    root = MODELS_DIR / bspec.model_dir
+    if root.exists():
+        for d in sorted(root.iterdir()):
+            if d.is_dir() and (d / f"{d.name}.urdf").exists():
+                out.append(d.name)
+    return out
+
+
+def models_with_step(brand: str) -> List[str]:
+    return [m for m in model_list(brand) if step_path_for(brand, m) is not None]
+
+
+# --------------------------------------------------------------------------- #
 # 主流程
 # --------------------------------------------------------------------------- #
-def step_path_for(model: str) -> Optional[Path]:
-    """按型号精确匹配 STEP 文件。
+def probe_step(brand: str, model: Optional[str]) -> int:
+    """打印 STEP 的组件数与包围盒（应用品牌轴系约定后），用于确认 coord/映射。"""
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRep import BRep_Tool
+    from OCP.TopoDS import TopoDS
 
-    文件名形如 ``JAKA_Zu_3-V2.0_20231016.STEP``（型号里有下划线），而内部型号名是
-    ``zu3``，直接用 ``capitalize()`` 拼 glob 会把 ``zu3`` 误匹配到 ``Zu30``。这里
-    遍历全部 STEP，去掉下划线后精确比对型号数字。
-    """
-    target = model.replace("_", "")
-    for p in VENDOR_STEP.glob("jaka/step/*.STEP"):
-        m = re.match(r"JAKA_(Zu[\w]+)-", p.stem)
-        if m and m.group(1).lower().replace("_", "").replace("step", "") == target:
-            return p
-    return None
+    bspec = BRANDS[brand]
+    if model:
+        steps = [step_path_for(brand, model)]
+        if steps[0] is None:
+            print(f"[probe] {brand}/{model}: 未找到 STEP")
+            return 1
+    else:
+        sub = VENDOR_STEP / bspec.step_subdir
+        steps = sorted(sub.glob("*.STEP")) if sub.exists() else []
+        if not steps:
+            print(f"[probe] {brand}: {sub} 下没有 STEP（先放厂商 CAD 进来）")
+            return 1
+
+    trsf = _coord_trsf(bspec.coord)
+    for step in steps:
+        comps = load_step_components(step, trsf)
+        print(f"\n=== probe {brand}: {step.name} ===")
+        print(f"  coord={bspec.coord}  组件数={len(comps)}")
+        allmin = np.full(3, np.inf)
+        allmax = np.full(3, -np.inf)
+        for name, sh in comps:
+            box = Bnd_Box()
+            BRepBndLib.Add_s(sh, box)
+            if box.IsVoid():
+                continue
+            mn = box.CornerMin()
+            mx = box.CornerMax()
+            lo = np.array([mn.X(), mn.Y(), mn.Z()])
+            hi = np.array([mx.X(), mx.Y(), mx.Z()])
+            allmin = np.minimum(allmin, lo)
+            allmax = np.maximum(allmax, hi)
+            print(f"  {name}: x[{lo[0]:+.3f},{hi[0]:+.3f}] "
+                  f"y[{lo[1]:+.3f},{hi[1]:+.3f}] z[{lo[2]:+.3f},{hi[2]:+.3f}]")
+        print(f"  总包围盒: x[{allmin[0]:+.3f},{allmax[0]:+.3f}] "
+              f"y[{allmin[1]:+.3f},{allmax[1]:+.3f}] z[{allmin[2]:+.3f},{allmax[2]:+.3f}]")
+    return 0
 
 
-def model_list() -> List[str]:
-    out = []
-    for p in sorted(VENDOR_STEP.glob("jaka/step/*.STEP")):
-        m = re.match(r"JAKA_(Zu[\w]+)-", p.stem)
-        if m:
-            # 文件名里常见 Zu_3 / Zu_18step，下划线无意义，"step" 是后缀噪音。
-            # 归一化成纯型号：zu3 / zu18，与 models/jaka/ 目录对齐。
-            name = m.group(1).lower().replace("_", "").replace("step", "")
-            out.append(name)
-    # 去重保序
-    seen = set()
-    uniq = []
-    for m in out:
-        if m not in seen:
-            seen.add(m)
-            uniq.append(m)
-    return uniq
-
-
-def build_model(model: str, rel_deflection: float, angular: float) -> int:
-    from OCP.gp import gp_Trsf
-
-    step = step_path_for(model)
+def build_model(brand: str, model: str, rel_deflection: float, angular: float) -> int:
+    bspec = BRANDS[brand]
+    step = step_path_for(brand, model)
     if step is None:
-        print(f"[skip] {model}: 找不到 STEP（先跑 vendor_cad_import --fetch --convert）")
+        print(f"[skip] {brand}/{model}: 找不到 STEP（放进 {VENDOR_STEP / bspec.step_subdir}）")
         return 1
-    proc_urdf = MODELS_DIR / "jaka" / model / f"{model}.urdf"
+    proc_urdf = MODELS_DIR / bspec.model_dir / model / f"{model}.urdf"
     if not proc_urdf.exists():
-        print(f"[skip] {model}: 没有对应的程序化 URDF {proc_urdf}")
+        print(f"[skip] {brand}/{model}: 没有对应的程序化 URDF {proc_urdf}")
         return 1
 
     kin = parse_kinematics(proc_urdf)
-    print(f"\n=== {model} ===  刚体顺序: {kin.bodies}")
+    print(f"\n=== {brand}/{model} ===  刚体顺序: {kin.bodies}")
     print(f"  关节: " + ", ".join(
         f"{j}:{d['axis']}" for j, d in kin.joints.items() if d['type'] != 'fixed'))
 
-    trsf = _yz_swap_scale_trsf(0.001)
+    trsf = _coord_trsf(bspec.coord)
     comps = load_step_components(step, trsf)
-    print(f"  XCAF 组件数: {len(comps)}  -> {[c[0] for c in comps]}")
+    print(f"  STEP 组件数: {len(comps)}  -> {[c[0] for c in comps]}")
 
-    # 取前 len(kin.bodies) 个组件；多出来的并入最后一个刚体
     n_bodies = len(kin.bodies)
     if len(comps) < n_bodies:
         print(f"  [warn] 组件数 {len(comps)} < 刚体数 {n_bodies}，跳过")
@@ -301,15 +406,14 @@ def build_model(model: str, rel_deflection: float, angular: float) -> int:
     compute_frames._verts = meshes  # 供 compute_frames 用
     origins = compute_frames(centroids)
 
-    # 额外的组件（如 Zu18 的第 8 个）追加到 tool0
+    # 额外的组件（如 Zu18 的第 8 个）追加到最后一个刚体
     extra_v = []
     for name, sh in comps[n_bodies:]:
         extra_v.append(mesh_component(sh, rel_deflection, angular))
     if extra_v:
         print(f"  [info] {len(extra_v)} 个额外组件并入 {kin.bodies[-1]}")
 
-    # 写出 link-local STL
-    out_dir = MODELS_DIR / "jaka" / model / "meshes_real"
+    out_dir = MODELS_DIR / bspec.model_dir / model / "meshes_real"
     for i, body in enumerate(kin.bodies):
         rel = meshes[i] - origins[i]
         write_stl_binary(out_dir / f"{body}.stl", rel)
@@ -317,22 +421,22 @@ def build_model(model: str, rel_deflection: float, angular: float) -> int:
         rel = ev - origins[-1]
         write_stl_binary(out_dir / f"{kin.bodies[-1]}_extra{k}.stl", rel)
 
-    # 生成 URDF
-    write_urdf(MODELS_DIR / "jaka" / model / f"{model}_real.urdf",
-               model, kin, origins, out_dir, meshes, extra_v)
+    write_urdf(MODELS_DIR / bspec.model_dir / model / f"{model}_real.urdf",
+               brand, model, kin, origins, out_dir, meshes, extra_v)
     return 0
 
 
-def write_urdf(path: Path, model: str, kin: Kinematics, origins: List[np.ndarray],
-               out_dir: Path, meshes: List[np.ndarray], extra_v: List[np.ndarray]) -> None:
-    # 关节顺序：按父子关系从 base 往下排
-    chain = kin.bodies  # base, link_1.., tool0
-    # 找到每个 child 对应的 joint
+def write_urdf(path: Path, brand: str, model: str, kin: Kinematics,
+               origins: List[np.ndarray], out_dir: Path,
+               meshes: List[np.ndarray], extra_v: List[np.ndarray]) -> None:
+    chain = kin.bodies
     joint_by_child = {d["child"]: (j, d) for j, d in kin.joints.items()}
+    robot_name = f"{brand}_{model}_real"
 
     lines = [f'<?xml version="1.0" encoding="utf-8"?>',
-             f'<robot name="jaka_{model}_real">',
-             f'  <!-- JAKA {model} — 真机 CAD（厂商官网 STEP，{__file__.split("/")[-1]} 生成）。'
+             f'<robot name="{robot_name}">',
+             f'  <!-- {BRANDS[brand].label} {model} — 真机 CAD（厂商官网 STEP，'
+             f'{Path(__file__).name} 生成，coord={BRANDS[brand].coord}）。'
              f'几何为真实外形，运动学（轴/限位）复用程序化 URDF。 -->']
 
     materials = {
@@ -342,16 +446,13 @@ def write_urdf(path: Path, model: str, kin: Kinematics, origins: List[np.ndarray
         "jointcap": "0.85 0.86 0.88 1",
     }
 
-    # links
     for i, body in enumerate(chain):
         lines.append(f'  <link name="{body}">')
-        # 主网格
         lines.append('    <visual>')
         lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         lines.append(f'      <geometry><mesh filename="meshes_real/{body}.stl"/></geometry>')
         lines.append(f'      <material name="{body}_m"><color rgba="{materials["metal"]}"/></material>')
         lines.append('    </visual>')
-        # 额外组件
         if i == len(chain) - 1:
             for k in range(len(extra_v)):
                 lines.append('    <visual>')
@@ -359,14 +460,12 @@ def write_urdf(path: Path, model: str, kin: Kinematics, origins: List[np.ndarray
                 lines.append(f'      <geometry><mesh filename="meshes_real/{body}_extra{k}.stl"/></geometry>')
                 lines.append(f'      <material name="{body}_ex{k}"><color rgba="{materials["dark"]}"/></material>')
                 lines.append('    </visual>')
-        # 碰撞用网格本身（真机外形，碰撞最准）
         lines.append('    <collision>')
         lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         lines.append(f'      <geometry><mesh filename="meshes_real/{body}.stl"/></geometry>')
         lines.append('    </collision>')
         lines.append('  </link>')
 
-    # tcp 标记（固定，非物理）
     if kin.tcp_offset is not None:
         lines.append('  <link name="tcp">')
         lines.append('    <visual>')
@@ -376,7 +475,6 @@ def write_urdf(path: Path, model: str, kin: Kinematics, origins: List[np.ndarray
         lines.append('    </visual>')
         lines.append('  </link>')
 
-    # joints（base 无 joint；其余按 chain 顺序）
     for i in range(1, len(chain)):
         child = chain[i]
         entry = joint_by_child.get(child)
@@ -398,7 +496,6 @@ def write_urdf(path: Path, model: str, kin: Kinematics, origins: List[np.ndarray
             lines.append(f'    <limit lower="{lo:g}" upper="{hi:g}" effort="{eff:g}" velocity="{vel:g}"/>')
         lines.append('  </joint>')
 
-    # tcp 固定关节
     if kin.tcp_offset is not None:
         off = " ".join(f"{x:g}" for x in kin.tcp_offset)
         lines.append('  <joint name="tcp_joint" type="fixed">')
@@ -409,32 +506,52 @@ def write_urdf(path: Path, model: str, kin: Kinematics, origins: List[np.ndarray
 
     lines.append('</robot>')
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    # 体积统计
     total = sum(meshes[i].shape[0] // 3 for i in range(len(meshes)))
     size = sum((out_dir / f"{b}.stl").stat().st_size for b in chain) / 1024
     print(f"  写出 {path.name}: {len(chain)} 连杆 / {total} 三角面 / {size:.0f} KB 网格")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="把厂商真机 STEP 接成 URDF")
-    ap.add_argument("--model", help="型号，如 zu3")
-    ap.add_argument("--all", action="store_true", help="全部 jaka 型号")
+    ap = argparse.ArgumentParser(description="把厂商真机 STEP 接成 URDF（多品牌）")
+    ap.add_argument("--brand", default="jaka",
+                    help="品牌键，见 BRANDS：jaka/kuka/abb/fanuc/estun（默认 jaka）")
+    ap.add_argument("--model", help="型号，如 zu3 / kr6_r900")
+    ap.add_argument("--all", action="store_true",
+                    help="对该品牌所有「有 STEP」的型号，或（无 --brand 之外的）所有品牌")
+    ap.add_argument("--probe", action="store_true",
+                    help="只探查 STEP 的组件数与包围盒，不生成 URDF")
     ap.add_argument("--rel-deflection", type=float, default=0.01,
                     help="相对弦高（默认 0.01，越小越细）")
     ap.add_argument("--angular-deflection", type=float, default=0.5)
     args = ap.parse_args()
 
+    if args.brand not in BRANDS:
+        ap.error(f"未知品牌 {args.brand}，可选: {', '.join(BRANDS)}")
+
+    if args.probe:
+        return probe_step(args.brand, args.model)
+
     if args.all:
-        models = model_list()
+        if args.brand == "jaka" and not args.model:
+            # 默认 --all 不指品牌时，跑所有有 STEP 的品牌
+            brands = [b for b in BRANDS if models_with_step(b)]
+        else:
+            brands = [args.brand]
+        models = [(b, m) for b in brands for m in models_with_step(b)]
     elif args.model:
-        models = [args.model]
+        models = [(args.brand, args.model)]
     else:
         ap.print_help()
         return 0
 
+    if not models:
+        print("没有找到任何「型号 + STEP」组合。把厂商 STEP 放进 "
+              f"{VENDOR_STEP}/<brand>/step/ 后再试。")
+        return 1
+
     rc = 0
-    for m in models:
-        rc |= build_model(m, args.rel_deflection, args.angular_deflection)
+    for b, m in models:
+        rc |= build_model(b, m, args.rel_deflection, args.angular_deflection)
     return rc
 
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <robot name="jaka_zu7_real">
-  <!-- JAKA zu7 — 真机 CAD（厂商官网 STEP，build_vendor_urdf.py 生成）。几何为真实外形，运动学（轴/限位）复用程序化 URDF。 -->
+  <!-- JAKA zu7 — 真机 CAD（厂商官网 STEP，build_vendor_urdf.py 生成，coord=y_up_mm）。几何为真实外形，运动学（轴/限位）复用程序化 URDF。 -->
   <link name="base_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
