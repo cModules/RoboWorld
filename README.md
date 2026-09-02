@@ -196,6 +196,8 @@ The key extensibility seams:
 - [ ] Tool & workpiece frame calibration
 - [ ] CI with real URDF regression + LFS asset caching
 
+> Full feature roadmap with priorities, deliverables and risks: **[`docs/ROADMAP.md`](docs/ROADMAP.md)**.
+
 ### 📋 v0.3.0 (Production candidate)
 - [ ] Node-based visual programming
 - [ ] ROS 2 digital-twin bridge (`rclpy`)
