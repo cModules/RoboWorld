@@ -1,205 +1,251 @@
 # OpenRoboOLP
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![C++](https://img.shields.io/badge/C++-17-blue.svg)](https://isocpp.org/)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
+[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)](#development-progress)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#installation--quick-start)
 
-**开源工业机器人离线编程软件**
+**An open-source industrial robot Offline Programming (OLP) terminal**
 
-一款免费、可扩展且由社区驱动的商业 OLP 工具替代品，可替代 RoboDK、Robotmaster 和 Delmia。
+A free, extensible, community-driven alternative to RoboDK / Robotmaster / DELMIA — built on open standards (URDF), transparent algorithms, and a community-maintained post-processor ecosystem.
 
-> **愿景**：通过开放标准（URDF）、透明算法以及社区维护的后处理器生态，普及工业机器人编程。
+> **Vision**: make industrial robot programming accessible by lowering the barrier of proprietary formats and closed ecosystems, while keeping the toolchain auditable end-to-end.
 
----
-
-## 核心功能
-
-| 功能 | 状态 | 说明 |
-|---------|--------|-------------|
-| **多品牌机器人** | ✅ MVP | 基于 URDF 的统一建模；支持 UR、KUKA、ABB、FANUC、ESTUN、汇川、JAKA |
-| **离线编程** | ✅ 完成 | 链式 API（MoveJ / MoveL / MoveC / MoveSpline）+ 轨迹展开 + 节拍估算 + 校验 |
-| **代码上传** | ✅ 完成 | `ControllerLink` 抽象：`FileLink` 离线导出、`SimLink` 仿真回读；真实控制器按同接口接入 |
-| **在线调试** | ✅ 完成 | `DebugSession`：单步/连续播放、读回实际位姿、与规划值偏差比对、示教 jog |
-| **后处理器** | ✅ 完成 | 7 品牌 Jinja2 模板（KUKA/ABB/FANUC/UR/JAKA/ESTUN/汇川）；SPLINE 降级为 PTP/LIN |
-| **运动学** | ✅ MVP | 纯 Python 运动学回退（C++ 核心可选）；正/逆解 + 雅可比 |
-| **碰撞检测** | 🔄 脚手架 | 场景级 SAT 干涉检查可用；FCL 集成计划 v0.2 |
-| **3D GUI** | 📋 规划中 | Qt6 + OpenGL 视口（v0.3） |
-| **ROS2 数字孪生** | 📋 规划中 | 原生 rclpy 桥接，实现实时同步 |
-| **轨迹优化** | 📋 规划中 | TOPP-RA 时间最优参数化 |
+[🇨🇳 中文使用说明 / Chinese guide](docs/README_zh.md) · [📖 Post-processor dev guide](docs/post_dev_guide.md) · [🛠 Vendor CAD setup](docs/VENDOR_CAD_SETUP.md)
 
 ---
 
-## 快速开始
+## ✨ Development Progress
 
-### 前置依赖
+Snapshot of what's actually in `main` as of the latest commit. Numbers reflect the current test suite and model library.
 
-- **C++**: GCC 9+ / Clang 12+ / MSVC 2019+
-- **CMake**: 3.16+
-- **Python**: 3.9、3.10、3.11 或 3.12
-- **系统依赖**: `eigen3`、`pinocchio`、`fcl`、`pybind11`
+| Area | Status | What works today |
+|---|---|---|
+| **Robot model library** | ✅ 28 models | UR / KUKA / ABB / FANUC / Estun / JAKA / Huichuan; program-generated URDFs + 7 vendor-CAD JAKA models with real mesh |
+| **Offline programming API** | ✅ complete | Chainable `Robot.moveJ / moveL / moveC / moveSpline`; planner expansion; cycle-time estimate; collision-aware validation |
+| **Post-processors** | ✅ 7 brands | Jinja2 templates: `ur_polyscope` / `kuka_krc4` / `abb_rapid` / `fanuc_tp` / `estun_er` / `jaka_zu` / `huichuan_inoteach`; SPLINE auto-degrades to PTP/LIN |
+| **Code upload (`link.py`)** | ✅ complete | `ControllerLink` abstraction — `FileLink` (offline export + manifest), `SimLink` (in-process kinematics echo); real controllers plug in behind the same interface |
+| **Online debug (`debug.py`)** | ✅ complete | `DebugSession`: step / continuous playback, read-back actual pose, deviation vs. planned (mm + deg), jog |
+| **Kinematics** | ✅ pure-Python | FK / IK / Jacobian fallback (C++ core optional); 137 unit/regression tests passing |
+| **3D GUI (`olp.py`)** | ✅ complete | PySide6 + OpenGL viewport, joint sliders, robot library, path-code editor, scene & OLP panels |
+| **Scene / collision** | 🔧 scaffold | Per-link SAT intersection available; FCL integration planned |
+| **ROS 2 digital twin** | 📋 planned | Native `rclpy` bridge, target v0.3 |
+| **Trajectory optimization** | 📋 planned | TOPP-RA time-optimal parameterization, target v1.0 |
 
-**Ubuntu 22.04/24.04:**
+---
+
+## 🖼 Key Features Demo
+
+The GUI is a single `olp.py` — load any URDF, switch the tab on the left, drag the joint sliders on the right.
+
+### Main view · 3D viewport + robot library + joint control
+![Main view](docs/screenshots/main_ur5e.png)
+
+- Left tab **机器人库** lists every model in `models/` with search and brand/payload/reach filters; click any entry to load it.
+- Center is the OpenGL viewport (program-generated UR5e above, JAKA Zu5 real CAD below).
+- Right panel shows robot info and six **joint sliders** with model-specific limits — drag to see live motion.
+
+### Path-code editor · edit teach targets / generated robot code
+![Path code](docs/screenshots/path_code.png)
+
+- **路径代码** tab: text editor + Record / Play / Stop / Clear.
+- Live parsing: every recognized `movej` / `movel` is visualized in the 3D viewport as a waypoint trail.
+
+### Offline programming · program validation + cycle-time + playback
+![Offline programming](docs/screenshots/offline_programming.png)
+
+- **离线编程** tab: program summary (cycle time, TCP path, waypoint count), **校验程序 (F7)** for reachability / limits / collision, **回放** for continuous run, **停止** for interrupt.
+- Coupled to the `orolp.Planner` backend — uses real kinematics, not a mock.
+
+### Vendor CAD integration · JAKA Zu5 real machine mesh
+![JAKA Zu5 real](docs/screenshots/jaka_zu5_real.png)
+
+- JAKA Zu5 loaded from `models/jaka/zu5/zu5_real.urdf` — meshes come from the **official STEP** (toolchain in `tools/build_vendor_urdf.py`, see [docs/VENDOR_CAD_SETUP.md](docs/VENDOR_CAD_SETUP.md)).
+- Joint limits on the right panel match the **real Zu5 spec** (`joint_2 -85..265°`, `joint_3 ±175°`, `joint_4 -85..265°`) — not generic ±360°.
+- This is the reference integration; KUKA / ABB / FANUC / Estun use the same pipeline — drop STEPs into `assets/vendor/<brand>/step/` and run the tool.
+
+---
+
+## 🤖 Supported robots & controllers
+
+| Brand | Controller | Post-processor | Real-machine CAD |
+|---|---|---|---|
+| Universal Robots | PolyScope 5 / 6 | `ur_polyscope` | ✅ UR3 / UR5 / UR10 / UR3e / UR5e / UR10e / UR16e |
+| JAKA | Zu App | `jaka_zu` | ✅ **Zu3 / Zu5 / Zu7 / Zu12 / Zu18 / Zu20 / Zu30** (vendor STEP → mesh) |
+| KUKA | KRC4 | `kuka_krc4` | 🔄 pipeline ready, awaiting STEPs |
+| ABB | IRC5 | `abb_rapid` | 🔄 pipeline ready, awaiting STEPs |
+| FANUC | R-30iB | `fanuc_tp` | 🔄 pipeline ready, awaiting STEPs |
+| Estun | ER | `estun_er` | 🔄 pipeline ready, awaiting STEPs |
+| Huichuan | InoTeach | `huichuan_inoteach` | 🔄 post-processor only |
+
+> **Adding a new brand takes < 30 min** — drop STEPs into `assets/vendor/<brand>/step/`, run `tools/build_vendor_urdf.py --brand <brand>`, then write one Jinja2 template. See [docs/post_dev_guide.md](docs/post_dev_guide.md).
+
+---
+
+## 🚀 Installation & Quick Start
+
+### 1. Get the code
 ```bash
-sudo apt update
-sudo apt install -y build-essential cmake libeigen3-dev     libpinocchio-dev libfcl-dev pybind11-dev python3-dev     python3-pip qt6-base-dev  # GUI 可选
+git clone <your-fork-url>          # the actual repo URL is provided by the maintainers
+cd RobotWorld
 ```
 
-**macOS:**
+### 2. Set up Python (recommended: conda)
 ```bash
-brew install cmake eigen pinocchio fcl pybind11 qt@6
+conda create -y -n robotworld python=3.11
+conda activate robotworld
+```
+Or use any virtualenv — Python **3.9 ~ 3.12** is supported.
+
+### 3. Install dependencies + the `orolp` package
+```bash
+pip install -e ".[gui]"
+```
+This installs the core (numpy / scipy / jinja2 / pyyaml / pydantic) **and** the GUI (PySide6 / PyOpenGL) plus the `orolp` package itself in editable mode. No C++ build required — the pure-Python kinematics fallback is shipped and verified by the 137-test suite.
+
+If you're behind a slow PyPI mirror:
+```bash
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-### 编译与安装
-
+### 4. Launch the GUI
 ```bash
-git clone https://github.com/your-org/openrobolp.git
-cd openrobolp
-
-# 创建虚拟环境（推荐）
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 安装 Python 依赖
-pip install -e ".[dev]"
-
-# 编译 C++ 核心 + Python 绑定
-mkdir build && cd build
-cmake .. -DBUILD_PYTHON_BINDINGS=ON -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-cd ..
-
-# C++ 模块现在可通过 `orolp.orolp_core` 导入
-python -c "import orolp; print(orolp.__version__)"
+python olp.py models/ur/ur5e/ur5e.urdf
 ```
+- **macOS / Windows** with a desktop: window pops up directly.
+- **Headless Linux** (e.g. CI / sandbox): run under `Xvfb :99 -screen 0 1600x1000x24`, then `DISPLAY=:99 python olp.py …`.
 
-### 第一个程序
-
+### 5. Your first program (headless / no GUI)
 ```python
-import orolp as orp
+# examples/olp_full_workflow.py — runnable end-to-end demo
+from orolp import Robot, Program, Planner
+from orolp.post import process as post_process
+from orolp.link import FileLink, SimLink
+from orolp.debug import DebugSession
 
-# 加载机器人模型
-robot = orp.Robot("models/ur/ur5e.urdf", name="UR5")
-robot.tool = orp.Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
-
-# 定义抓取与放置
-pick = orp.Pose.from_xyz_rpy(500, 200, 100, 0, 0, 0)
-place = orp.Pose.from_xyz_rpy(600, 300, 100, 0, 0, 0)
-
-program = (
-    robot.moveJ([0, -90, 90, -90, 90, 0], speed=80)
-    .then(robot.moveL(pick, speed=50, blend=5))
-    .then(robot.moveL(place, speed=80, blend=5))
+robot = Robot("models/ur/ur5e/ur5e.urdf", name="UR5")
+prog = (
+    Program(robot)
+    .moveJ([0, -1.5708, 1.5708, -1.5708, 1.5708, 0])
+    .moveL_to((0.50, 0.20, 0.30, 0, 0, 0))
+    .moveL_to((0.50, 0.30, 0.30, 0, 0, 0))
 )
+Planner().plan(prog)               # expansion + cycle-time + validation
+print(post_process(prog, "ur_polyscope"))   # emit URScript
 
-# 仿真并生成原生代码
-traj = program.simulate()
-print(f"节拍时间: {traj.duration():.2f}s")
+link = FileLink(out_dir="out/")    # offline export + manifest.json
+prog.deploy(link, "ur_polyscope", name="pick_and_place")
 
-ur_code = program.to_post("ur_polyscope")
-print(ur_code)
-```
-
-更多示例请见 `examples/`：抓取放置、焊接路径、多机器人同步等。
-
----
-
-## 架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Python API 层（用户脚本、节点编辑器）                       │
-│  ─────────────────────────────────────────────────────────  │
-│  Robot · Pose · Motion · Program · SimulationWorld           │
-├─────────────────────────────────────────────────────────────┤
-│  C++ 核心引擎（性能关键路径）                                │
-│  ─────────────────────────────────────────────────────────  │
-│  RobotModel (Pinocchio) · MotionPlanner · CollisionWorld    │
-├─────────────────────────────────────────────────────────────┤
-│  后处理器生态（Jinja2 模板）                                 │
-│  ─────────────────────────────────────────────────────────  │
-│  KUKA KRL · ABB RAPID · FANUC TP · URScript · 汇川         │
-└─────────────────────────────────────────────────────────────┘
+# SimLink: read-back via kinematics echo (replace with ControllerLink for real hardware)
+sim = SimLink(robot)
+dbg = DebugSession(prog, sim)
+for deviation in dbg.play():
+    print(deviation)              # mm + deg vs. planned
 ```
 
 ---
 
-## 支持的机器人与控制器
+## 🏗 Architecture
 
-| 品牌 | 控制器 | 后处理器 | 已测试 |
-|-------|-----------|----------------|--------|
-| Universal Robots | PolyScope | `ur_polyscope` | ✅ |
-| KUKA | KRC4 | `kuka_krc4` | 🔄 |
-| ABB | IRC5 | `abb_irc5` | 🔄 |
-| FANUC | R-30iB | `fanuc_r30ib` | 🔄 |
-| 汇川 | InoTeach | `huichuan_inoteach` | 🔄 |
+```
+┌───────────────────────────────────────────────────────────────┐
+│  GUI layer — olp.py (PySide6 + OpenGL)                        │
+│  ──────────────────────────────────────────────────────────── │
+│  MainWindow · tabs: 机器人库 / 路径代码 / 场景 / 离线编程     │
+│  GLWidget viewport · joint sliders · path-code editor         │
+├───────────────────────────────────────────────────────────────┤
+│  Python API — `orolp` package                                 │
+│  ──────────────────────────────────────────────────────────── │
+│  Robot · Pose · Motion(JOINT/LINEAR/CIRCULAR/SPLINE)          │
+│  Program · Planner · SimulationWorld · Link · DebugSession    │
+├───────────────────────────────────────────────────────────────┤
+│  Kinematics core                                              │
+│  ──────────────────────────────────────────────────────────── │
+│  pure-Python FK·IK·Jacobian (default, used in CI & tests)    │
+│  C++ Pinocchio/FCL core (optional build via CMakeLists.txt)   │
+├───────────────────────────────────────────────────────────────┤
+│  Post-processor ecosystem — Jinja2 templates                  │
+│  ──────────────────────────────────────────────────────────── │
+│  ur_polyscope · kuka_krc4 · abb_rapid · fanuc_tp              │
+│  estun_er · jaka_zu · huichuan_inoteach                        │
+└───────────────────────────────────────────────────────────────┘
+```
 
-> 🔄 = 模板已实现，待真实硬件验证
-
-**添加一个新品牌不到 30 分钟。** 详见 [docs/post_dev_guide.md](docs/post_dev_guide.md)。
-
----
-
-## 路线图
-
-### v0.1.0（当前 — Alpha）
-- [x] 基于 Pinocchio 的 C++ 正/逆运动学核心
-- [x] Python 绑定（pybind11）
-- [x] Qt6 3D 视口
-- [x] 1 个机器人模型
-- [x] 轨迹记录与编程
-
-
-
-### v0.2.0（Beta）
-- [ ] 轨迹插值 
-- [ ] 2 个参考后处理器
-- [ ] FCL 碰撞检测
-- [ ] 带 IK 种子点的笛卡尔直线路径
-- [ ] 工件 / 工具坐标系标定
-- [ ] 带真实 URDF 回归测试的 CI/CD
-
-### v0.3.0（生产候选版）
-- [ ] 可链式运动 API
-- [ ] 节点式可视化编程
-- [ ] ROS2 数字孪生桥接
-- [ ] 插件市场
-
-### v1.0.0（稳定版）
-- [ ] TOPP-RA 轨迹优化
-- [ ] 多机器人协同
-- [ ] 力控工艺仿真
-- [ ] IEC 61131-3 PLC 代码生成
+The key extensibility seams:
+- **`Link` interface** — swap `FileLink` (offline) for `SimLink` (sim) or a real `ControllerLink` (e.g. RTDE / PROFINET / vendor SDK) without touching application code.
+- **`_convert_motion(motion)` in each brand template** — override `_convert_spline` to keep splines when a controller supports them natively; default degrades to PTP/LIN.
 
 ---
 
-## 贡献
+## 🛣 Roadmap
 
-我们欢迎机器人工程师、研究人员和制造商的贡献。
+### ✅ v0.1.0 (current — Alpha)
+- [x] URDF-based unified model library (28 models, 7 brands)
+- [x] Chainable motion API + planner expansion + cycle-time
+- [x] 7 brand post-processors (Jinja2) with unit tests
+- [x] `Link` interface + `FileLink` / `SimLink` implementations
+- [x] `DebugSession`: read-back + deviation
+- [x] Pure-Python kinematics fallback (FK / IK / Jacobian) — 137 tests passing
+- [x] PySide6 + OpenGL terminal GUI with library / path-code / scene / OLP tabs
+- [x] JAKA 7-model real-machine CAD integration via vendor STEP → mesh
+- [x] Multi-brand STEP ingestion tool (`tools/build_vendor_urdf.py`)
 
-- **后处理器**：添加你的机器人品牌 —— 最简单的切入点
-- **核心算法**：逆运动学求解器、路径规划、标定
-- **文档**：教程、API 文档、翻译
-- **测试**：硬件验证报告
+### 🔧 v0.2.0 (Beta)
+- [ ] FCL collision integration (replacing the per-link SAT scaffold)
+- [ ] Linear path with IK seed / multi-solution selection
+- [ ] Tool & workpiece frame calibration
+- [ ] CI with real URDF regression + LFS asset caching
 
-贡献指南请见 [CONTRIBUTING.md](CONTRIBUTING.md)，后处理器开发指南请见 [docs/post_dev_guide.md](docs/post_dev_guide.md)。
+### 📋 v0.3.0 (Production candidate)
+- [ ] Node-based visual programming
+- [ ] ROS 2 digital-twin bridge (`rclpy`)
+- [ ] Plugin marketplace
+
+### 📋 v1.0.0
+- [ ] TOPP-RA time-optimal trajectory parameterization
+- [ ] Multi-robot synchronized programs
+- [ ] Force-controlled process simulation
+- [ ] IEC 61131-3 PLC code generation
 
 ---
 
-## 许可证
+## 🧪 Tests
 
-OpenRoboOLP 采用 **Apache License 2.0** 许可。
-
-`models/` 中的机器人 CAD 模型（URDF、网格）可能带有原作者的独立许可证。详见各目录下的 `README.md`。
+```bash
+pytest tests/ python/tests/    # 137 tests, covers kinematics / post / link / debug / vendor CAD
+```
+The CI workflow lives at `.github/workflows/ci.yml`.
 
 ---
 
-## 致谢
+## 🤝 Contributing
+
+We welcome robot engineers, researchers, and integrators.
+
+- **Add a brand** — easiest entry point: write one Jinja2 template + drop STEPs into `assets/vendor/<brand>/step/`. See [docs/post_dev_guide.md](docs/post_dev_guide.md).
+- **Improve core algorithms** — IK solvers, path planners, calibration routines.
+- **Hardware validation reports** — running a generated URScript / KRL / RAPID on a real controller.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## 📄 License
+
+OpenRoboOLP is released under the **Apache License 2.0**.
+
+Third-party robot CAD models in `models/` may carry their own licenses — see each sub-directory's `README.md`.
+
+---
+
+## 🙏 Acknowledgements
 
 - [Pinocchio](https://github.com/stack-of-tasks/pinocchio) — INRIA / LAAS-CNRS
 - [FCL](https://github.com/flexible-collision-library/fcl) — Flexible Collision Library
 - [OMPL](https://ompl.kavrakilab.org/) — Open Motion Planning Library
-- [RoboDK](https://robodk.com/) — 灵感来源与行业标杆
+- [RoboDK](https://robodk.com/) — inspiration & industry benchmark
+- Every contributor who has tested on a real controller
 
 ---
 
-**由开源机器人社区用 ❤️ 打造。**
+**Built with ❤️ by the open-source robotics community.**
