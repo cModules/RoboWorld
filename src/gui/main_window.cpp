@@ -15,7 +15,7 @@ namespace orolp_gui {
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setupUI();
     setupToolbar();
-    setWindowTitle("OpenRoboOLP 3D Viewer v0.1.0");
+    setWindowTitle("RobotWorld 3D Viewer v0.1.0");
     resize(1200, 800);
 }
 
@@ -89,7 +89,7 @@ bool MainWindow::loadRobot(const std::string& urdf_path) {
         // (simplified: emit signal after panel setup)
     }
 
-    setWindowTitle(QString("OpenRoboOLP - %1")
+    setWindowTitle(QString("RobotWorld - %1")
         .arg(QString::fromStdString(urdf_path)));
     return true;
 }

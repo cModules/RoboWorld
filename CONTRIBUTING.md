@@ -1,4 +1,4 @@
-# Contributing to OpenRoboOLP
+# Contributing to RobotWorld
 
 Thank you for your interest in making industrial robot programming accessible to everyone!
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenRoboOLP Python 3D Viewer (Minimal Demo)
+RobotWorld Python 3D Viewer (Minimal Demo)
 A lightweight alternative using PySide6 + OpenGL, no C++ compilation needed.
 
 Usage:
@@ -745,7 +745,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, urdf_path=None):
         super().__init__()
-        self.setWindowTitle("OpenRoboOLP Python Viewer v0.1.0")
+        self.setWindowTitle("RobotWorld Python Viewer v0.1.0")
         self.resize(1200, 800)
 
         central = QtWidgets.QWidget()

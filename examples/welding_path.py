@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenRoboOLP Example: Welding Path with Weave Pattern
+RobotWorld Example: Welding Path with Weave Pattern
 Demonstrates Cartesian path generation for continuous processes.
 """
 

@@ -1,15 +1,15 @@
-# OpenRoboOLP
+# RobotWorld
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)](#development-progress)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#installation--quick-start)
 
-**An open-source industrial robot Offline Programming (OLP) terminal**
+**An open-source robot programming & simulation platform**
 
-A free, extensible, community-driven alternative to RoboDK / Robotmaster / DELMIA — built on open standards (URDF), transparent algorithms, and a community-maintained post-processor ecosystem.
+An open, extensible, community-driven ecosystem for industrial robotics — built on open standards (URDF), transparent algorithms, and a community-maintained post-processor library. RobotWorld goes beyond offline programming (OLP): it unifies robot modeling, trajectory planning, simulation, and code generation into one auditable toolchain, serving as a free alternative to closed ecosystems like RoboDK / Robotmaster / DELMIA.
 
-> **Vision**: make industrial robot programming accessible by lowering the barrier of proprietary formats and closed ecosystems, while keeping the toolchain auditable end-to-end.
+> **Vision**: make industrial robot programming and simulation accessible to everyone by lowering the barrier of proprietary formats and closed ecosystems, while keeping the entire toolchain open and auditable end-to-end.
 
 [🇨🇳 中文使用说明 / Chinese guide](docs/README_zh.md) · [📖 Post-processor dev guide](docs/post_dev_guide.md) · [🛠 Vendor CAD setup](docs/VENDOR_CAD_SETUP.md)
 
@@ -234,7 +234,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📄 License
 
-OpenRoboOLP is released under the **Apache License 2.0**.
+RobotWorld is released under the **Apache License 2.0**.
 
 Third-party robot CAD models in `models/` may carry their own licenses — see each sub-directory's `README.md`.
 

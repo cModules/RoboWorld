@@ -217,7 +217,7 @@ def main() -> int:
 
     fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.5), facecolor=BG)
     fig.suptitle(
-        "OpenRoboOLP — 离线编程核心验证（KUKA KR16-2）",
+        "RobotWorld — 离线编程核心验证（KUKA KR16-2）",
         color=FG,
         fontsize=14,
         fontweight="bold",

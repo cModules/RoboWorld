@@ -1,6 +1,6 @@
-# OpenRoboOLP 示例程序
+# RobotWorld 示例程序
 
-本目录包含 OpenRoboOLP 的各种示例程序，演示如何使用 Python API 进行机器人离线编程。
+本目录包含 RobotWorld 的各种示例程序，演示如何使用 Python API 进行机器人离线编程。
 
 ## 目录结构
 

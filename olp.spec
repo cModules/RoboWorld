@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-OpenRoboOLP - PyInstaller Spec File
+RobotWorld - PyInstaller Spec File
 用于打包 Windows 64位版本
 """
 
@@ -60,7 +60,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='OpenRoboOLP',
+    name='RobotWorld',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

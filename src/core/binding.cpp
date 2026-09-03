@@ -9,7 +9,7 @@ namespace py = pybind11;
 using namespace orolp;
 
 PYBIND11_MODULE(orolp_core, m) {
-    m.doc() = "OpenRoboOLP Core Engine - Python Bindings";
+    m.doc() = "RobotWorld Core Engine - Python Bindings";
 
     // JointLimits
     py::class_<JointLimits>(m, "JointLimits")

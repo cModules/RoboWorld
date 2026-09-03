@@ -76,7 +76,7 @@ class JAKAZuPostProcessor(BasePostProcessor):
         raise PostProcessError(f"JAKA 不支持的运动类型: {motion.type}")
 
     def _get_template(self) -> str:
-        return """# OpenRoboOLP v{{ meta.version|default('0.1.0') }} generated JAKA script
+        return """# RobotWorld v{{ meta.version|default('0.1.0') }} generated JAKA script
 # Robot: {{ meta.robot_name|default('unknown') }}
 # NOTE: 语法未经真实控制器验证，使用前请核对
 

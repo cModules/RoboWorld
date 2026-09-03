@@ -1,6 +1,6 @@
 """机器人型号规格数据库 (Robot specification database).
 
-本模块是 OpenRoboOLP 机器人库的数据源：每个型号用一份轻量的参数描述来定义，
+本模块是 RobotWorld 机器人库的数据源：每个型号用一份轻量的参数描述来定义，
 再由 :mod:`urdf_builder` 程序化生成 URDF。
 
 设计要点

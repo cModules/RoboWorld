@@ -1,13 +1,13 @@
 # Post-Processor Development Guide
 
-OpenRoboOLP uses a **template-based post-processor engine**. To add support for a new robot brand or controller, you only need to write a single Python file.
+RobotWorld uses a **template-based post-processor engine**. To add support for a new robot brand or controller, you only need to write a single Python file.
 
 ## Quick Start (5 minutes)
 
 1. Create `python/orolp/post/my_brand.py`
 2. Inherit from `BasePostProcessor`
 3. Implement 3 methods: `brand`, `controller`, `_convert_wp`, `_get_template`
-4. Restart OpenRoboOLP — your processor is auto-discovered
+4. Restart RobotWorld — your processor is auto-discovered
 
 ## Minimal Example
 

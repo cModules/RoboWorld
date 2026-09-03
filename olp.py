@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenRoboOLP - OLP Terminal
+RobotWorld - OLP Terminal
 """
 
 import sys
@@ -1480,7 +1480,7 @@ class DevicePropertyPanel(QtWidgets.QWidget):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, urdf_path=None):
         super().__init__()
-        self.setWindowTitle("OpenRoboOLP Terminal v0.1.0")
+        self.setWindowTitle("RobotWorld Terminal v0.1.0")
         self.resize(1400, 900)
         self._set_window_icon()
         self.setup_menu()

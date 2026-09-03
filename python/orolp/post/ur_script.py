@@ -75,7 +75,7 @@ class URScriptPostProcessor(BasePostProcessor):
 
     def _get_template(self) -> str:
         return """def {{ meta.program_name|default('orolp_prog') }}():
-    # OpenRoboOLP v{{ meta.version|default('0.1.0') }} generated URScript
+    # RobotWorld v{{ meta.version|default('0.1.0') }} generated URScript
     # Robot: {{ meta.robot_name|default('unknown') }}
     {% for wp in waypoints %}
     {% if wp.cmd == 'movec' %}

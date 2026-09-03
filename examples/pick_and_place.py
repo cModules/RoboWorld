@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenRoboOLP Example: Pick and Place
+RobotWorld Example: Pick and Place
 Demonstrates joint moves, linear moves, tool frames, and post-processor generation.
 """
 

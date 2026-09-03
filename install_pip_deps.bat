@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-echo 正在安装 OpenRoboOLP 依赖 ...
+echo 正在安装 RobotWorld 依赖 ...
 
 REM 优先使用 .venv 虚拟环境，否则使用系统 python
 if exist "%~dp0.venv\Scripts\python.exe" (

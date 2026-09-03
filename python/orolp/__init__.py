@@ -1,4 +1,4 @@
-"""OpenRoboOLP - Open-source Offline Programming Software for Industrial Robots
+"""RobotWorld - Open-source Offline Programming Software for Industrial Robots
 
 A free, extensible alternative to commercial OLP tools like RoboDK.
 Supports multi-brand robots via open URDF standards and community-driven

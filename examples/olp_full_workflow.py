@@ -1,6 +1,6 @@
 """离线编程全闭环示例：轨迹生成 → 校验 → 后处理 → 上传 → 在线调试。
 
-一条命令跑通 OpenRoboOLP 的完整链路，不依赖任何真机或 GUI：
+一条命令跑通 RobotWorld 的完整链路，不依赖任何真机或 GUI：
 
 1. 加载机器人（URDF），用链式 API 编一条搬运程序（moveJ / moveL / moveSpline）；
 2. 仿真展开成密轨迹，并做生成前校验（不可达 / 越限 / 奇异 / 干涉）；
@@ -64,7 +64,7 @@ def build_program(robot: Robot):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="OpenRoboOLP 离线编程全闭环示例")
+    ap = argparse.ArgumentParser(description="RobotWorld 离线编程全闭环示例")
     ap.add_argument("--brand", default="ur", choices=list(BRANDS))
     ap.add_argument("--post", default=None, help="后处理器 full_name（默认按品牌推断）")
     args = ap.parse_args()

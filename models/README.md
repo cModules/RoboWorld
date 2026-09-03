@@ -27,5 +27,5 @@ models/
 
 ## License Note
 
-Robot CAD models may have separate licenses from the OpenRoboOLP codebase.
+Robot CAD models may have separate licenses from the RobotWorld codebase.
 Always verify redistribution rights before including proprietary meshes.

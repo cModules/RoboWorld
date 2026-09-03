@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "orolp"
 version = "0.1.0"
-description = "OpenRoboOLP - Open-source Offline Programming Software for Industrial Robots"
+description = "RobotWorld - Open-source Offline Programming Software for Industrial Robots"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "OpenRoboOLP Contributors"}
+    {name = "RobotWorld Contributors"}
 ]
 keywords = ["robotics", "offline-programming", "OLP", "industrial-robot", "digital-twin"]
 classifiers = [
@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gui = ["PySide6>=6.4", "OpenGL"]
+gui = ["PySide6>=6.4", "PyOpenGL"]
 ros2 = ["rclpy>=3.0"]
 dev = ["pytest>=7.0", "black", "flake8", "mypy", "sphinx"]
 all = ["orolp[gui,ros2,dev]"]

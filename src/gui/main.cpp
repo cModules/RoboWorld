@@ -4,7 +4,7 @@
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
-    app.setApplicationName("OpenRoboOLP Viewer");
+    app.setApplicationName("RobotWorld Viewer");
     app.setOrganizationName("openrobolp");
 
     orolp_gui::MainWindow window;

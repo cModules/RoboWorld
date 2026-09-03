@@ -1,12 +1,12 @@
-# OpenRoboOLP 中文使用说明
+# RobotWorld 中文使用说明
 
 [English README](../README.md) · [后处理器开发指南](post_dev_guide.md) · [厂商 CAD 接入](VENDOR_CAD_SETUP.md)
 
-**开源工业机器人离线编程（OLP）终端**
+**开源机器人编程与仿真平台**
 
-RoboDK / Robotmaster / DELMIA 的免费、可扩展、社区驱动的替代方案。基于开放标准（URDF）、透明算法与社区维护的后处理器生态。
+一个面向工业机器人的开放、可扩展、社区驱动的生态，基于开放标准（URDF）、透明算法与社区维护的后处理器库。RobotWorld 不止于离线编程（OLP）：它将机器人建模、轨迹规划、仿真与代码生成统一到一条可审计的工具链中，作为 RoboDK / Robotmaster / DELMIA 等封闭生态的免费替代方案。
 
-> **愿景**：通过开放标准降低工业机器人编程的门槛，让整个工具链可审计、可改造、可学习。
+> **愿景**：通过开放标准降低工业机器人编程与仿真的门槛，让整个工具链开放、可审计、可改造、可学习。
 
 ---
 
@@ -227,7 +227,7 @@ CI 工作流：`.github/workflows/ci.yml`。
 
 ## 📄 许可证
 
-OpenRoboOLP 采用 **Apache License 2.0**。
+RobotWorld 采用 **Apache License 2.0**。
 
 `models/` 中的第三方机器人 CAD 模型可能带有原作者的独立许可证——详见各子目录的 `README.md`。
 

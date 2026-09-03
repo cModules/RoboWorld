@@ -1,7 +1,7 @@
-# OpenRoboOLP Windows 64位打包脚本
+# RobotWorld Windows 64位打包脚本
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host " OpenRoboOLP 打包脚本 (Windows 64-bit)" -ForegroundColor Cyan
+Write-Host " RobotWorld 打包脚本 (Windows 64-bit)" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -90,7 +90,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='OpenRoboOLP',
+    name='RobotWorld',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -119,18 +119,18 @@ Write-Host ""
 & $pythonExe -m PyInstaller --clean olp.spec
 
 # 检查打包结果
-if (Test-Path (Join-Path $DistDir "OpenRoboOLP.exe")) {
+if (Test-Path (Join-Path $DistDir "RobotWorld.exe")) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
     Write-Host " 打包成功！" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "可执行文件位置: " -ForegroundColor Cyan -NoNewline
-    Write-Host (Join-Path $DistDir "OpenRoboOLP.exe") -ForegroundColor White
+    Write-Host (Join-Path $DistDir "RobotWorld.exe") -ForegroundColor White
     Write-Host ""
     
     # 计算文件大小
-    $exePath = Join-Path $DistDir "OpenRoboOLP.exe"
+    $exePath = Join-Path $DistDir "RobotWorld.exe"
     $fileSize = (Get-Item $exePath).Length / 1MB
     Write-Host "文件大小: $([math]::Round($fileSize, 2)) MB" -ForegroundColor Yellow
 } else {
