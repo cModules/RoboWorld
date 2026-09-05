@@ -6,7 +6,7 @@ RobotWorld - OLP Terminal
 import sys
 import math
 import re
-from typing import Dict, List, Tuple  # noqa: F401
+from typing import Dict, List, Optional, Tuple  # noqa: F401
 
 import numpy as np
 from pathlib import Path
@@ -47,6 +47,8 @@ except Exception as _exc:  # pragma: no cover - 仅用于缺失依赖时的降�
 try:
     from orolp.world.panel import ScenePanel
     from orolp.world.scene import Scene
+    from orolp.world.geometry import prim_aabb
+    from orolp.pose import Pose
 
     _HAS_WORLD = True
 except Exception as _exc:  # pragma: no cover
@@ -419,6 +421,8 @@ def _matrix_to_rpy(matrix: "np.ndarray") -> Tuple[float, float, float]:
 
 
 class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
+    objectSelected = QtCore.Signal(str)  # 右键拾取/拖动时发射对象名（未命中不发射）
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.renderer = RobotRenderer()
@@ -436,6 +440,12 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         #: 相机注视点（米）。载入机器人后按模型尺度自动对准，否则小协作臂
         #: 只占画面一角、大臂又超出视野。
         self.view_center = (0.0, 0.0, 0.4)
+
+        #: 右键拾取 / 坐标系 gizmo 变换状态
+        self.selected_object = None
+        self.drag_mode = None          # "xy" / "z" / "rz" / None
+        self._drag_anchor = None       # 拖动起始参考量
+        self._right_like = False       # Control+左键 视为右键（Mac 触控板兼容）
 
     def load_robot(self, path):
         success = self.renderer.load_urdf(path)
@@ -723,6 +733,11 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             gl.glDisable(gl.GL_LIGHTING)
             self._draw_recorded_path()
             gl.glEnable(gl.GL_LIGHTING)
+
+        # 选中对象描边高亮 + 坐标系 gizmo（覆盖在最前）
+        if self.selected_object is not None and self.scene is not None:
+            self._highlight_object(self.selected_object)
+        self._draw_gizmo()
 
     # ------------------------------------------------------------------ #
     # 工作单元场景绘制
@@ -1092,12 +1107,386 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             gl.glVertex3f(x, y, z)
         gl.glEnd()
 
+    # ------------------------------------------------------------------ #
+    # 右键拾取 / 坐标系 gizmo 变换
+    # ------------------------------------------------------------------ #
+
+    def _view_proj_matrix(self):
+        """返回 (V, P, M)，与 paintGL 完全一致的相机矩阵（米制）。"""
+        w, h = self.width(), self.height()
+        aspect = w / max(1, h)
+        fov = 45.0
+        near, far = 0.01, 100.0
+        top = near * math.tan(math.radians(fov / 2))
+        right = top * aspect
+
+        az = math.radians(self.camera_az)
+        el = math.radians(self.camera_el)
+        center = np.asarray(self.view_center, dtype=np.float64)
+        eye = center + np.array(
+            [
+                self.camera_dist * math.cos(el) * math.cos(az),
+                self.camera_dist * math.cos(el) * math.sin(az),
+                self.camera_dist * math.sin(el),
+            ],
+            dtype=np.float64,
+        )
+        up_vec = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        f = center - eye
+        norm = np.linalg.norm(f)
+        if norm > 0:
+            f = f / norm
+        s = np.cross(f, up_vec)
+        norm = np.linalg.norm(s)
+        if norm > 0:
+            s = s / norm
+        u = np.cross(s, f)
+
+        # numpy 行主序：paintGL 用 glLoadMatrixf（列主序）加载的视图矩阵，
+        # 其旋转部分的**行**依次为 s, u, -f。这里必须用【行赋值】，否则旋转
+        # 被转置（正交矩阵转置=逆），反推射线方向错误，拾取必然失败。
+        V = np.eye(4)
+        V[0, :3] = s
+        V[1, :3] = u
+        V[2, :3] = -f
+        V[:3, 3] = -(V[:3, :3] @ eye)
+
+        P = np.zeros((4, 4))
+        P[0, 0] = near / right
+        P[1, 1] = near / top
+        P[2, 2] = -(far + near) / (far - near)
+        P[2, 3] = -2.0 * far * near / (far - near)
+        P[3, 2] = -1.0
+        M = P @ V
+        return V, P, M
+
+    def _ray_from_mouse(self, x, y):
+        """返回 (origin_m, dir_m)：世界系米制射线原点与单位方向。"""
+        w, h = self.width(), self.height()
+        ndc_x = (2.0 * x) / w - 1.0
+        ndc_y = 1.0 - (2.0 * y) / h
+        _, _, M = self._view_proj_matrix()
+        Minv = np.linalg.inv(M)
+        near_h = Minv @ np.array([ndc_x, ndc_y, -1.0, 1.0])
+        far_h = Minv @ np.array([ndc_x, ndc_y, 1.0, 1.0])
+        near_p = near_h[:3] / near_h[3]
+        far_p = far_h[:3] / far_h[3]
+        origin = near_p
+        direction = far_p - near_p
+        n = np.linalg.norm(direction)
+        if n > 0:
+            direction = direction / n
+        return origin, direction
+
+    @staticmethod
+    def _ray_aabb(origin, direction, lo, hi):
+        """射线-轴对齐包围盒 slab 求交，返回最近 t（>=0），无交返回 None。"""
+        tmin = -np.inf
+        tmax = np.inf
+        for i in range(3):
+            if abs(direction[i]) < 1e-12:
+                if origin[i] < lo[i] or origin[i] > hi[i]:
+                    return None
+            else:
+                inv = 1.0 / direction[i]
+                t1 = (lo[i] - origin[i]) * inv
+                t2 = (hi[i] - origin[i]) * inv
+                tmin = max(tmin, min(t1, t2))
+                tmax = min(tmax, max(t1, t2))
+        if tmax < max(tmin, 0.0):
+            return None
+        return max(tmin, 0.0)
+
+    def _ray_plane_z(self, origin, direction, z_m):
+        """射线与水平面 z=z_m 的交点（米）；平行或无交点返回 None。"""
+        if abs(direction[2]) < 1e-9:
+            return None
+        t = (z_m - origin[2]) / direction[2]
+        if t < 0:
+            return None
+        return origin + t * direction
+
+    def _project(self, p_m):
+        """世界点（米）投影到视口像素坐标 (sx, sy)，y 轴向下。"""
+        w, h = self.width(), self.height()
+        _, _, M = self._view_proj_matrix()
+        clip = M @ np.array([p_m[0], p_m[1], p_m[2], 1.0])
+        if abs(clip[3]) < 1e-9:
+            return (w / 2.0, h / 2.0)
+        ndc_x = clip[0] / clip[3]
+        ndc_y = clip[1] / clip[3]
+        sx = (ndc_x + 1.0) / 2.0 * w
+        sy = (1.0 - (ndc_y + 1.0) / 2.0) * h
+        return float(sx), float(sy)
+
+    def _pick_object(self, x, y):
+        """射线-AABB 求交，返回最近场景对象名；无命中返回 None。"""
+        if not _HAS_WORLD or self.scene is None:
+            return None
+        try:
+            origin, direction = self._ray_from_mouse(x, y)
+            best = None
+            best_t = float("inf")
+            for name in self.scene.objects:
+                obj = self.scene.objects.get(name)
+                if obj is None or not obj.visible:
+                    continue
+                lo = np.array([np.inf, np.inf, np.inf])
+                hi = np.array([-np.inf, -np.inf, -np.inf])
+                for part in self.scene.object_parts(name):
+                    aabb = prim_aabb(part.prim, part.transform)
+                    lo = np.minimum(lo, aabb.lo * self.MM_TO_M)
+                    hi = np.maximum(hi, aabb.hi * self.MM_TO_M)
+                if not np.all(np.isfinite(lo)) or not np.all(np.isfinite(hi)):
+                    continue
+                t = self._ray_aabb(origin, direction, lo, hi)
+                if t is not None and t < best_t:
+                    best_t = t
+                    best = name
+            return best
+        except Exception as _exc:  # 拾取异常不应拖垮视口
+            print(f"[warning] pick failed: {_exc}")
+            return None
+
+    def _gizmo_screen_geom(self):
+        """返回 gizmo 在屏幕上的几何（像素），供绘制与命中判定共用。"""
+        if self.selected_object is None or self.scene is None:
+            return None
+        obj = self.scene.objects.get(self.selected_object)
+        if obj is None:
+            return None
+        tf = self.scene.world_transform(self.selected_object)  # mm
+        center_m = tf[:3, 3] * self.MM_TO_M
+        cx, cy = self._project(center_m)
+        z_up = self._project(center_m + np.array([0.0, 0.0, 0.1]))  # 上方 0.1m
+        px_per_m = math.hypot(z_up[0] - cx, z_up[1] - cy) / 0.1
+        return {
+            "cx": cx, "cy": cy,
+            "ring_r": 55.0,      # 旋转环半径(px)
+            "axis_len": 75.0,    # Z 轴长度(px)
+            "xy_half": 42.0,     # XY 方块半边长(px)
+            "hit": 10.0,         # 命中容差(px)
+            "z_strip": 16.0,     # Z 轴竖条命中半宽(px)，加宽便于抓取
+            "z_tip_r": 18.0,     # Z 轴顶端圆盘抓取半径(px)
+            "px_per_m": px_per_m,
+        }
+
+    def _gizmo_hit_mode(self, x, y):
+        """屏幕空间判定光标命中的手柄，返回 'xy' / 'z' / 'rz' / None。"""
+        g = self._gizmo_screen_geom()
+        if g is None:
+            return None
+        dx = x - g["cx"]
+        dy = y - g["cy"]
+        dist = math.hypot(dx, dy)
+        # 1) Z 轴：顶端圆盘抓取点 + 整条加宽竖条，优先于 XY 方块
+        if math.hypot(dx, dy + g["axis_len"]) < g["z_tip_r"]:
+            return "z"
+        if abs(dx) < g["z_strip"] and -g["axis_len"] - g["hit"] <= dy <= g["hit"]:
+            return "z"
+        # 2) 旋转环
+        if abs(dist - g["ring_r"]) < g["hit"]:
+            return "rz"
+        # 3) XY 方块
+        if abs(dx) < g["xy_half"] and abs(dy) < g["xy_half"]:
+            return "xy"
+        return None
+
+    def _set_object_world_pose(self, name, x_mm, y_mm, z_mm, rz_deg):
+        """把对象设到指定的世界位姿（毫米 + 绕Z角度），自动换算回局部 pose。"""
+        if not _HAS_WORLD or self.scene is None:
+            return
+        obj = self.scene.objects.get(name)
+        if obj is None:
+            return
+        wx, wy, wz = x_mm, y_mm, z_mm
+        if obj.parent and obj.parent in self.scene.objects:
+            parent_tf = self.scene.world_transform(obj.parent)
+            inv = np.linalg.inv(parent_tf)
+            lp = inv @ np.array([wx, wy, wz, 1.0])
+            lx, ly, lz = lp[:3]
+            pr = math.degrees(math.atan2(parent_tf[1, 0], parent_tf[0, 0]))
+            lrz = rz_deg - pr
+        else:
+            lx, ly, lz, lrz = wx, wy, wz, rz_deg
+        obj.pose = Pose.from_xyz_rpy(lx, ly, lz, 0.0, 0.0, lrz)
+
+    def _make_anchor(self, mode, x, y):
+        """记录拖动起始参考量（对象世界位姿 + 模式相关的局部参考）。"""
+        name = self.selected_object
+        tf = self.scene.world_transform(name)  # mm
+        start_x, start_y, start_z = tf[:3, 3]
+        start_rz = math.degrees(math.atan2(tf[1, 0], tf[0, 0]))
+        center_m = tf[:3, 3] * self.MM_TO_M
+        anchor = {
+            "start_x": float(start_x), "start_y": float(start_y),
+            "start_z": float(start_z), "start_rz": float(start_rz),
+            "center_m": center_m,
+        }
+        if mode == "xy":
+            origin, direction = self._ray_from_mouse(x, y)
+            p = self._ray_plane_z(origin, direction, center_m[2])
+            anchor["plane_start"] = p if p is not None else center_m.copy()
+        elif mode == "z":
+            anchor["start_mouse_y"] = y
+            g = self._gizmo_screen_geom()
+            anchor["px_per_m"] = g["px_per_m"] if g else 1000.0
+        elif mode == "rz":
+            g = self._gizmo_screen_geom()
+            anchor["start_cursor_angle"] = math.atan2(y - g["cy"], x - g["cx"])
+        return anchor
+
+    def _apply_drag(self, mode, anchor, x, y):
+        """按已锁定的模式执行变换，并写回对象位姿。"""
+        name = self.selected_object
+        if mode == "xy":
+            origin, direction = self._ray_from_mouse(x, y)
+            p = self._ray_plane_z(origin, direction, anchor["center_m"][2])
+            if p is None:
+                return
+            dx_m = p[0] - anchor["plane_start"][0]
+            dy_m = p[1] - anchor["plane_start"][1]
+            nx = anchor["start_x"] + dx_m * 1000.0
+            ny = anchor["start_y"] + dy_m * 1000.0
+            self._set_object_world_pose(name, nx, ny, anchor["start_z"], anchor["start_rz"])
+        elif mode == "z":
+            dy_px = anchor["start_mouse_y"] - y  # 屏幕向上为正
+            mm_per_px = 1000.0 / max(anchor["px_per_m"], 1e-6)
+            nz = anchor["start_z"] + dy_px * mm_per_px
+            self._set_object_world_pose(name, anchor["start_x"], anchor["start_y"], nz, anchor["start_rz"])
+        elif mode == "rz":
+            g = self._gizmo_screen_geom()
+            cur = math.atan2(y - g["cy"], x - g["cx"])
+            delta = cur - anchor["start_cursor_angle"]
+            new_rz = anchor["start_rz"] - math.degrees(delta)  # 屏幕 y 向下，取负使视觉一致
+            self._set_object_world_pose(name, anchor["start_x"], anchor["start_y"], anchor["start_z"], new_rz)
+        self.update()
+        self.objectSelected.emit(name)  # 同步刷新左侧数值框
+
+    def _handle_right_drag(self, pos):
+        """右键拖动：先探测手柄锁定模式，再执行对应变换。"""
+        if not _HAS_WORLD or self.scene is None:
+            return
+        x, y = pos.x(), pos.y()
+        if self.drag_mode is None:
+            mode = self._gizmo_hit_mode(x, y)
+            if mode is None:
+                return
+            self._drag_anchor = self._make_anchor(mode, x, y)
+            self.drag_mode = mode
+            self.update()
+            return
+        self._apply_drag(self.drag_mode, self._drag_anchor, x, y)
+
+    def _draw_gizmo(self):
+        """在 selected_object 原点绘制 XY 面 / Z 轴 / 绕Z 环手柄，高亮当前 drag_mode。"""
+        if self.selected_object is None or self.scene is None:
+            return
+        g = self._gizmo_screen_geom()
+        if g is None:
+            return
+        cx, cy = g["cx"], g["cy"]
+
+        gl.glDisable(gl.GL_DEPTH_TEST)
+        gl.glDisable(gl.GL_LIGHTING)
+        gl.glMatrixMode(gl.GL_PROJECTION)
+        gl.glPushMatrix()
+        gl.glLoadIdentity()
+        gl.glOrtho(0, self.width(), self.height(), 0, -1, 1)  # 屏幕像素，y 向下
+        gl.glMatrixMode(gl.GL_MODELVIEW)
+        gl.glPushMatrix()
+        gl.glLoadIdentity()
+
+        def line(x1, y1, x2, y2, color, width=2.0):
+            gl.glColor3f(*color)
+            gl.glLineWidth(width)
+            gl.glBegin(gl.GL_LINES)
+            gl.glVertex2f(x1, y1)
+            gl.glVertex2f(x2, y2)
+            gl.glEnd()
+
+        def ring(cx, cy, r, color, width=2.0):
+            gl.glColor3f(*color)
+            gl.glLineWidth(width)
+            gl.glBegin(gl.GL_LINE_LOOP)
+            for i in range(48):
+                a = 2 * math.pi * i / 48
+                gl.glVertex2f(cx + r * math.cos(a), cy + r * math.sin(a))
+            gl.glEnd()
+
+        def rect(cx, cy, h, color, width=2.0):
+            gl.glColor3f(*color)
+            gl.glLineWidth(width)
+            gl.glBegin(gl.GL_LINE_LOOP)
+            gl.glVertex2f(cx - h, cy - h)
+            gl.glVertex2f(cx + h, cy - h)
+            gl.glVertex2f(cx + h, cy + h)
+            gl.glVertex2f(cx - h, cy + h)
+            gl.glEnd()
+
+        def disk(cx, cy, r, color):
+            gl.glColor3f(*color)
+            gl.glBegin(gl.GL_TRIANGLE_FAN)
+            gl.glVertex2f(cx, cy)
+            for i in range(25):
+                a = 2 * math.pi * i / 24
+                gl.glVertex2f(cx + r * math.cos(a), cy + r * math.sin(a))
+            gl.glEnd()
+
+        mode = self.drag_mode
+        z_col = (1.0, 0.3, 0.25) if mode == "z" else (0.85, 0.45, 0.4)
+        line(cx, cy, cx, cy - g["axis_len"], z_col, 3.0 if mode == "z" else 2.0)
+        disk(cx, cy - g["axis_len"], g["z_tip_r"] * 0.6, z_col)  # 顶端抓取圆盘
+        r_col = (1.0, 0.85, 0.2) if mode == "rz" else (0.85, 0.7, 0.2)
+        ring(cx, cy, g["ring_r"], r_col, 3.0 if mode == "rz" else 2.0)
+        xy_col = (0.3, 0.7, 1.0) if mode == "xy" else (0.35, 0.55, 0.8)
+        rect(cx, cy, g["xy_half"], xy_col, 3.0 if mode == "xy" else 2.0)
+        gl.glColor3f(1.0, 1.0, 1.0)
+        gl.glPointSize(5.0)
+        gl.glBegin(gl.GL_POINTS)
+        gl.glVertex2f(cx, cy)
+        gl.glEnd()
+
+        gl.glPopMatrix()
+        gl.glMatrixMode(gl.GL_PROJECTION)
+        gl.glPopMatrix()
+        gl.glMatrixMode(gl.GL_MODELVIEW)
+        gl.glEnable(gl.GL_LIGHTING)
+        gl.glEnable(gl.GL_DEPTH_TEST)
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        # Mac 触控板：两指轻点发出 RightButton；Control+左键（Control+Click）
+        # 也是经典右键替代，这里统一当作“右键拾取”处理。
+        is_right_like = (
+            event.button() == Qt.RightButton
+            or (event.button() == Qt.LeftButton
+                and event.modifiers() & Qt.ControlModifier)
+        )
+        if is_right_like:
+            self._right_like = True
+            if _HAS_WORLD and self.scene is not None:
+                pos = event.position().toPoint()
+                name = self._pick_object(pos.x(), pos.y())
+                if name is not None:
+                    self.selected_object = name
+                    self.drag_mode = None
+                    self._drag_anchor = None
+                    self.objectSelected.emit(name)
+                else:
+                    self.selected_object = None
+                    self.drag_mode = None
+                self.update()
+        elif event.button() == Qt.LeftButton:
             self.dragging = True
             self.last_pos = event.position().toPoint()
 
     def mouseMoveEvent(self, event):
+        # 右键（或 Control+左键）按住时做 gizmo 变换，不做视角旋转
+        if self._right_like and (event.buttons() & (Qt.RightButton | Qt.LeftButton)):
+            if self.selected_object is not None:
+                self._handle_right_drag(event.position().toPoint())
+            return
+
         if self.dragging and self.last_pos:
             current_pos = event.position().toPoint()
             dx = current_pos.x() - self.last_pos.x()
@@ -1108,9 +1497,18 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             self.last_pos = current_pos
             self.update()
 
+        if event.buttons() & Qt.RightButton and self.selected_object is not None:
+            self._handle_right_drag(event.position().toPoint())
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.dragging = False
+            self._right_like = False
+        elif event.button() == Qt.RightButton:
+            self._right_like = False
+        # 保留选中与 gizmo 显示；仅清除本次拖动模式，下次右键重新判定
+        self.drag_mode = None
+        self._drag_anchor = None
 
     def wheelEvent(self, event):
         delta = event.angleDelta().y() / 120
@@ -1390,28 +1788,45 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             frame.setFrameStyle(QtWidgets.QFrame.StyledPanel)
             flayout = QtWidgets.QVBoxLayout(frame)
             flayout.setContentsMargins(5, 5, 5, 5)
-            
-            header = QtWidgets.QHBoxLayout()
+            flayout.setSpacing(4)
+
+            grid = QtWidgets.QGridLayout()
+            grid.setColumnStretch(0, 1)   # 关节名列可随面板扩展
+            grid.setColumnStretch(1, 0)   # 数值列保持最小宽度
+            grid.setColumnMinimumWidth(0, 80)  # 保证 "Joint 1" 完整显示
+            grid.setColumnMinimumWidth(1, 70)  # 保证角度值完整显示
+            grid.setHorizontalSpacing(8)
+
             label = QtWidgets.QLabel(f"<b>{name}</b>")
+            label.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+            label.setWordWrap(False)
+
             self.value_labels[name] = QtWidgets.QLabel("0.0°")
-            header.addWidget(label)
-            header.addStretch()
-            header.addWidget(self.value_labels[name])
-            flayout.addLayout(header)
-            
+            self.value_labels[name].setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.value_labels[name].setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
+            self.value_labels[name].setMinimumWidth(70)
+
+            grid.addWidget(label, 0, 0)
+            grid.addWidget(self.value_labels[name], 0, 1)
+
             slider = QtWidgets.QSlider(Qt.Horizontal)
             slider.setMinimum(int(math.degrees(joint["limit"]["lower"]) * 100))
             slider.setMaximum(int(math.degrees(joint["limit"]["upper"]) * 100))
             slider.setValue(0)
+            slider.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
             slider.valueChanged.connect(lambda v, n=name: self._on_joint_changed(n, v))
-            flayout.addWidget(slider)
+            grid.addWidget(slider, 1, 0, 1, 2)
             self.sliders[name] = slider
-            
-            limit_layout = QtWidgets.QHBoxLayout()
-            limit_layout.addWidget(QtWidgets.QLabel(f"{math.degrees(joint['limit']['lower']):.1f}°"))
-            limit_layout.addStretch()
-            limit_layout.addWidget(QtWidgets.QLabel(f"{math.degrees(joint['limit']['upper']):.1f}°"))
-            flayout.addLayout(limit_layout)
+
+            min_label = QtWidgets.QLabel(f"{math.degrees(joint['limit']['lower']):.1f}°")
+            max_label = QtWidgets.QLabel(f"{math.degrees(joint['limit']['upper']):.1f}°")
+            max_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            min_label.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
+            max_label.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
+            grid.addWidget(min_label, 2, 0)
+            grid.addWidget(max_label, 2, 1)
+
+            flayout.addLayout(grid)
             
             self.joint_layout.addWidget(frame)
     
@@ -1655,6 +2070,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # 场景改动需要触发视口重绘，此连接必须等 gl_widget 建好后才能做
         if _HAS_WORLD and hasattr(self, "scene_panel"):
             self.scene_panel.sceneChanged.connect(self.gl_widget.update)
+            # 视口右键拾取/拖动选中对象时，同步到左侧场景面板树形选择
+            self.gl_widget.objectSelected.connect(self.scene_panel._select_object)
 
         self.statusBar().showMessage("Ready")
     

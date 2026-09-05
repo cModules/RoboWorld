@@ -11,7 +11,7 @@ import os
 spec_dir = os.path.dirname(os.path.abspath(SPEC))
 
 a = Analysis(
-    ['olp.py'],
+    ['rw.py'],
     pathex=[spec_dir],
     binaries=[],
     datas=[

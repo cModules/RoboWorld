@@ -27,7 +27,7 @@ Snapshot of what's actually in `main` as of the latest commit. Numbers reflect t
 | **Code upload (`link.py`)** | ✅ complete | `ControllerLink` abstraction — `FileLink` (offline export + manifest), `SimLink` (in-process kinematics echo); real controllers plug in behind the same interface |
 | **Online debug (`debug.py`)** | ✅ complete | `DebugSession`: step / continuous playback, read-back actual pose, deviation vs. planned (mm + deg), jog |
 | **Kinematics** | ✅ pure-Python | FK / IK / Jacobian fallback (C++ core optional); 137 unit/regression tests passing |
-| **3D GUI (`olp.py`)** | ✅ complete | PySide6 + OpenGL viewport, joint sliders, robot library, path-code editor, scene & OLP panels |
+| **3D GUI (`rw.py`)** | ✅ complete | PySide6 + OpenGL viewport, joint sliders, robot library, path-code editor, scene & OLP panels |
 | **Scene / collision** | 🔧 scaffold | Per-link SAT intersection available; FCL integration planned |
 | **ROS 2 digital twin** | 📋 planned | Native `rclpy` bridge, target v0.3 |
 | **Trajectory optimization** | 📋 planned | TOPP-RA time-optimal parameterization, target v1.0 |
@@ -36,7 +36,7 @@ Snapshot of what's actually in `main` as of the latest commit. Numbers reflect t
 
 ## 🖼 Key Features Demo
 
-The GUI is a single `olp.py` — load any URDF, switch the tab on the left, drag the joint sliders on the right.
+The GUI is a single `rw.py` — load any URDF, switch the tab on the left, drag the joint sliders on the right.
 
 ### Main view · 3D viewport + robot library + joint control
 ![Main view](docs/screenshots/main_ur5e.png)
@@ -110,10 +110,10 @@ pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 ### 4. Launch the GUI
 ```bash
-python olp.py models/ur/ur5e/ur5e.urdf
+python rw.py models/ur/ur5e/ur5e.urdf
 ```
 - **macOS / Windows** with a desktop: window pops up directly.
-- **Headless Linux** (e.g. CI / sandbox): run under `Xvfb :99 -screen 0 1600x1000x24`, then `DISPLAY=:99 python olp.py …`.
+- **Headless Linux** (e.g. CI / sandbox): run under `Xvfb :99 -screen 0 1600x1000x24`, then `DISPLAY=:99 python rw.py …`.
 
 ### 5. Your first program (headless / no GUI)
 ```python
@@ -149,7 +149,7 @@ for deviation in dbg.play():
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  GUI layer — olp.py (PySide6 + OpenGL)                        │
+│  GUI layer — rw.py (PySide6 + OpenGL)                        │
 │  ──────────────────────────────────────────────────────────── │
 │  MainWindow · tabs: 机器人库 / 路径代码 / 场景 / 离线编程     │
 │  GLWidget viewport · joint sliders · path-code editor         │

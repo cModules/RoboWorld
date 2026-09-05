@@ -16,7 +16,7 @@
 | 在线调试 DebugSession（单步/播放/偏差） | ✅ | `python/orolp/debug.py` |
 | 场景/世界管理（几何、组件、场景、面板） | ✅（基础） | `python/orolp/world/` |
 | 机器人库目录（34 型号） | ✅ | `python/orolp/robot_library/`、`models/` |
-| 离线编程 GUI（PySide6 + OpenGL） | ✅ | `olp.py` |
+| 离线编程 GUI（PySide6 + OpenGL） | ✅ | `rw.py` |
 | 测试套件 | ✅ 137 passed | `tests/`、`python/tests/` |
 
 **关键缺口（规划要补的）**：碰撞检测、动力学/力矩、速度/加速度级规划与节拍优化、多品牌真机 CAD 接入、CAD/CAM 轨迹生成、IO/工艺参数、多机器人协同、标定与手眼、插件生态。
@@ -56,7 +56,7 @@
    - 汇川仅有后处理、无程序化 URDF，真机 CAD 到位后一并补模型。
 
 4. **GUI 轨迹编辑器** — *Must*
-   - `olp.py` 离线编程标签当前是只读摘要，加：路点增删拖、目标位姿手填、运动类型切换、实时碰撞/节拍着色、一键导出 `.urp/.src` 等。
+   - `rw.py` 离线编程标签当前是只读摘要，加：路点增删拖、目标位姿手填、运动类型切换、实时碰撞/节拍着色、一键导出 `.urp/.src` 等。
    - 复用 `program_panel.py` 现有骨架。
 
 ### v0.3 — "工艺级"与"CAD/CAM 集成"（中期）

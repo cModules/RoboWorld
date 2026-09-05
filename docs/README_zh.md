@@ -22,7 +22,7 @@
 | **代码上传 (`link.py`)** | ✅ 完成 | `ControllerLink` 抽象 — `FileLink`（离线导出 + manifest.json）、`SimLink`（进程内运动学回读）；真实控制器按同接口接入 |
 | **在线调试 (`debug.py`)** | ✅ 完成 | `DebugSession`：单步/连续播放、回读实际位姿、与规划值偏差（mm + deg）、示教 jog |
 | **运动学** | ✅ 纯 Python | FK / IK / 雅可比回退（C++ 核心可选）；**137 个测试通过** |
-| **3D GUI (`olp.py`)** | ✅ 完成 | PySide6 + OpenGL 视口、关节滑条、机器人库、路径代码编辑器、场景与离线编程面板 |
+| **3D GUI (`rw.py`)** | ✅ 完成 | PySide6 + OpenGL 视口、关节滑条、机器人库、路径代码编辑器、场景与离线编程面板 |
 | **场景/碰撞** | 🔧 脚手架 | 连杆级 SAT 干涉检查可用；FCL 集成计划 v0.2 |
 | **ROS 2 数字孪生** | 📋 规划中 | 原生 `rclpy` 桥接，目标 v0.3 |
 | **轨迹优化** | 📋 规划中 | TOPP-RA 时间最优参数化，目标 v1.0 |
@@ -31,7 +31,7 @@
 
 ## 🖼 主要功能演示
 
-`olp.py` 一个文件就是 GUI——加载任意 URDF，左侧切标签页，右侧拖关节滑条。
+`rw.py` 一个文件就是 GUI——加载任意 URDF，左侧切标签页，右侧拖关节滑条。
 
 ### 主界面 · 3D 视口 + 机器人库 + 关节控制
 ![主界面](../docs/screenshots/main_ur5e.png)
@@ -105,10 +105,10 @@ pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 ### 4. 启动 GUI
 ```bash
-python olp.py models/ur/ur5e/ur5e.urdf
+python rw.py models/ur/ur5e/ur5e.urdf
 ```
 - **macOS / Windows** 有桌面：直接弹窗。
-- **无桌面 Linux**（CI / 沙箱）：用 `Xvfb :99 -screen 0 1600x1000x24` 起虚拟显示，`DISPLAY=:99 python olp.py …`。
+- **无桌面 Linux**（CI / 沙箱）：用 `Xvfb :99 -screen 0 1600x1000x24` 起虚拟显示，`DISPLAY=:99 python rw.py …`。
 
 ### 5. 第一个程序（无 GUI，纯脚本）
 ```python
@@ -144,7 +144,7 @@ for deviation in dbg.play():
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  GUI 层 — olp.py（PySide6 + OpenGL）                           │
+│  GUI 层 — rw.py（PySide6 + OpenGL）                           │
 │  ──────────────────────────────────────────────────────────── │
 │  MainWindow · 标签页：机器人库 / 路径代码 / 场景 / 离线编程  │
 │  GLWidget 视口 · 关节滑条 · 路径代码编辑器                    │
