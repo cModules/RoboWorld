@@ -6,6 +6,7 @@ RobotWorld - OLP Terminal
 import sys
 import math
 import re
+import json
 from typing import Dict, List, Optional, Tuple  # noqa: F401
 
 import numpy as np
@@ -43,11 +44,15 @@ except Exception as _exc:  # pragma: no cover - 仅用于缺失依赖时的降�
     RobotCatalog = None
     RobotLibraryPanel = None
 
+# 组件库拖拽到视口的 MIME 标识（与 orolp.robot_library.panel.MIME_TYPE 保持一致）
+MIME_TYPE = "application/x-machine-item"
+
 # 环境建模（工作单元场景 + 参数化组件库 + 干涉检查）
 try:
     from orolp.world.panel import ScenePanel
-    from orolp.world.scene import Scene
+    from orolp.world.scene import Scene, ROBOT_NAME
     from orolp.world.geometry import prim_aabb
+    from orolp.world.components import COMPONENTS, ParamSpec
     from orolp.pose import Pose
 
     _HAS_WORLD = True
@@ -56,6 +61,22 @@ except Exception as _exc:  # pragma: no cover
     _HAS_WORLD = False
     ScenePanel = None
     Scene = None
+    COMPONENTS = None
+    ParamSpec = None
+
+# 工作单元模型 + PLC（西门子 SCL）代码生成
+try:
+    from orolp.cell import CellConfig, Device, DEVICE_TYPES
+    from orolp.plc_scl import generate_scl
+
+    _HAS_CELL = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] cell model unavailable: {_exc}")
+    _HAS_CELL = False
+    CellConfig = None
+    Device = None
+    DEVICE_TYPES = ()
+    generate_scl = None
 
 # 离线编程（轨迹展开 + 节拍估算 + 程序校验面板）
 try:
@@ -422,6 +443,8 @@ def _matrix_to_rpy(matrix: "np.ndarray") -> Tuple[float, float, float]:
 
 class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
     objectSelected = QtCore.Signal(str)  # 右键拾取/拖动时发射对象名（未命中不发射）
+    componentDropped = QtCore.Signal(str)  # 组件库拖入视口的 component_id
+    robotDropped = QtCore.Signal(str)  # 机器库拖入视口的 catalog key
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -430,6 +453,8 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.camera_az = 45.0
         self.camera_el = 30.0
         self.dragging = False
+        self._left_moved = False
+        self._left_press_pos = None
         # 工作单元场景（由 MainWindow 注入）；场景内部使用毫米，
         # 而本视口沿用 URDF 的米，绘制时统一乘 MM_TO_M
         self.scene = None
@@ -447,12 +472,38 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self._drag_anchor = None       # 拖动起始参考量
         self._right_like = False       # Control+左键 视为右键（Mac 触控板兼容）
 
+        self.setAcceptDrops(True)
+
     def load_robot(self, path):
         success = self.renderer.load_urdf(path)
         if success:
             self.frame_robot()
         self.update()
         return success
+
+    # ---------------- 拖拽：从机器组件库接收对象 ---------------- #
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        md = event.mimeData()
+        if not md.hasFormat(MIME_TYPE):
+            event.ignore()
+            return
+        try:
+            data = json.loads(bytes(md.data(MIME_TYPE)).decode("utf-8"))
+        except Exception:
+            event.ignore()
+            return
+        kind = data.get("kind")
+        if kind == "robot":
+            self.robotDropped.emit(data["id"])
+        elif kind == "component":
+            self.componentDropped.emit(data["id"])
+        event.acceptProposedAction()
 
     def frame_robot(self) -> None:
         """按当前位姿的包围球自动取景（相机距离 + 注视点）。
@@ -736,7 +787,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
         # 选中对象描边高亮 + 坐标系 gizmo（覆盖在最前）
         if self.selected_object is not None and self.scene is not None:
-            self._highlight_object(self.selected_object)
+            self._highlight_object(self.selected_object, (1.0, 0.85, 0.0))
         self._draw_gizmo()
 
     # ------------------------------------------------------------------ #
@@ -756,6 +807,8 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             return
         try:
             for name in list(self.scene.objects):
+                if name == ROBOT_NAME:
+                    continue  # 机器人由 _draw_robot 负责，避免重复绘制
                 obj = self.scene.objects.get(name)
                 if obj is None or not obj.visible:
                     continue
@@ -764,7 +817,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
             # 干涉对用红色线框高亮，让问题一眼可见
             for hit in self._last_collisions:
-                self._highlight_object(hit.obj_b)
+                self._highlight_object(hit.obj_b, (1.0, 0.25, 0.15))
         except Exception as _exc:  # 渲染异常不应拖垮整个视口
             print(f"[warning] scene draw failed: {_exc}")
 
@@ -779,27 +832,37 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self._last_collisions = list(hits)
         self.update()
 
-    def _highlight_object(self, name: str) -> None:
-        """用红色线框标出发生干涉的对象。"""
+    def _highlight_object(self, name: str, color=None) -> None:
+        """用线框高亮指定对象。
+
+        选中对象默认亮黄；干涉命中由调用处传入红色。关闭光照与深度测试，
+        使描边始终浮于最前、且颜色不被零件原色覆盖。
+        """
         obj = self.scene.objects.get(name)
         if obj is None:
             return
+        color = color or (1.0, 0.85, 0.0)
         gl.glPushMatrix()
-        gl.glColor3f(1.0, 0.25, 0.15)
+        gl.glDisable(gl.GL_LIGHTING)
+        gl.glDisable(gl.GL_DEPTH_TEST)
+        gl.glColor3f(*color)
         gl.glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-        gl.glLineWidth(2.0)
+        gl.glLineWidth(2.5)
         for part in self.scene.object_parts(name):
-            self._draw_part(part)
+            self._draw_part(part, force_color=color)
         gl.glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         gl.glLineWidth(1.0)
+        gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glEnable(gl.GL_LIGHTING)
         gl.glPopMatrix()
 
-    def _draw_part(self, part, tf_parent=None) -> None:
+    def _draw_part(self, part, tf_parent=None, force_color=None) -> None:
         """绘制单个零件（基本体 + 局部变换）。
 
         Args:
             part: :class:`~orolp.world.components.Part`
             tf_parent: 父级变换（已含世界变换）；``None`` 表示 part 自带世界变换
+            force_color: 指定颜色（用于高亮描边），覆盖 part.color
         """
         m = np.array(part.transform, dtype=np.float64)
         if tf_parent is not None:
@@ -810,7 +873,10 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         gl.glPushMatrix()
         # OpenGL 采用列主序，numpy 为行主序，需转置后再展平
         gl.glMultMatrixd(m.T.flatten())
-        gl.glColor3f(*part.color)
+        if force_color is not None:
+            gl.glColor3f(*force_color)
+        else:
+            gl.glColor3f(*part.color)
 
         prim = part.prim
         kind = getattr(prim, "kind", "")
@@ -821,6 +887,10 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             self._draw_cylinder(prim.radius * self.MM_TO_M, prim.length * self.MM_TO_M)
         elif kind == "sphere":
             self._draw_sphere(prim.radius * self.MM_TO_M)
+        elif kind == "mesh":
+            mesh = getattr(prim, "mesh", None)
+            if mesh is not None and not mesh.is_empty:
+                self._draw_mesh(mesh)
         gl.glPopMatrix()
 
     def _draw_grid(self):
@@ -843,22 +913,46 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         每个连杆的世界位姿，再逐个 visual 用 ``model · visual.matrix`` 直接定位。
         这样变换只算一遍，且严格遵循 URDF 的 ``T·R`` 语义（旧实现是 ``R·T``，
         带 rpy 的连杆会绕错误的点旋转）。
-        """
-        model = self.renderer.model
-        if model is None or model.root is None:
-            # 渲染模型模块不可用：回退到旧的单几何递归绘制
-            if self.renderer.root_link is not None:
-                self._draw_link_recursive(self.renderer.root_link)
-            return
 
-        poses = self.renderer.link_poses()
-        for link_name in model.link_chain():
-            link = model.links.get(link_name)
-            base_pose = poses.get(link_name)
-            if link is None or base_pose is None:
-                continue
-            for visual in link.visuals:
-                self._draw_visual(base_pose, visual)
+        若机器人在场景中以真实对象存在，则按基座位姿（SceneObject.pose）整体平移/旋转。
+        """
+        if self.scene is not None and not self.scene.has_robot:
+            return  # 场景已移除机器人，视口不再绘制
+
+        model = self.renderer.model
+
+        # 机器人基座位姿（场景对象），从毫米换算到视口米制
+        base_tf = None
+        if self.scene is not None and ROBOT_NAME in self.scene.objects:
+            T_mm = np.asarray(
+                self.scene.objects[ROBOT_NAME].pose.matrix, dtype=np.float64
+            )
+            T_m = T_mm.copy()
+            T_m[:3, 3] *= self.MM_TO_M
+            base_tf = T_m
+
+        if base_tf is not None:
+            gl.glPushMatrix()
+            gl.glMultMatrixd(np.ascontiguousarray(base_tf.T))
+
+        try:
+            if model is None or model.root is None:
+                # 渲染模型模块不可用：回退到旧的单几何递归绘制
+                if self.renderer.root_link is not None:
+                    self._draw_link_recursive(self.renderer.root_link)
+                return
+
+            poses = self.renderer.link_poses()
+            for link_name in model.link_chain():
+                link = model.links.get(link_name)
+                base_pose = poses.get(link_name)
+                if link is None or base_pose is None:
+                    continue
+                for visual in link.visuals:
+                    self._draw_visual(base_pose, visual)
+        finally:
+            if base_tf is not None:
+                gl.glPopMatrix()
 
     def _draw_visual(self, base_pose: "np.ndarray", visual: object) -> None:
         """在世界位姿 ``base_pose`` 下绘制一个 visual。"""
@@ -1234,9 +1328,20 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                 lo = np.array([np.inf, np.inf, np.inf])
                 hi = np.array([-np.inf, -np.inf, -np.inf])
                 for part in self.scene.object_parts(name):
-                    aabb = prim_aabb(part.prim, part.transform)
-                    lo = np.minimum(lo, aabb.lo * self.MM_TO_M)
-                    hi = np.maximum(hi, aabb.hi * self.MM_TO_M)
+                    try:
+                        aabb = prim_aabb(part.prim, part.transform)
+                        plo, phi = aabb.lo, aabb.hi
+                    except Exception:
+                        # mesh 等无解析 AABB 的基本体：直接用顶点包络
+                        mesh = getattr(part.prim, "mesh", None)
+                        if mesh is None or getattr(mesh, "is_empty", True):
+                            continue
+                        R = part.transform[:3, :3]
+                        t = part.transform[:3, 3]
+                        pts = (np.asarray(mesh.vertices, dtype=np.float64) @ R.T) + t
+                        plo, phi = pts.min(axis=0), pts.max(axis=0)
+                    lo = np.minimum(lo, plo * self.MM_TO_M)
+                    hi = np.maximum(hi, phi * self.MM_TO_M)
                 if not np.all(np.isfinite(lo)) or not np.all(np.isfinite(hi)):
                     continue
                 t = self._ray_aabb(origin, direction, lo, hi)
@@ -1479,6 +1584,18 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         elif event.button() == Qt.LeftButton:
             self.dragging = True
             self.last_pos = event.position().toPoint()
+            self._left_press_pos = self.last_pos
+            self._left_moved = False
+            # 左键按下即尝试拾取对象，让机器人/组件一点就高亮
+            if _HAS_WORLD and self.scene is not None:
+                pos = event.position().toPoint()
+                name = self._pick_object(pos.x(), pos.y())
+                if name is not None:
+                    self.selected_object = name
+                    self.objectSelected.emit(name)
+                else:
+                    self.selected_object = None
+                self.update()
 
     def mouseMoveEvent(self, event):
         # 右键（或 Control+左键）按住时做 gizmo 变换，不做视角旋转
@@ -1489,6 +1606,9 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
         if self.dragging and self.last_pos:
             current_pos = event.position().toPoint()
+            if self._left_press_pos is not None and \
+                    (current_pos - self._left_press_pos).manhattanLength() > 4:
+                self._left_moved = True
             dx = current_pos.x() - self.last_pos.x()
             dy = current_pos.y() - self.last_pos.y()
             self.camera_az -= dx * 0.5
@@ -1504,6 +1624,17 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         if event.button() == Qt.LeftButton:
             self.dragging = False
             self._right_like = False
+            if not self._left_moved and _HAS_WORLD and self.scene is not None:
+                pos = event.position().toPoint()
+                name = self._pick_object(pos.x(), pos.y())
+                if name is not None:
+                    self.selected_object = name
+                    self.objectSelected.emit(name)
+                else:
+                    self.selected_object = None
+                self.update()
+            self._left_moved = False
+            self._left_press_pos = None
         elif event.button() == Qt.RightButton:
             self._right_like = False
         # 保留选中与 gizmo 显示；仅清除本次拖动模式，下次右键重新判定
@@ -1531,6 +1662,11 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.playback_timer = None
         self.current_playback_index = 0
         self.playback_speed = 50
+        #: 工作单元模型（硬件列表 / PLC 程序逻辑共用同一份）
+        self.cell = CellConfig() if _HAS_CELL else None
+        #: 供「机器人子程序」生成用的真实机器人（含运动学）
+        self._robot = None
+        self._scene = None
         self._setup_ui()
         self.setPlainText("# OLP Path Code\nmovej([0, -90, 90, -90, 90, 0], vel=0.5)\n")
 
@@ -1539,12 +1675,20 @@ class PathCodeEditor(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
+        self.sub_tabs = QtWidgets.QTabWidget()
+
+        # ---------- 1) 路径示教（原有能力） ----------
+        teach = QtWidgets.QWidget()
+        teach_layout = QtWidgets.QVBoxLayout(teach)
+        teach_layout.setContentsMargins(0, 0, 0, 0)
+        teach_layout.setSpacing(2)
+
         self.code_edit = QtWidgets.QTextEdit()
         self.code_edit.setFont(QFont("Consolas", 10))
         self.code_edit.setStyleSheet("background-color: #1a1a1a; color: #e0e0e0;")
         self.code_edit.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
         self.code_edit.setTabStopDistance(20)
-        layout.addWidget(self.code_edit)
+        teach_layout.addWidget(self.code_edit)
 
         control_layout = QtWidgets.QHBoxLayout()
 
@@ -1573,7 +1717,187 @@ class PathCodeEditor(QtWidgets.QWidget):
         control_layout.addWidget(self.stop_btn)
         control_layout.addWidget(self.clear_btn)
         control_layout.addWidget(self.pos_count_label)
-        layout.addLayout(control_layout)
+        teach_layout.addLayout(control_layout)
+
+        self.sub_tabs.addTab(teach, "路径示教")
+
+        # ---------- 2) 硬件列表 ----------
+        self.sub_tabs.addTab(self._build_hardware_tab(), "硬件列表")
+
+        # ---------- 3) PLC 程序逻辑 ----------
+        self.sub_tabs.addTab(self._build_plc_tab(), "PLC 程序逻辑")
+
+        # ---------- 4) 机器人子程序 ----------
+        self.sub_tabs.addTab(self._build_subprogram_tab(), "机器人子程序")
+
+        layout.addWidget(self.sub_tabs)
+
+    # ---------------- 代码生成：硬件列表 ---------------- #
+
+    def _build_hardware_tab(self):
+        w = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(w)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        self.device_table = QtWidgets.QTableWidget(0, 6)
+        self.device_table.setHorizontalHeaderLabels(
+            ["名称", "类型", "厂商", "型号", "通信", "IP"])
+        self.device_table.horizontalHeader().setSectionResizeMode(
+            QtWidgets.QHeaderView.ResizeToContents)
+        self.device_table.verticalHeader().setVisible(False)
+        layout.addWidget(self.device_table, 1)
+
+        row = QtWidgets.QHBoxLayout()
+        self.btn_hw_add = QtWidgets.QPushButton("添加设备")
+        self.btn_hw_add.clicked.connect(self._add_device_row)
+        row.addWidget(self.btn_hw_add)
+        self.btn_hw_del = QtWidgets.QPushButton("删除")
+        self.btn_hw_del.clicked.connect(self._remove_device_row)
+        row.addWidget(self.btn_hw_del)
+        self.btn_hw_sync = QtWidgets.QPushButton("从场景同步")
+        self.btn_hw_sync.setToolTip("按场景里的机器人/组件补齐设备清单（已存在的保留不动）")
+        self.btn_hw_sync.clicked.connect(self._sync_devices_from_scene)
+        row.addWidget(self.btn_hw_sync)
+        layout.addLayout(row)
+        return w
+
+    def _add_device_row(self, name="", type_="传感器"):
+        if self.cell is None:
+            return
+        name = name or f"设备_{len(self.cell.devices) + 1}"
+        self.cell.add(Device(name=name, type=type_))
+        self._refresh_device_table()
+
+    def _remove_device_row(self):
+        if self.cell is None:
+            return
+        r = self.device_table.currentRow()
+        if r < 0 or r >= len(self.cell.devices):
+            return
+        self.cell.remove(self.cell.devices[r].name)
+        self._refresh_device_table()
+
+    def _refresh_device_table(self):
+        if self.cell is None:
+            return
+        self.device_table.setRowCount(len(self.cell.devices))
+        for i, d in enumerate(self.cell.devices):
+            for j, val in enumerate([d.name, d.type, d.brand, d.model, d.comm, d.ip]):
+                self.device_table.setItem(i, j, QtWidgets.QTableWidgetItem(val))
+
+    def _sync_devices_from_scene(self):
+        self.sync_devices(self._scene)
+
+    def sync_devices(self, scene) -> None:
+        """按场景对象补齐设备清单；已存在的保留，避免覆盖用户填的内容。"""
+        if self.cell is None or scene is None:
+            return
+        for name in list(scene.objects):
+            if self.cell.find(name):
+                continue
+            dev_type = "机器人" if name == ROBOT_NAME else "传感器"
+            self.cell.add(Device(name=name, type=dev_type))
+        self._refresh_device_table()
+
+    # ---------------- 代码生成：PLC 程序逻辑 ---------------- #
+
+    def _build_plc_tab(self):
+        w = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(w)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("目标"))
+        self.plc_target = QtWidgets.QComboBox()
+        self.plc_target.addItem("西门子 SCL", "siemens_scl")
+        row.addWidget(self.plc_target, 1)
+        self.btn_gen_plc = QtWidgets.QPushButton("生成")
+        self.btn_gen_plc.clicked.connect(self._generate_plc)
+        row.addWidget(self.btn_gen_plc)
+        layout.addLayout(row)
+
+        self.plc_preview = QtWidgets.QTextEdit()
+        self.plc_preview.setReadOnly(True)
+        self.plc_preview.setFont(QFont("Consolas", 9))
+        self.plc_preview.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.plc_preview.setPlaceholderText("生成的 PLC 代码（西门子 SCL）将显示在这里")
+        layout.addWidget(self.plc_preview, 1)
+        return w
+
+    def _generate_plc(self):
+        if self.cell is None or generate_scl is None:
+            self.plc_preview.setPlainText("单元模型不可用")
+            return
+        try:
+            code = generate_scl(self.cell, program_name="CellControl")
+        except Exception as exc:
+            self.plc_preview.setPlainText(f"生成失败：\n{exc}")
+            return
+        self.plc_preview.setPlainText(code)
+
+    # ---------------- 代码生成：机器人子程序 ---------------- #
+
+    def _build_subprogram_tab(self):
+        w = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(w)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("品牌"))
+        self.combo_brand = QtWidgets.QComboBox()
+        self.combo_brand.addItem("自动（按机器人）", None)
+        try:
+            from orolp.post import get_post_processor, list_post_processors
+
+            for name in list_post_processors():
+                pp = get_post_processor(name)
+                self.combo_brand.addItem(
+                    f"{pp.brand.upper()} {pp.controller.upper()}", name)
+        except Exception:
+            pass
+        row.addWidget(self.combo_brand, 1)
+        self.btn_gen_sub = QtWidgets.QPushButton("生成")
+        self.btn_gen_sub.clicked.connect(self._generate_subprograms)
+        row.addWidget(self.btn_gen_sub)
+        layout.addLayout(row)
+
+        self.sub_preview = QtWidgets.QTextEdit()
+        self.sub_preview.setReadOnly(True)
+        self.sub_preview.setFont(QFont("Consolas", 9))
+        self.sub_preview.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.sub_preview.setPlaceholderText("机器人子程序代码（需先加载机器人并示教）")
+        layout.addWidget(self.sub_preview, 1)
+        return w
+
+    def set_robot(self, robot, joint_names=None) -> None:
+        """注入真实机器人（含运动学），供「机器人子程序」生成代码。"""
+        self._robot = robot
+        if joint_names:
+            self.set_joint_names(joint_names)
+
+    def _generate_subprograms(self):
+        if self._robot is None:
+            self.sub_preview.setPlainText("请先加载机器人")
+            return
+        if not self.recorded_positions:
+            self.sub_preview.setPlainText("请先在「路径示教」里 Record 至少一个示教点")
+            return
+        try:
+            from orolp.program import ProgramBuilder
+
+            builder = ProgramBuilder(self._robot)
+            names = list(self._robot.joint_names)
+            for pos in self.recorded_positions:
+                joints = [math.degrees(float(pos.get(n, 0.0))) for n in names]
+                builder.moveJ(joints, speed=100)
+            code = builder.build().to_post(
+                self.combo_brand.currentData(),
+                metadata={"program_name": getattr(self._robot, "name", "program")},
+            )
+        except Exception as exc:
+            self.sub_preview.setPlainText(f"生成失败：\n{exc}")
+            return
+        self.sub_preview.setPlainText(code)
 
     def _on_record_toggled(self, checked):
         if checked:
@@ -1698,26 +2022,48 @@ class PathCodeEditor(QtWidgets.QWidget):
 
 
 class DevicePropertyPanel(QtWidgets.QWidget):
-    jointChanged = Signal(str, float)
-    
+    objectChanged = Signal()  # 场景对象属性被编辑后触发视口重绘
+    jointChanged = Signal(str, float)  # 关节滑块改动 → 驱动视口/记录
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.sliders = {}
-        self.value_labels = {}
-        self.joint_layout = None
         self.log_text = None
         self.name_label = None
         self.type_label = None
         self.manufacturer_label = None
         self.dof_label = None
+        #: 当前场景引用（由 MainWindow 注入）；选中场景对象时用于读写属性
+        self.scene = None
+        self.current_object = None
+        self._has_robot_model = False
+        self.obj_pose_widgets = {}
+        self.obj_param_widgets = {}
+        self.sliders = {}
+        self.value_labels = {}
+        self._renderer = None
         self._setup_ui()
     
     def _setup_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         
-        info_group = QtWidgets.QGroupBox("机器人信息")
-        info_layout = QtWidgets.QFormLayout(info_group)
+        # ---- 对象属性（选中场景对象时显示，默认隐藏）----
+        # 含：信息（对象名/类型 + 机器人规格）、位置（基座位姿）、参数
+        self.object_group = QtWidgets.QGroupBox("对象属性")
+        obj_layout = QtWidgets.QVBoxLayout(self.object_group)
+
+        # 信息（对象名/类型 + 机器人规格）
+        self.info_group = QtWidgets.QGroupBox("信息")
+        info_layout = QtWidgets.QFormLayout(self.info_group)
+        self.obj_name_label = QtWidgets.QLabel("N/A")
+        self.obj_type_label = QtWidgets.QLabel("N/A")
+        info_layout.addRow("名称:", self.obj_name_label)
+        info_layout.addRow("类型:", self.obj_type_label)
+
+        # 机器人规格（仅机器人对象可见）
+        self.robot_spec_widget = QtWidgets.QWidget()
+        spec_layout = QtWidgets.QFormLayout(self.robot_spec_widget)
+        spec_layout.setContentsMargins(0, 4, 0, 4)
         self.name_label = QtWidgets.QLabel("N/A")
         self.manufacturer_label = QtWidgets.QLabel("N/A")
         self.type_label = QtWidgets.QLabel("N/A")
@@ -1726,15 +2072,16 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.repeat_label = QtWidgets.QLabel("N/A")
         self.dof_label = QtWidgets.QLabel("N/A")
         self.controller_label = QtWidgets.QLabel("N/A")
-        info_layout.addRow("名称:", self.name_label)
-        info_layout.addRow("厂商:", self.manufacturer_label)
-        info_layout.addRow("类型:", self.type_label)
-        info_layout.addRow("额定负载:", self.payload_label)
-        info_layout.addRow("最大臂展:", self.reach_label)
-        info_layout.addRow("重复定位精度:", self.repeat_label)
-        info_layout.addRow("轴数:", self.dof_label)
-        info_layout.addRow("控制器:", self.controller_label)
-        layout.addWidget(info_group)
+        spec_layout.addRow("型号:", self.name_label)
+        spec_layout.addRow("厂商:", self.manufacturer_label)
+        spec_layout.addRow("类型:", self.type_label)
+        spec_layout.addRow("额定负载:", self.payload_label)
+        spec_layout.addRow("最大臂展:", self.reach_label)
+        spec_layout.addRow("重复定位精度:", self.repeat_label)
+        spec_layout.addRow("轴数:", self.dof_label)
+        spec_layout.addRow("控制器:", self.controller_label)
+        info_layout.addRow(self.robot_spec_widget)
+        obj_layout.addWidget(self.info_group)
 
         # 型号备注（数据来源、参数核验状态等）
         self.note_label = QtWidgets.QLabel("")
@@ -1744,13 +2091,46 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         note_font.setPointSize(8)
         self.note_label.setFont(note_font)
         self.note_label.hide()
-        layout.addWidget(self.note_label)
+        obj_layout.addWidget(self.note_label)
 
-        joint_group = QtWidgets.QGroupBox("关节控制")
-        self.joint_layout = QtWidgets.QVBoxLayout(joint_group)
-        layout.addWidget(joint_group)
-        
+        # 位置（基座位姿，可编辑）
+        self.pose_grp = QtWidgets.QGroupBox("位置")
+        pose_layout = QtWidgets.QFormLayout(self.pose_grp)
+        for key, label, lo, hi, step in (
+            ("x", "X (mm)", -20000, 20000, 10),
+            ("y", "Y (mm)", -20000, 20000, 10),
+            ("z", "Z (mm)", -5000, 10000, 10),
+            ("rz", "绕 Z (°)", -360, 360, 5),
+        ):
+            spin = QtWidgets.QDoubleSpinBox()
+            spin.setRange(lo, hi)
+            spin.setDecimals(1)
+            spin.setSingleStep(step)
+            spin.setValue(0.0)
+            spin.valueChanged.connect(self._on_obj_pose_edited)
+            self.obj_pose_widgets[key] = spin
+            pose_layout.addRow(label, spin)
+        obj_layout.addWidget(self.pose_grp)
+
+        # 参数（按组件/机器人参数动态重建，可编辑；机器人则显示关节滑块）
+        self.obj_params_group = QtWidgets.QGroupBox("参数")
+        self.obj_params_layout = QtWidgets.QVBoxLayout(self.obj_params_group)
+        self.obj_params_layout.setContentsMargins(4, 4, 4, 4)
+        self.obj_params_layout.setSpacing(4)
+        obj_layout.addWidget(self.obj_params_group)
+
+        self.object_scroll = QtWidgets.QScrollArea()
+        self.object_scroll.setWidgetResizable(True)
+        self.object_scroll.setFrameStyle(QtWidgets.QFrame.NoFrame)
+        self.object_scroll.setWidget(self.object_group)
+        self.object_scroll.hide()
+        # 这里不能加 addStretch：它会与 object_scroll 平分剩余高度（各占一半），
+        # 把滚动可视区压到只剩约 350px，导致底部的「参数/关节控制」被挤到
+        # 视口以下完全看不见。让 object_scroll 独占全部剩余空间即可把日志顶到底部。
+        layout.addWidget(self.object_scroll, 1)
+
         log_group = QtWidgets.QGroupBox("日志")
+        log_group.setMaximumHeight(150)  # 限制日志高度，给上方属性区留出可视空间
         log_layout = QtWidgets.QVBoxLayout(log_group)
         self.log_text = QtWidgets.QTextEdit()
         self.log_text.setReadOnly(True)
@@ -1758,83 +2138,6 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.log_text.setStyleSheet("background-color: #1a1a1a; color: #ffffff;")
         log_layout.addWidget(self.log_text)
         layout.addWidget(log_group)
-        
-        layout.addStretch()
-    
-    def setup_joints(self, renderer):
-        while self.joint_layout.count() > 0:
-            item = self.joint_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        
-        self.sliders.clear()
-        self.value_labels.clear()
-        
-        joint_items = []
-        for name, joint in renderer.joints.items():
-            if joint["type"] == "revolute":
-                child = joint["child"]
-                if child in renderer.links:
-                    try:
-                        idx = list(renderer.links.keys()).index(child)
-                        joint_items.append((idx, name, joint))
-                    except ValueError:
-                        pass
-        
-        joint_items.sort(key=lambda x: x[0])
-        
-        for _, name, joint in joint_items:
-            frame = QtWidgets.QFrame()
-            frame.setFrameStyle(QtWidgets.QFrame.StyledPanel)
-            flayout = QtWidgets.QVBoxLayout(frame)
-            flayout.setContentsMargins(5, 5, 5, 5)
-            flayout.setSpacing(4)
-
-            grid = QtWidgets.QGridLayout()
-            grid.setColumnStretch(0, 1)   # 关节名列可随面板扩展
-            grid.setColumnStretch(1, 0)   # 数值列保持最小宽度
-            grid.setColumnMinimumWidth(0, 80)  # 保证 "Joint 1" 完整显示
-            grid.setColumnMinimumWidth(1, 70)  # 保证角度值完整显示
-            grid.setHorizontalSpacing(8)
-
-            label = QtWidgets.QLabel(f"<b>{name}</b>")
-            label.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
-            label.setWordWrap(False)
-
-            self.value_labels[name] = QtWidgets.QLabel("0.0°")
-            self.value_labels[name].setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.value_labels[name].setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
-            self.value_labels[name].setMinimumWidth(70)
-
-            grid.addWidget(label, 0, 0)
-            grid.addWidget(self.value_labels[name], 0, 1)
-
-            slider = QtWidgets.QSlider(Qt.Horizontal)
-            slider.setMinimum(int(math.degrees(joint["limit"]["lower"]) * 100))
-            slider.setMaximum(int(math.degrees(joint["limit"]["upper"]) * 100))
-            slider.setValue(0)
-            slider.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            slider.valueChanged.connect(lambda v, n=name: self._on_joint_changed(n, v))
-            grid.addWidget(slider, 1, 0, 1, 2)
-            self.sliders[name] = slider
-
-            min_label = QtWidgets.QLabel(f"{math.degrees(joint['limit']['lower']):.1f}°")
-            max_label = QtWidgets.QLabel(f"{math.degrees(joint['limit']['upper']):.1f}°")
-            max_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            min_label.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
-            max_label.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Preferred)
-            grid.addWidget(min_label, 2, 0)
-            grid.addWidget(max_label, 2, 1)
-
-            flayout.addLayout(grid)
-            
-            self.joint_layout.addWidget(frame)
-    
-    def _on_joint_changed(self, name, value):
-        angle = value / 100.0
-        if name in self.value_labels:
-            self.value_labels[name].setText(f"{angle:.2f}°")
-        self.jointChanged.emit(name, math.radians(angle))
     
     def update_robot_info(self, renderer, entry=None):
         """更新机器人信息区。
@@ -1843,6 +2146,8 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             renderer: 已加载 URDF 的渲染器
             entry: 机器人库条目；提供时可回显负载、臂展等完整规格
         """
+        self._renderer = renderer
+        self._has_robot_model = True
         revolute = [j for j in renderer.joints.values() if j["type"] == "revolute"]
         self.dof_label.setText(str(len(revolute)))
 
@@ -1882,14 +2187,205 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.log_text.append(f"已载入: {renderer.robot_name}")
         self.log_text.append(f"关节数: {len(revolute)}")
 
+    # --------------------------- 对象属性动态编辑 --------------------------- #
+
+    def set_scene(self, scene) -> None:
+        """注入当前工作单元场景，供选中对象时读写属性。"""
+        self.scene = scene
+
+    def set_object(self, name: Optional[str]) -> None:
+        """按选中对象动态切换右面板内容：信息 / 位置 / 参数 三块。
+
+        Args:
+            name: 选中对象名；``None`` / 不在场景中 → 回到默认视图（仅信息）。
+        """
+        if not _HAS_WORLD or self.scene is None or not name or name not in self.scene.objects:
+            # 默认视图：未选中对象 → 隐藏「对象属性」
+            self.current_object = None
+            self.object_scroll.hide()
+            return
+
+        self.current_object = name
+        obj = self.scene.objects[name]
+        is_robot = name == ROBOT_NAME
+        spec = COMPONENTS.get(obj.component_id) if obj.component_id else None
+
+        # 显示「对象属性」容器（内含信息 / 位置 / 参数）
+        self.object_scroll.show()
+        self.object_group.show()
+
+        self.obj_name_label.setText(name)
+        if is_robot:
+            self.obj_type_label.setText("机器人")
+            self.robot_spec_widget.setVisible(True)
+            self.note_label.setVisible(bool(self.note_label.text()))
+        else:
+            self.obj_type_label.setText(spec.name if spec else "自定义")
+            self.robot_spec_widget.setVisible(False)
+            self.note_label.setVisible(False)
+
+        # 位姿回填（blockSignals 避免触发写回）
+        tf = obj.pose
+        xyz = tf.matrix[:3, 3]
+        rz = math.degrees(math.atan2(tf.matrix[1, 0], tf.matrix[0, 0]))
+        for key, val in (("x", float(xyz[0])), ("y", float(xyz[1])),
+                         ("z", float(xyz[2])), ("rz", rz)):
+            w = self.obj_pose_widgets[key]
+            w.blockSignals(True)
+            w.setValue(val)
+            w.blockSignals(False)
+
+        # 参数控件：机器人显示关节滑块，组件按 ParamSpec 重建
+        if is_robot and self._renderer is not None:
+            self._setup_joint_controls(self._renderer)
+        else:
+            self._rebuild_param_rows(spec, obj.params)
+
+    def _clear_params_layout(self) -> None:
+        """清空参数面板内的所有控件与嵌套布局。"""
+        while self.obj_params_layout.count():
+            item = self.obj_params_layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+            else:
+                layout = item.layout()
+                if layout is not None:
+                    while layout.count():
+                        sub = layout.takeAt(0)
+                        if sub and sub.widget():
+                            sub.widget().deleteLater()
+                    layout.deleteLater()
+
+    def _rebuild_param_rows(self, spec, params: dict) -> None:
+        """根据组件 ParamSpec 重建参数编辑行。"""
+        self._clear_params_layout()
+        self.obj_param_widgets.clear()
+        self.sliders.clear()
+        self.value_labels.clear()
+
+        if spec is None:
+            lbl = QtWidgets.QLabel("（无可调参数）")
+            lbl.setStyleSheet("color:#7f8192; font-size:11px;")
+            self.obj_params_layout.addWidget(lbl)
+            return
+
+        for p in spec.params:
+            row = QtWidgets.QHBoxLayout()
+            row.setSpacing(8)
+            lbl = QtWidgets.QLabel(p.label)
+            spin = QtWidgets.QDoubleSpinBox()
+            spin.setRange(p.minimum, p.maximum)
+            spin.setDecimals(1)
+            spin.setSingleStep(p.step)
+            if p.unit:
+                spin.setSuffix(f" {p.unit}")
+            spin.blockSignals(True)
+            spin.setValue(float(params.get(p.name, p.default)))
+            spin.blockSignals(False)
+            spin.valueChanged.connect(
+                lambda v, n=p.name: self._on_obj_param_edited(n, v)
+            )
+            self.obj_param_widgets[p.name] = spin
+            row.addWidget(lbl)
+            row.addWidget(spin, 1)
+            self.obj_params_layout.addLayout(row)
+
+    def _setup_joint_controls(self, renderer) -> None:
+        """为机器人在“参数”面板内构建关节滑块。"""
+        self._renderer = renderer
+        self._clear_params_layout()
+        self.obj_param_widgets.clear()
+        self.sliders.clear()
+        self.value_labels.clear()
+
+        # 按运动学顺序取可动关节：不依赖 link 名匹配，顺序也与 FK/IK 一致
+        order = list(renderer.actuated_names()) or list(renderer.joints.keys())
+        joint_items = [(i, n, renderer.joints[n]) for i, n in enumerate(order)
+                       if n in renderer.joints]
+
+        for _, name, joint in joint_items:
+            lo = math.degrees(joint["limit"]["lower"])
+            hi = math.degrees(joint["limit"]["upper"])
+
+            # 紧凑单行「名称 | 滑块 | 当前值」：
+            # 原来是「名称/值 + 滑块 + 上下限」三行约 72px，6 个共 472px，
+            # 会把「参数」整块顶出可视区；压成一行约 28px，6 个共约 180px。
+            row = QtWidgets.QHBoxLayout()
+            row.setSpacing(6)
+            row.setContentsMargins(2, 1, 2, 1)
+
+            label = QtWidgets.QLabel(name)
+            label.setFixedWidth(58)
+            label.setStyleSheet("font-size:11px;")
+
+            slider = QtWidgets.QSlider(Qt.Horizontal)
+            slider.setMinimum(int(lo * 100))
+            slider.setMaximum(int(hi * 100))
+            init_deg = math.degrees(renderer.joint_values.get(name, 0.0))
+            slider.setValue(int(init_deg * 100))
+            slider.setFixedHeight(18)
+            slider.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            slider.setToolTip(f"范围 {lo:.1f}° ~ {hi:.1f}°")
+            slider.valueChanged.connect(lambda v, n=name: self._on_joint_slider_changed(n, v))
+            self.sliders[name] = slider
+
+            val = QtWidgets.QLabel(f"{init_deg:.1f}°")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            val.setFixedWidth(48)
+            val.setStyleSheet("font-size:11px;")
+            self.value_labels[name] = val
+
+            row.addWidget(label)
+            row.addWidget(slider, 1)
+            row.addWidget(val)
+            self.obj_params_layout.addLayout(row)
+
+        if not joint_items:
+            lbl = QtWidgets.QLabel("（无可调参数）")
+            lbl.setStyleSheet("color:#7f8192; font-size:11px;")
+            self.obj_params_layout.addWidget(lbl)
+
+    def _on_joint_slider_changed(self, name, value):
+        angle = value / 100.0
+        if name in self.value_labels:
+            self.value_labels[name].setText(f"{angle:.1f}°")
+        self.jointChanged.emit(name, math.radians(angle))
+
     def update_joint_displays(self, joint_values):
         for name, value in joint_values.items():
             if name in self.value_labels:
-                self.value_labels[name].setText(f"{math.degrees(value):.2f}°")
+                self.value_labels[name].setText(f"{math.degrees(value):.1f}°")
             if name in self.sliders:
                 self.sliders[name].blockSignals(True)
                 self.sliders[name].setValue(int(math.degrees(value) * 100))
                 self.sliders[name].blockSignals(False)
+
+    def _on_obj_pose_edited(self) -> None:
+        if not self.current_object or self.scene is None:
+            return
+        obj = self.scene.objects.get(self.current_object)
+        if obj is None:
+            return
+        obj.pose = Pose.from_xyz_rpy(
+            self.obj_pose_widgets["x"].value(),
+            self.obj_pose_widgets["y"].value(),
+            self.obj_pose_widgets["z"].value(),
+            0.0, 0.0,
+            self.obj_pose_widgets["rz"].value(),
+        )
+        self.objectChanged.emit()
+
+    def _on_obj_param_edited(self, name: str, value: float) -> None:
+        if not self.current_object or self.scene is None:
+            return
+        obj = self.scene.objects.get(self.current_object)
+        if obj is None:
+            return
+        obj.params[name] = float(value)
+        self.objectChanged.emit()
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -1930,6 +2426,23 @@ class MainWindow(QtWidgets.QMainWindow):
         """重新扫描 models/ 目录。"""
         if hasattr(self, "library_panel"):
             self.library_panel.refresh()
+
+    def _add_component_from_library(self, component_id: str) -> None:
+        """机器组件库双击/拖拽组件时，加入场景并切到场景标签。"""
+        if not (_HAS_WORLD and hasattr(self, "scene_panel")):
+            return
+        self.scene_panel.add_component(component_id)
+        self.left_tabs.setCurrentWidget(self.scene_panel)
+
+    def _on_robot_dropped(self, key: str) -> None:
+        """机器组件库拖拽机器人型号到视口时，按目录 key 解析 URDF 并载入。"""
+        if not (_HAS_ROBOT_LIBRARY and hasattr(self, "library_panel")):
+            return
+        entry = self.library_panel.catalog.get(key)
+        if entry and entry.urdf_path and entry.urdf_path.exists():
+            self.load_robot(str(entry.urdf_path))
+        else:
+            self.statusBar().showMessage("该型号 URDF 不可用")
     
     def setup_menu(self):
         menubar = self.menuBar()
@@ -1972,12 +2485,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if _HAS_ROBOT_LIBRARY:
             view_menu.addSeparator()
-            show_lib = QAction("显示&机器人库", self)
+            show_lib = QAction("显示&机器组件库", self)
             show_lib.setShortcut("Ctrl+L")
             show_lib.triggered.connect(self.show_robot_library)
             view_menu.addAction(show_lib)
 
-            reload_lib = QAction("重新扫描机器人库", self)
+            reload_lib = QAction("重新扫描机器组件库", self)
             reload_lib.setShortcut("F5")
             reload_lib.triggered.connect(self.reload_robot_library)
             view_menu.addAction(reload_lib)
@@ -2025,11 +2538,12 @@ class MainWindow(QtWidgets.QMainWindow):
             # 机器人库（eCatalog）与路径代码编辑器共用一个标签页容器
             self.library_panel = RobotLibraryPanel(models_dir=_REPO_ROOT / "models")
             self.library_panel.robotSelected.connect(self.load_robot)
+            self.library_panel.componentActivated.connect(self._add_component_from_library)
             self.library_panel.statusMessage.connect(self.statusBar().showMessage)
 
             self.left_tabs = QtWidgets.QTabWidget()
-            self.left_tabs.addTab(self.library_panel, "机器人库")
-            self.left_tabs.addTab(self.code_editor, "路径代码")
+            self.left_tabs.addTab(self.library_panel, "机器组件库")
+            self.left_tabs.addTab(self.code_editor, "程序生成")
 
             if _HAS_WORLD:
                 # 注意：此时 gl_widget 尚未创建，信号连接在 setup_ui 末尾进行
@@ -2042,7 +2556,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.program_panel.statusMessage.connect(self.statusBar().showMessage)
                 self.program_panel.playbackFrame.connect(self.on_playback_frame)
                 self.program_panel.playbackFinished.connect(self.on_playback_stopped)
-                self.left_tabs.addTab(self.program_panel, "离线编程")
+                self.left_tabs.addTab(self.program_panel, "设备联调")
 
             self.left_tabs.setMaximumWidth(360)
             self.left_tabs.setMinimumWidth(250)
@@ -2065,6 +2579,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.property_panel.setMaximumWidth(300)
         self.property_panel.setMinimumWidth(250)
         self.property_panel.jointChanged.connect(self.on_joint_changed)
+        self.property_panel.jointChanged.connect(self.on_joint_changed_for_record)
         main_layout.addWidget(self.property_panel)
 
         # 场景改动需要触发视口重绘，此连接必须等 gl_widget 建好后才能做
@@ -2072,6 +2587,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self.scene_panel.sceneChanged.connect(self.gl_widget.update)
             # 视口右键拾取/拖动选中对象时，同步到左侧场景面板树形选择
             self.gl_widget.objectSelected.connect(self.scene_panel._select_object)
+            # 选中对象（视口 / 场景树两条来源）同步到右侧属性面板
+            self.property_panel.set_scene(self.scene_panel.scene)
+            self.gl_widget.objectSelected.connect(self.property_panel.set_object)
+            self.scene_panel.objectSelected.connect(self.property_panel.set_object)
+            # 场景树选中也要让视口画黄色高亮（同步 gl_widget.selected_object）
+            self.scene_panel.objectSelected.connect(
+                lambda n: (setattr(self.gl_widget, "selected_object", n), self.gl_widget.update())
+            )
+            # 右面板编辑对象属性后重绘视口
+            self.property_panel.objectChanged.connect(self.gl_widget.update)
+            # 机器组件库拖入视口：组件加入场景、机器人按 catalog key 载入
+            self.gl_widget.componentDropped.connect(self._add_component_from_library)
+            self.gl_widget.robotDropped.connect(self._on_robot_dropped)
 
         self.statusBar().showMessage("Ready")
     
@@ -2100,9 +2628,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if _HAS_ROBOT_LIBRARY and hasattr(self, "library_panel"):
             entry = self.library_panel.catalog.find_by_urdf(path)
 
-        self.property_panel.setup_joints(self.gl_widget.renderer)
         self.property_panel.update_robot_info(self.gl_widget.renderer, entry)
-        self.property_panel.jointChanged.connect(self.on_joint_changed_for_record)
         
         # 设置关节名称顺序，用于解析路径代码
         joint_names = list(self.gl_widget.renderer.joints.keys())
@@ -2117,6 +2643,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if _HAS_WORLD and hasattr(self, "scene_panel"):
             self.scene_panel.set_robot(str(path))
             self.gl_widget.scene = self.scene_panel.scene
+            # 让「代码生成 → 硬件列表」能按场景补齐设备清单
+            self.code_editor._scene = self.scene_panel.scene
+            self.code_editor.sync_devices(self.scene_panel.scene)
+            # 载入后即把机器人作为当前对象：右面板显示关节滑块，视口画黄色高亮
+            if ROBOT_NAME in self.scene_panel.scene.objects:
+                self.gl_widget.selected_object = ROBOT_NAME
+                self.gl_widget.update()
+                self.property_panel.set_object(ROBOT_NAME)
 
         # 离线编程面板需要真正的 orolp.Robot（含运动学），而不是只用于
         # 绘制的 renderer——校验与节拍估算都建立在 FK/IK 之上
@@ -2126,6 +2660,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 self.olp_robot = OrolpRobot(str(path), Path(path).stem)
                 self.program_panel.set_robot(self.olp_robot, joint_names)
+                # 「代码生成 → 机器人子程序」需要同样的真实机器人
+                self.code_editor.set_robot(self.olp_robot, joint_names)
                 self.program_panel.set_scene(
                     self.scene_panel.scene if _HAS_WORLD and hasattr(self, "scene_panel") else None
                 )

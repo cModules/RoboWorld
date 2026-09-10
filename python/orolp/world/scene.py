@@ -29,10 +29,14 @@ __all__ = [
     "Collision",
     "Scene",
     "load_robot_visuals",
+    "ROBOT_NAME",
 ]
 
 #: 场景文件格式版本，用于将来兼容旧文件
 SCENE_FORMAT_VERSION = 1
+
+#: 机器人在场景对象字典中的保留名（作为真实 SceneObject 存在）
+ROBOT_NAME = "机器人"
 
 
 @dataclass
@@ -243,16 +247,30 @@ class Scene:
         """
         if name not in self.objects:
             raise KeyError(name)
+        if name == ROBOT_NAME:
+            self._clear_robot()
         # 先把直接子对象重新挂到祖父上，避免"删除父对象导致子对象悬空"
         obj = self.objects[name]
         for child in [o for o in self.objects.values() if o.parent == name]:
             child.parent = obj.parent
         del self.objects[name]
 
+    def _clear_robot(self) -> None:
+        """清空机器人运动学状态（对象壳由调用方负责移除）。"""
+        self.robot_urdf = None
+        self._robot_visuals = []
+        self._kinematics = None
+        self._robot_joints_deg = []
+
     def clear(self) -> None:
-        """清空所有对象（保留机器人）。"""
+        """清空所有对象（保留机器人对象壳）。"""
+        had_robot = self.has_robot
         self.objects.clear()
         self._name_counter.clear()
+        if had_robot:
+            self.objects[ROBOT_NAME] = SceneObject(
+                name=ROBOT_NAME, component_id=None, pose=Pose(), params={}
+            )
 
     # --------------------------- 变换 --------------------------- #
 
@@ -283,6 +301,14 @@ class Scene:
         Returns:
             :class:`Part` 列表（世界系）
         """
+        # 机器人作为真实场景对象：其几何随基座位姿变换
+        if name == ROBOT_NAME and self.has_robot:
+            base = self.world_transform(ROBOT_NAME)  # 毫米
+            out = []
+            for p in self.robot_parts():
+                out.append(Part(p.prim, base @ p.transform, p.color))
+            return out
+
         obj = self.objects[name]
         tf = self.world_transform(name)
 
@@ -326,6 +352,11 @@ class Scene:
                 f"[warning] {self.robot_urdf}: 未解析到任何 box/cylinder/sphere 视觉体"
                 f"（多为 <mesh> 几何），该机器人将不参与干涉检查"
             )
+
+        # 把机器人注册为场景中的一个真实对象（基座位姿可编辑、可删除、可参与干涉）
+        self.objects[ROBOT_NAME] = SceneObject(
+            name=ROBOT_NAME, component_id=None, pose=Pose(), params={}
+        )
 
     def set_robot_joints(self, joints_deg: Sequence[float]) -> None:
         """更新机器人关节角。
@@ -379,11 +410,17 @@ class Scene:
         Returns:
             :class:`Collision` 列表；空列表表示无干涉
         """
-        names = [n for n, o in self.objects.items() if o.visible]
+        names = [
+            n for n, o in self.objects.items() if o.visible and n != ROBOT_NAME
+        ]
 
         # 预先算出所有世界系零件，避免重复计算
         cache: Dict[str, List[Part]] = {n: self.object_parts(n) for n in names}
-        robot: List[Part] = self.robot_parts() if (include_robot and self.has_robot) else []
+        robot: List[Part] = (
+            self.object_parts(ROBOT_NAME)
+            if (include_robot and self.has_robot and ROBOT_NAME in self.objects)
+            else []
+        )
 
         results: List[Collision] = []
 
@@ -425,6 +462,7 @@ class Scene:
                     "color": list(o.color) if o.color else None,
                 }
                 for o in self.objects.values()
+                if o.name != ROBOT_NAME
             ],
         }
 
@@ -500,10 +538,6 @@ class Scene:
                 bb = prim_aabb(p.prim, p.transform)
                 lo = np.minimum(lo, bb.lo)
                 hi = np.maximum(hi, bb.hi)
-        for p in self.robot_parts():
-            bb = prim_aabb(p.prim, p.transform)
-            lo = np.minimum(lo, bb.lo)
-            hi = np.maximum(hi, bb.hi)
         if not np.isfinite(lo).all():
             return np.zeros(3), np.zeros(3)
         return lo, hi

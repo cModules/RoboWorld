@@ -15,15 +15,8 @@ from typing import Dict, List, Optional
 
 from PySide6 import QtCore, QtWidgets
 
-from .components import COMPONENTS, ComponentSpec, categories
-from .scene import Scene
-
-try:
-    from ..pose import Pose
-
-    _HAS_POSE = True
-except Exception:  # pragma: no cover - pose 依赖 scipy，缺失时降级为纯平移
-    _HAS_POSE = False
+from .components import COMPONENTS
+from .scene import Scene, ROBOT_NAME
 
 __all__ = ["ScenePanel"]
 
@@ -38,9 +31,13 @@ QTreeWidget, QListWidget, QComboBox, QSpinBox, QDoubleSpinBox {
 QLabel { color: #9a9bab; }
 QGroupBox {
     color: #c8cad4; border: 1px solid #34353f;
-    border-radius: 4px; margin-top: 8px; padding-top: 6px;
+    /* margin-top 必须容纳一行标题文字(约16px)，否则标题上半截会被部件顶边裁掉 */
+    border-radius: 4px; margin-top: 16px; padding-top: 6px;
 }
-QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+QGroupBox::title {
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 8px; padding: 0 4px;
+}
 QPushButton {
     background: #33343f; color: #d8d9e0;
     border: 1px solid #41424e; border-radius: 3px; padding: 4px 10px;
@@ -62,6 +59,7 @@ class ScenePanel(QtWidgets.QWidget):
     sceneChanged = QtCore.Signal()
     statusMessage = QtCore.Signal(str)
     collisionResult = QtCore.Signal(int)
+    objectSelected = QtCore.Signal(str)  # 当前树选中对象名（None 表示清除）
 
     def __init__(self, scene: Optional[Scene] = None, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
@@ -69,12 +67,9 @@ class ScenePanel(QtWidgets.QWidget):
         self.setStyleSheet(PANEL_STYLE)
 
         self.scene = scene or Scene()
-        self._param_widgets: Dict[str, QtWidgets.QDoubleSpinBox] = {}
         self._selected: Optional[str] = None
-        self._updating = False
 
         self._setup_ui()
-        self._refresh_component_list()
         self._refresh_tree()
 
     # --------------------------- 界面搭建 --------------------------- #
@@ -83,39 +78,6 @@ class ScenePanel(QtWidgets.QWidget):
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(5, 5, 5, 5)
         root.setSpacing(5)
-
-        # ---- 组件库 ----
-        lib_group = QtWidgets.QGroupBox("组件库（参数化生成）")
-        lib_layout = QtWidgets.QVBoxLayout(lib_group)
-
-        row = QtWidgets.QHBoxLayout()
-        self.category_combo = QtWidgets.QComboBox()
-        self.category_combo.addItems(categories())
-        self.category_combo.currentTextChanged.connect(self._refresh_component_list)
-        row.addWidget(self.category_combo, 1)
-        lib_layout.addLayout(row)
-
-        self.component_list = QtWidgets.QListWidget()
-        self.component_list.currentItemChanged.connect(self._on_component_selected)
-        self.component_list.setMaximumHeight(120)
-        lib_layout.addWidget(self.component_list)
-
-        self.component_desc = QtWidgets.QLabel("")
-        self.component_desc.setWordWrap(True)
-        self.component_desc.setStyleSheet("color:#7f8192; font-size:11px;")
-        lib_layout.addWidget(self.component_desc)
-
-        self.params_form = QtWidgets.QWidget()
-        self.params_layout = QtWidgets.QFormLayout(self.params_form)
-        self.params_layout.setContentsMargins(0, 0, 0, 0)
-        lib_layout.addWidget(self.params_form)
-
-        add_row = QtWidgets.QHBoxLayout()
-        self.add_btn = QtWidgets.QPushButton("添加到场景")
-        self.add_btn.clicked.connect(self._add_selected_component)
-        add_row.addWidget(self.add_btn)
-        lib_layout.addLayout(add_row)
-        root.addWidget(lib_group)
 
         # ---- 场景树 ----
         tree_group = QtWidgets.QGroupBox("场景对象")
@@ -137,27 +99,6 @@ class ScenePanel(QtWidgets.QWidget):
         btn_row.addWidget(self.clear_btn)
         tree_layout.addLayout(btn_row)
         root.addWidget(tree_group)
-
-        # ---- 选中对象的位姿 ----
-        pose_group = QtWidgets.QGroupBox("选中对象位姿")
-        pose_layout = QtWidgets.QFormLayout(pose_group)
-        self.pose_widgets: Dict[str, QtWidgets.QDoubleSpinBox] = {}
-        for key, label, lo, hi in (
-            ("x", "X", -20000, 20000),
-            ("y", "Y", -20000, 20000),
-            ("z", "Z", -5000, 10000),
-            ("rz", "绕 Z (°)", -360, 360),
-        ):
-            spin = QtWidgets.QDoubleSpinBox()
-            spin.setRange(lo, hi)
-            spin.setDecimals(1)
-            spin.setSingleStep(10 if key != "rz" else 5)
-            spin.setValue(0.0)
-            spin.setEnabled(False)
-            spin.valueChanged.connect(self._on_pose_edited)
-            self.pose_widgets[key] = spin
-            pose_layout.addRow(f"{label} (mm)" if key != "rz" else label, spin)
-        root.addWidget(pose_group)
 
         # ---- 碰撞检查 ----
         check_group = QtWidgets.QGroupBox("干涉检查")
@@ -183,59 +124,45 @@ class ScenePanel(QtWidgets.QWidget):
         self.stats_label = QtWidgets.QLabel("0 个对象")
         self.stats_label.setStyleSheet("color:#7f8192; font-size:11px;")
         root.addWidget(self.stats_label)
+
+        # ---- 工艺时序（泳道图占位） ---- #
+        swim_group = QtWidgets.QGroupBox("工艺时序（泳道图）")
+        swim_layout = QtWidgets.QVBoxLayout(swim_group)
+        swim_hint = QtWidgets.QLabel(
+            "拖入对象即可生成泳道，按时间轴编排工艺步骤，后续将驱动“工艺 → 机器动作”的自动映射。"
+        )
+        swim_hint.setWordWrap(True)
+        swim_hint.setStyleSheet("color:#7f8192; font-size:11px;")
+        swim_layout.addWidget(swim_hint)
+        self.swimlane_view = _ProcessSwimlane()
+        swim_layout.addWidget(self.swimlane_view, 1)
+        root.addWidget(swim_group, 1)
+
         root.addStretch(1)
 
-    # --------------------------- 组件库 --------------------------- #
+    # --------------------------- 组件添加（供库拖拽/双击调用） --------------------------- #
 
-    def _refresh_component_list(self) -> None:
-        cat = self.category_combo.currentText()
-        self.component_list.clear()
-        for spec in COMPONENTS.values():
-            if spec.category == cat:
-                item = QtWidgets.QListWidgetItem(spec.name)
-                item.setData(QtCore.Qt.UserRole, spec.id)
-                self.component_list.addItem(item)
-        if self.component_list.count():
-            self.component_list.setCurrentRow(0)
+    def add_component(self, component_id: str, params=None, select: bool = True):
+        """把一个组件加入场景，并刷新树与属性面板。
 
-    def _on_component_selected(self, current, previous) -> None:
-        if current is None:
-            return
-        spec = COMPONENTS[current.data(QtCore.Qt.UserRole)]
-        self.component_desc.setText(spec.description)
-
-        # 清空旧参数控件，按 spec 重建
-        while self.params_layout.count():
-            child = self.params_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        self._param_widgets.clear()
-
-        for p in spec.params:
-            spin = QtWidgets.QDoubleSpinBox()
-            spin.setRange(p.minimum, p.maximum)
-            spin.setDecimals(0 if p.step >= 1 else 1)
-            spin.setSingleStep(p.step)
-            spin.setValue(p.default)
-            spin.setSuffix(f" {p.unit}")
-            self._param_widgets[p.name] = spin
-            self.params_layout.addRow(p.label, spin)
-
-    def _add_selected_component(self) -> None:
-        item = self.component_list.currentItem()
-        if item is None:
-            return
-        spec: ComponentSpec = COMPONENTS[item.data(QtCore.Qt.UserRole)]
-        params = {name: w.value() for name, w in self._param_widgets.items()}
+        Args:
+            component_id: 组件 id（见 ``COMPONENTS``）
+            params: 可选参数字典，缺省用组件默认值
+            select: 添加后是否自动选中
+        Returns:
+            新建的 SceneObject，或失败返回 None
+        """
         try:
-            obj = self.scene.add(spec.id, params=params)
+            obj = self.scene.add(component_id, params=params)
         except ValueError as exc:
             self.statusMessage.emit(f"添加失败: {exc}")
-            return
+            return None
         self._refresh_tree()
-        self._select_object(obj.name)
         self.sceneChanged.emit()
+        if select:
+            self._select_object(obj.name)
         self.statusMessage.emit(f"已添加 {obj.name}")
+        return obj
 
     # --------------------------- 场景树 --------------------------- #
 
@@ -245,7 +172,10 @@ class ScenePanel(QtWidgets.QWidget):
 
         # 先建所有节点
         for name, obj in self.scene.objects.items():
-            kind = COMPONENTS[obj.component_id].name if obj.component_id else "自定义"
+            if name == ROBOT_NAME:
+                kind = "机器人"
+            else:
+                kind = COMPONENTS[obj.component_id].name if obj.component_id else "自定义"
             items[name] = QtWidgets.QTreeWidgetItem([name, kind])
             items[name].setData(0, QtCore.Qt.UserRole, name)
 
@@ -259,48 +189,19 @@ class ScenePanel(QtWidgets.QWidget):
 
         self.tree.expandAll()
         self.stats_label.setText(f"{len(self.scene)} 个对象")
+        if hasattr(self, "swimlane_view"):
+            self.swimlane_view.set_scene(self.scene)
 
     def _on_tree_selected(self, current, previous) -> None:
         if current is None:
             self._selected = None
-            for w in self.pose_widgets.values():
-                w.setEnabled(False)
+            self.objectSelected.emit(None)
             return
         name = current.data(0, QtCore.Qt.UserRole)
         if name not in self.scene.objects:
             return
         self._selected = name
-        self._updating = True
-        tf = self.scene.objects[name].pose
-        xyz = tf.matrix[:3, 3] if hasattr(tf, "matrix") else [0, 0, 0]
-        import math
-
-        rz = math.degrees(math.atan2(tf.matrix[1, 0], tf.matrix[0, 0])) if hasattr(tf, "matrix") else 0.0
-        self.pose_widgets["x"].setValue(float(xyz[0]))
-        self.pose_widgets["y"].setValue(float(xyz[1]))
-        self.pose_widgets["z"].setValue(float(xyz[2]))
-        self.pose_widgets["rz"].setValue(rz)
-        for w in self.pose_widgets.values():
-            w.setEnabled(True)
-        self._updating = False
-
-    def _on_pose_edited(self) -> None:
-        if self._updating or not self._selected:
-            return
-        if not _HAS_POSE:
-            return
-        obj = self.scene.objects.get(self._selected)
-        if obj is None:
-            return
-        obj.pose = Pose.from_xyz_rpy(
-            self.pose_widgets["x"].value(),
-            self.pose_widgets["y"].value(),
-            self.pose_widgets["z"].value(),
-            0.0,
-            0.0,
-            self.pose_widgets["rz"].value(),
-        )
-        self.sceneChanged.emit()
+        self.objectSelected.emit(name)
 
     def _select_object(self, name: str) -> None:
         it = self.tree.findItems(name, QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive, 0)
@@ -314,6 +215,7 @@ class ScenePanel(QtWidgets.QWidget):
         self._selected = None
         self._refresh_tree()
         self.sceneChanged.emit()
+        self.objectSelected.emit(None)
         self.statusMessage.emit("已删除对象")
 
     def _clear_scene(self) -> None:
@@ -326,6 +228,7 @@ class ScenePanel(QtWidgets.QWidget):
         self._selected = None
         self._refresh_tree()
         self.sceneChanged.emit()
+        self.objectSelected.emit(None)
         self.statusMessage.emit("场景已清空")
 
     # --------------------------- 碰撞检查 --------------------------- #
@@ -412,6 +315,10 @@ class ScenePanel(QtWidgets.QWidget):
         """
         try:
             self.scene.set_robot(urdf_path, joints_deg)
+            if hasattr(self, "swimlane_view"):
+                self.swimlane_view.set_scene(self.scene)
+            self._refresh_tree()
+            self.sceneChanged.emit()
         except Exception as exc:
             self.statusMessage.emit(f"机器人加载失败: {exc}")
 
@@ -419,3 +326,28 @@ class ScenePanel(QtWidgets.QWidget):
         """同步机器人关节角（供视口拖动时调用）。"""
         if self.scene.has_robot:
             self.scene.set_robot_joints(joints_deg)
+
+
+class _ProcessSwimlane(QtWidgets.QWidget):
+    """工艺时序泳道图占位。
+
+    现阶段仅展示「每个场景对象一行」的空壳，后续接入：拖拽生成步骤、
+    时间轴缩放、步骤与机器动作的绑定。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        self.header = QtWidgets.QLabel("时间 →")
+        self.header.setStyleSheet("color:#9a9bab; font-size:10px;")
+        layout.addWidget(self.header)
+        self.list_widget = QtWidgets.QListWidget()
+        layout.addWidget(self.list_widget, 1)
+
+    def set_scene(self, scene) -> None:
+        self.list_widget.clear()
+        for name in scene.objects:
+            self.list_widget.addItem(f"▢ {name}")
+        if getattr(scene, "has_robot", False):
+            self.list_widget.addItem("▢ 机器人")

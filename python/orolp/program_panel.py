@@ -15,12 +15,15 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .planner import ProgramReport, TrajectoryPlanner
 from .program import Program, ProgramBuilder
+from .post import get_post_processor, list_post_processors
+from .link import FileLink
 
 if TYPE_CHECKING:  # 仅类型标注
     from .robot import Robot
@@ -36,9 +39,13 @@ PANEL_STYLE = """
 QWidget { background-color: #2b2b2b; color: #e0e0e0; font-size: 12px; }
 QGroupBox {
     border: 1px solid #555; border-radius: 4px;
-    margin-top: 10px; padding-top: 8px; font-weight: bold;
+    /* margin-top 必须容纳一行标题文字(约16px)，否则标题上半截会被部件顶边裁掉 */
+    margin-top: 16px; padding-top: 8px; font-weight: bold;
 }
-QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+QGroupBox::title {
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 8px; padding: 0 4px;
+}
 QPushButton {
     background-color: #3c3c3c; border: 1px solid #666;
     border-radius: 3px; padding: 5px 10px;
@@ -84,13 +91,26 @@ class ProgramPanel(QtWidgets.QWidget):
         self._timer.setInterval(PLAYBACK_INTERVAL_MS)
         self._timer.timeout.connect(self._on_tick)
         self._playhead = 0.0
+        self._last_code: str = ""
 
         self._build_ui()
 
     # ---------------------------- 界面 ---------------------------- #
 
     def _build_ui(self) -> None:
-        root = QtWidgets.QVBoxLayout(self)
+        # 内容自然高度约 798px，而标签页可视高度随窗口变化（1280×800 时仅 725px）。
+        # 不套滚动容器会把底部的「后处理与导出」挤出可视区——与右侧属性面板
+        # 曾经踩过的坑同源。
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameStyle(QtWidgets.QFrame.NoFrame)
+        inner = QtWidgets.QWidget()
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+
+        root = QtWidgets.QVBoxLayout(inner)
         root.setContentsMargins(6, 6, 6, 6)
 
         # --- 节拍与规模 ---
@@ -110,7 +130,7 @@ class ProgramPanel(QtWidgets.QWidget):
         root.addWidget(box)
 
         # --- 操作 ---
-        ops = QtWidgets.QGroupBox("离线编程")
+        ops = QtWidgets.QGroupBox("操作")
         ops_layout = QtWidgets.QVBoxLayout(ops)
 
         speed_row = QtWidgets.QHBoxLayout()
@@ -146,6 +166,54 @@ class ProgramPanel(QtWidgets.QWidget):
         issues_layout.addWidget(self.issue_list)
         root.addWidget(issues, 1)
 
+        # --- 设备联调：后处理 / 导出 / 真机（预留） ---
+        comm = QtWidgets.QGroupBox("后处理与导出")
+        comm_layout = QtWidgets.QVBoxLayout(comm)
+
+        pp_row = QtWidgets.QHBoxLayout()
+        pp_row.addWidget(QtWidgets.QLabel("后处理器"))
+        self.combo_post = QtWidgets.QComboBox()
+        self.combo_post.addItem("自动（按机器人品牌）", None)
+        for name in list_post_processors():
+            pp = get_post_processor(name)
+            self.combo_post.addItem(f"{pp.brand.upper()} {pp.controller.upper()}", name)
+        pp_row.addWidget(self.combo_post, 1)
+        comm_layout.addLayout(pp_row)
+
+        gen_row = QtWidgets.QHBoxLayout()
+        self.btn_generate = QtWidgets.QPushButton("生成代码")
+        self.btn_generate.clicked.connect(self.generate_code)
+        self.btn_generate.setEnabled(False)
+        gen_row.addWidget(self.btn_generate)
+        self.btn_export = QtWidgets.QPushButton("导出程序…")
+        self.btn_export.clicked.connect(self.export_program)
+        self.btn_export.setEnabled(False)
+        gen_row.addWidget(self.btn_export)
+        comm_layout.addLayout(gen_row)
+
+        self.code_preview = QtWidgets.QTextEdit()
+        self.code_preview.setReadOnly(True)
+        self.code_preview.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        mono = QtGui.QFont("Consolas", 9)
+        mono.setStyleHint(QtGui.QFont.Monospace)
+        self.code_preview.setFont(mono)
+        self.code_preview.setFixedHeight(150)
+        self.code_preview.setPlaceholderText("生成的控制器代码将显示在这里")
+        comm_layout.addWidget(self.code_preview)
+
+        future_row = QtWidgets.QHBoxLayout()
+        self.btn_upload = QtWidgets.QPushButton("上传真机")
+        self.btn_upload.setEnabled(False)
+        self.btn_upload.setToolTip("预留：接入 ControllerLink 后支持直连控制器上传")
+        future_row.addWidget(self.btn_upload)
+        self.btn_verify = QtWidgets.QPushButton("真机验证")
+        self.btn_verify.setEnabled(False)
+        self.btn_verify.setToolTip("预留：接入 ControllerLink.read_joints 后做真机回读比对")
+        future_row.addWidget(self.btn_verify)
+        comm_layout.addLayout(future_row)
+
+        root.addWidget(comm)
+
         self.btn_validate.setEnabled(False)
 
     # ---------------------------- 外部注入 ---------------------------- #
@@ -175,6 +243,8 @@ class ProgramPanel(QtWidgets.QWidget):
             self.lbl_status.setObjectName("bad")
             self.btn_validate.setEnabled(False)
             self.btn_play.setEnabled(False)
+            self.btn_generate.setEnabled(False)
+            self.btn_export.setEnabled(False)
             self._clear_metrics()
         else:
             source = list(joint_names or robot.joint_names)
@@ -185,6 +255,7 @@ class ProgramPanel(QtWidgets.QWidget):
             self._joint_names = filtered if len(filtered) == len(actuated) else actuated
             self.lbl_status.setText(f"{robot.name} · 就绪")
             self.lbl_status.setObjectName("ok")
+            self.btn_generate.setEnabled(True)
         # 重新套用样式表，objectName 改变后需手动刷新
         self.lbl_status.style().polish(self.lbl_status)
 
@@ -267,6 +338,64 @@ class ProgramPanel(QtWidgets.QWidget):
             f"校验完成：{'通过' if report.ok else f'{len(report.errors)} 处错误'}"
         )
         return report
+
+    # ---------------------------- 设备联调 ---------------------------- #
+
+    def generate_code(self) -> None:
+        """按选择的后处理器生成控制器代码并预览。
+
+        失败时如实抛错并清空预览——绝不留下"看起来成功"的废代码。
+        """
+        program = self.build_program()
+        if program is None:
+            self.statusMessage.emit("请先加载机器人并示教至少一个点")
+            return
+        choice = self.combo_post.currentData()  # None = 自动（按机器人品牌推断）
+        try:
+            code = program.to_post(
+                choice, metadata={"program_name": self._robot.name or "program"}
+            )
+        except Exception as exc:
+            self._last_code = ""
+            self.btn_export.setEnabled(False)
+            self.code_preview.setPlainText(f"生成失败：\n{exc}")
+            self.statusMessage.emit(f"生成失败: {exc}")
+            return
+        self._last_code = code
+        self.code_preview.setPlainText(code)
+        self.btn_export.setEnabled(True)
+        self.statusMessage.emit(
+            f"已生成 {choice or '自动'} 代码，共 {len(code.splitlines())} 行"
+        )
+
+    def export_program(self) -> None:
+        """把当前程序导出到指定目录（走 ``FileLink`` 离线部署通道）。
+
+        用 :meth:`Program.deploy` 而非手写写文件：它会一并把品牌、扩展名、
+        行数等写进 ``.manifest.json`` 部署清单。
+        """
+        program = self.build_program()
+        if program is None or not self._last_code:
+            self.statusMessage.emit("请先生成代码")
+            return
+        dest = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "选择导出目录", str(Path.cwd())
+        )
+        if not dest:
+            return
+        name = self._robot.name or "program"
+        try:
+            deployment = program.deploy(
+                FileLink(dest),
+                self.combo_post.currentData(),
+                name=name,
+                metadata={"program_name": name},
+            )
+        except Exception as exc:
+            self.statusMessage.emit(f"导出失败: {exc}")
+            return
+        note = f"（{deployment.notes}）" if deployment.notes else ""
+        self.statusMessage.emit(f"已导出：{deployment.handle}{note}")
 
     def _show_report(self, report: ProgramReport) -> None:
         """把报告填进界面。"""
