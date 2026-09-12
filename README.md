@@ -11,7 +11,7 @@ An open, extensible, community-driven ecosystem for industrial robotics — buil
 
 > **Vision**: make industrial robot programming and simulation accessible to everyone by lowering the barrier of proprietary formats and closed ecosystems, while keeping the entire toolchain open and auditable end-to-end.
 
-[🇨🇳 中文使用说明 / Chinese guide](docs/README_zh.md) · [📖 Post-processor dev guide](docs/post_dev_guide.md) · [🛠 Vendor CAD setup](docs/VENDOR_CAD_SETUP.md)
+[🇨🇳 中文使用说明 / Chinese guide](docs/README_zh.md) · [📖 Post-processor dev guide](docs/post_dev_guide.md) · [🛠 Vendor CAD setup](docs/VENDOR_CAD_SETUP.md) · [📋 需求与计划 / spec](spec/README.md)
 
 ---
 
@@ -197,6 +197,8 @@ The key extensibility seams:
 - [ ] CI with real URDF regression + LFS asset caching
 
 > Full feature roadmap with priorities, deliverables and risks: **[`docs/ROADMAP.md`](docs/ROADMAP.md)**.
+>
+> 单个特性的**产品需求书（PRD）**与**开发计划**见 **[`spec/`](spec/README.md)** —— `ROADMAP` 管方向，`spec` 管落地。
 
 ### 📋 v0.3.0 (Production candidate)
 - [ ] Node-based visual programming
