@@ -75,7 +75,18 @@ class ScenePanel(QtWidgets.QWidget):
     # --------------------------- 界面搭建 --------------------------- #
 
     def _setup_ui(self) -> None:
-        root = QtWidgets.QVBoxLayout(self)
+        # 内容自然高度约 700px，而标签页可视高度随窗口变化（小窗口时更矮）。
+        # 不套滚动容器会把底部的分组挤出可视区——与右侧属性面板同源的问题。
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameStyle(QtWidgets.QFrame.NoFrame)
+        inner = QtWidgets.QWidget()
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+
+        root = QtWidgets.QVBoxLayout(inner)
         root.setContentsMargins(5, 5, 5, 5)
         root.setSpacing(5)
 

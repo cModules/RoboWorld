@@ -25,7 +25,7 @@ from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 
-from .geometry import Box, Cylinder, Primitive
+from .geometry import Box, Cylinder, Primitive, Sphere
 
 __all__ = [
     "Part",
@@ -192,6 +192,11 @@ def _build_workpiece_cylinder(
 ) -> List[Part]:
     """圆柱工件（轴类、法兰类）。"""
     return [Part(Cylinder(radius, height), _T(0, 0, height / 2), C_WORK)]
+
+
+def _build_workpiece_sphere(radius: float, **_) -> List[Part]:
+    """球体工件/结构件：球类零件、滚轮、料球。"""
+    return [Part(Sphere(radius), _T(0, 0, radius), C_WORK)]
 
 
 def _build_vise(
@@ -497,6 +502,16 @@ COMPONENTS: Dict[str, ComponentSpec] = {
                 _P("height", "高度", 250, 20, 1500),
             ),
             builder=_build_workpiece_cylinder,
+        ),
+        ComponentSpec(
+            id="workpiece_sphere",
+            name="球体工件",
+            category="工件",
+            description="球体零件/滚轮/料球，半径可调",
+            params=(
+                _P("radius", "半径", 80, 10, 600),
+            ),
+            builder=_build_workpiece_sphere,
         ),
         ComponentSpec(
             id="pallet",

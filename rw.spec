@@ -1,7 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
 RobotWorld - PyInstaller Spec File
-用于打包 Windows 64位版本
+
+跨平台打包：
+* Windows / Linux：产出 RobotWorld 可执行文件，图标取 logo.png
+* macOS：额外生成 RobotWorld.app，**Dock 名称与图标由 Info.plist 的
+  CFBundleName 和 logo.icns 决定**（需先由 logo.png 生成 logo.icns）
+
+生成 logo.icns（macOS 自带工具，无需装依赖）：
+    for s in 16 32 128 256 512; do
+      sips -z $s $s logo.png --out logo.iconset/icon_${s}x${s}.png
+      sips -z $((s*2)) $((s*2)) logo.png --out logo.iconset/icon_${s}x${s}@2x.png
+    done
+    iconutil -c icns logo.iconset -o logo.icns
 """
 
 block_cipher = None
@@ -74,4 +85,27 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='logo.png',
+)
+
+# --------------------------------------------------------------------------- #
+# macOS：生成正式 .app
+#
+# 没有这一段时，macOS 下只会产出裸可执行文件，Dock 上显示 python 图标与
+# "python3.11"。有了 BUNDLE + info_plist，Dock 名称取自 CFBundleName、
+# 图标取自 logo.icns —— 这是 macOS 上唯一确定的生效方式。
+# 非 macOS 平台 PyInstaller 会忽略该段，不影响 Windows 打包。
+# --------------------------------------------------------------------------- #
+_icns = os.path.join(spec_dir, 'logo.icns')
+
+app = BUNDLE(
+    exe,
+    name='RobotWorld.app',
+    icon=_icns if os.path.exists(_icns) else None,
+    bundle_identifier='com.openrobot.work.robotworld',
+    info_plist={
+        'CFBundleName': 'RobotWorld',
+        'CFBundleDisplayName': 'RobotWorld',
+        'CFBundleShortVersionString': '0.2.0',
+        'NSHighResolutionCapable': True,
+    },
 )

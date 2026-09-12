@@ -2419,8 +2419,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def show_robot_library(self):
         """切换到机器人库标签页。"""
-        if hasattr(self, "left_tabs"):
-            self.left_tabs.setCurrentIndex(0)
+        # 资源库常驻左侧，无需切换标签页
+        if hasattr(self, "library_panel"):
+            self.library_panel.setFocus()
 
     def reload_robot_library(self):
         """重新扫描 models/ 目录。"""
@@ -2432,7 +2433,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             return
         self.scene_panel.add_component(component_id)
-        self.left_tabs.setCurrentWidget(self.scene_panel)
+        if hasattr(self, "right_tabs"):
+            self.right_tabs.setCurrentWidget(self.scene_panel)
 
     def _on_robot_dropped(self, key: str) -> None:
         """机器组件库拖拽机器人型号到视口时，按目录 key 解析 URDF 并载入。"""
@@ -2511,14 +2513,26 @@ class MainWindow(QtWidgets.QMainWindow):
             view_menu.addAction(validate_prog)
     
     def _set_window_icon(self):
+        """设置窗口图标与**应用级**图标。
+
+        以源码方式启动（``python rw.py``）时，macOS 把进程当作 Python 解释器，
+        Dock 上显示 python 图标与 ``python3.11``。设置应用级图标后，非 bundle
+        进程的 Dock 图标会取用该图标。
+
+        Dock **名称**由进程名决定，Qt 层面无法覆盖——正式发布需打包成
+        ``RobotWorld.app``，由 Info.plist 的 ``CFBundleName`` 确定（见 rw.spec）。
+        """
         import sys
         logo_path = Path(__file__).parent / "logo.png"
         if hasattr(sys, '_MEIPASS'):
             logo_path = Path(sys._MEIPASS) / "logo.png"
-        
-        if logo_path.exists():
-            icon = QtGui.QIcon(str(logo_path))
-            self.setWindowIcon(icon)
+
+        if not logo_path.exists():
+            return
+
+        icon = QtGui.QIcon(str(logo_path))
+        self.setWindowIcon(icon)                      # 窗口标题栏
+        QtGui.QGuiApplication.setWindowIcon(icon)     # 应用级：影响 macOS Dock
     
     def setup_ui(self):
         central = QtWidgets.QWidget()
@@ -2541,34 +2555,34 @@ class MainWindow(QtWidgets.QMainWindow):
             self.library_panel.componentActivated.connect(self._add_component_from_library)
             self.library_panel.statusMessage.connect(self.statusBar().showMessage)
 
-            self.left_tabs = QtWidgets.QTabWidget()
-            self.left_tabs.addTab(self.library_panel, "机器组件库")
-            self.left_tabs.addTab(self.code_editor, "程序生成")
-
             if _HAS_WORLD:
                 # 注意：此时 gl_widget 尚未创建，信号连接在 setup_ui 末尾进行
                 self.scene_panel = ScenePanel(Scene())
                 self.scene_panel.statusMessage.connect(self.statusBar().showMessage)
-                self.left_tabs.addTab(self.scene_panel, "场景")
 
             if _HAS_PROGRAM:
                 self.program_panel = ProgramPanel()
                 self.program_panel.statusMessage.connect(self.statusBar().showMessage)
                 self.program_panel.playbackFrame.connect(self.on_playback_frame)
                 self.program_panel.playbackFinished.connect(self.on_playback_stopped)
-                self.left_tabs.addTab(self.program_panel, "设备联调")
 
-            self.left_tabs.setMaximumWidth(360)
-            self.left_tabs.setMinimumWidth(250)
-            main_layout.addWidget(self.left_tabs)
+            # ---- 左：资源库（建模区）----
+            # 按设计方案，左侧只负责选设备/工件/场景；代码预览、导出打包、
+            # 动作与从属一律移到右侧，不再在左侧堆叠多个标签页。
+            res_box = QtWidgets.QGroupBox("资源库")
+            res_layout = QtWidgets.QVBoxLayout(res_box)
+            res_layout.setContentsMargins(2, 6, 2, 4)
+            res_layout.setSpacing(2)
+            res_layout.addWidget(self.library_panel, 1)
+            res_box.setMaximumWidth(360)
+            res_box.setMinimumWidth(250)
+            main_layout.addWidget(res_box)
         else:
+            # 无机器人库时左侧留空占位；代码编辑器已归入右侧「代码预览」标签，
+            # 这里不能再挂一次，否则会被重复 reparent。
             left_panel = QtWidgets.QWidget()
             left_panel.setMaximumWidth(350)
             left_panel.setMinimumWidth(250)
-            left_layout = QtWidgets.QVBoxLayout(left_panel)
-            left_layout.setContentsMargins(5, 5, 5, 5)
-            left_layout.addWidget(QtWidgets.QLabel("<h3>Path Code Editor</h3>"))
-            left_layout.addWidget(self.code_editor)
             main_layout.addWidget(left_panel)
         
         self.gl_widget = GLWidget(self)
@@ -2576,11 +2590,21 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.addWidget(self.gl_widget, 1)
         
         self.property_panel = DevicePropertyPanel()
-        self.property_panel.setMaximumWidth(300)
-        self.property_panel.setMinimumWidth(250)
         self.property_panel.jointChanged.connect(self.on_joint_changed)
         self.property_panel.jointChanged.connect(self.on_joint_changed_for_record)
-        main_layout.addWidget(self.property_panel)
+
+        # ---- 右：可折叠多功能标签页（核心输出区）----
+        # 一次只展开一个标签 → 界面无冗余信息；属性在前，选中对象时可自动切到它。
+        self.right_tabs = QtWidgets.QTabWidget()
+        self.right_tabs.setMaximumWidth(330)
+        self.right_tabs.setMinimumWidth(260)
+        self.right_tabs.addTab(self.property_panel, "属性")
+        if _HAS_WORLD and hasattr(self, "scene_panel"):
+            self.right_tabs.addTab(self.scene_panel, "动作与从属")
+        self.right_tabs.addTab(self.code_editor, "代码预览")
+        if _HAS_PROGRAM and hasattr(self, "program_panel"):
+            self.right_tabs.addTab(self.program_panel, "导出打包")
+        main_layout.addWidget(self.right_tabs)
 
         # 场景改动需要触发视口重绘，此连接必须等 gl_widget 建好后才能做
         if _HAS_WORLD and hasattr(self, "scene_panel"):
@@ -2683,8 +2707,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
             QtWidgets.QMessageBox.information(self, "程序校验", "离线编程模块不可用。")
             return
-        if hasattr(self, "left_tabs"):
-            self.left_tabs.setCurrentWidget(self.program_panel)
+        if hasattr(self, "right_tabs"):
+            self.right_tabs.setCurrentWidget(self.program_panel)
         self._sync_program_points()
         self.program_panel.validate_program()
 
@@ -2717,7 +2741,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             QtWidgets.QMessageBox.information(self, "干涉检查", "环境建模模块不可用。")
             return
-        self.left_tabs.setCurrentWidget(self.scene_panel)
+        if hasattr(self, "right_tabs"):
+            self.right_tabs.setCurrentWidget(self.scene_panel)
         hits = self.scene_panel.run_collision_check()
         self.gl_widget.set_collision_results(hits)
 
