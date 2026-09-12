@@ -20,7 +20,7 @@ CodeBuddy 生成的开发计划存放在 ``.codebuddy/plans/``，属于过程性
 特性
 ----
 * 归档为 ``docs/plan/<name>.md``（去掉文件名末尾 8 位 hash 与「(未完成)」标记）
-* 自动在 ``docs/spec.md`` 的「开发计划」索引表新增/更新条目
+* 自动在 ``docs/SPECS.md`` 的「开发计划」索引表新增/更新条目
 * 幂等：同名目标内容相同则跳过；内容不同则加 hash 后缀保留，绝不覆盖
 * frontmatter 解析优先用 PyYAML，缺失时降级为手写解析
 """
@@ -39,7 +39,7 @@ from typing import Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 PLANS_DIR = ROOT / ".codebuddy" / "plans"
 SPEC_PLAN_DIR = ROOT / "docs" / "plan"
-SPEC_README = ROOT / "docs" / "spec.md"
+SPEC_README = ROOT / "docs" / "SPECS.md"
 
 #: 终态：处于这些状态的 todo 不会再变动
 TERMINAL_STATES = {"completed", "cancelled"}
@@ -153,7 +153,7 @@ def topic_of(meta: dict, fallback: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
-    """在 docs/spec.md 的「开发计划」表中插入或更新一行。
+    """在 docs/SPECS.md 的「开发计划」表中插入或更新一行。
 
     Returns:
         成功返回 True；找不到表头返回 False（此时**不改动**文件）。
@@ -163,7 +163,7 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
     try:
         sec = lines.index(PLAN_SECTION)
     except ValueError:
-        print("[warn] docs/spec.md 找不到 '### 开发计划' 小节，跳过索引更新")
+        print("[warn] docs/SPECS.md 找不到 '### 开发计划' 小节，跳过索引更新")
         return False
 
     header_at = None
@@ -172,7 +172,7 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
             header_at = i
             break
     if header_at is None:
-        print("[warn] docs/spec.md 找不到开发计划索引表头，跳过索引更新")
+        print("[warn] docs/SPECS.md 找不到开发计划索引表头，跳过索引更新")
         return False
 
     rel = f"plan/{doc_name}"
