@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""把已完成的开发计划从 .codebuddy/plans 归档到 spec/plan。
+"""把已完成的开发计划从 .codebuddy/plans 归档到 docs/plan。
 
 背景
 ----
 CodeBuddy 生成的开发计划存放在 ``.codebuddy/plans/``，属于过程性目录。
-计划执行完成后应沉淀为项目资产，归档到仓库的 ``spec/plan/`` 并同步索引。
+计划执行完成后应沉淀为项目资产，归档到仓库的 ``docs/plan/`` 并同步索引。
 
 判定依据
 --------
@@ -19,8 +19,8 @@ CodeBuddy 生成的开发计划存放在 ``.codebuddy/plans/``，属于过程性
 
 特性
 ----
-* 归档为 ``spec/plan/<name>.md``（去掉文件名末尾 8 位 hash 与「(未完成)」标记）
-* 自动在 ``spec/README.md`` 的「开发计划」索引表新增/更新条目
+* 归档为 ``docs/plan/<name>.md``（去掉文件名末尾 8 位 hash 与「(未完成)」标记）
+* 自动在 ``docs/spec.md`` 的「开发计划」索引表新增/更新条目
 * 幂等：同名目标内容相同则跳过；内容不同则加 hash 后缀保留，绝不覆盖
 * frontmatter 解析优先用 PyYAML，缺失时降级为手写解析
 """
@@ -38,8 +38,8 @@ from typing import Dict, List, Optional, Tuple
 #: 仓库根目录（本文件位于 <root>/tools/）
 ROOT = Path(__file__).resolve().parent.parent
 PLANS_DIR = ROOT / ".codebuddy" / "plans"
-SPEC_PLAN_DIR = ROOT / "spec" / "plan"
-SPEC_README = ROOT / "spec" / "README.md"
+SPEC_PLAN_DIR = ROOT / "docs" / "plan"
+SPEC_README = ROOT / "docs" / "spec.md"
 
 #: 终态：处于这些状态的 todo 不会再变动
 TERMINAL_STATES = {"completed", "cancelled"}
@@ -153,7 +153,7 @@ def topic_of(meta: dict, fallback: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
-    """在 spec/README.md 的「开发计划」表中插入或更新一行。
+    """在 docs/spec.md 的「开发计划」表中插入或更新一行。
 
     Returns:
         成功返回 True；找不到表头返回 False（此时**不改动**文件）。
@@ -163,7 +163,7 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
     try:
         sec = lines.index(PLAN_SECTION)
     except ValueError:
-        print("[warn] spec/README.md 找不到 '### 开发计划' 小节，跳过索引更新")
+        print("[warn] docs/spec.md 找不到 '### 开发计划' 小节，跳过索引更新")
         return False
 
     header_at = None
@@ -172,7 +172,7 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
             header_at = i
             break
     if header_at is None:
-        print("[warn] spec/README.md 找不到开发计划索引表头，跳过索引更新")
+        print("[warn] docs/spec.md 找不到开发计划索引表头，跳过索引更新")
         return False
 
     rel = f"plan/{doc_name}"
@@ -208,7 +208,7 @@ def _same_content(a: Path, b: Path) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="归档已完成的开发计划到 spec/plan")
+    ap = argparse.ArgumentParser(description="归档已完成的开发计划到 docs/plan")
     ap.add_argument("--dry-run", action="store_true",
                     help="只打印将要执行的操作，不改动任何文件")
     args = ap.parse_args()
@@ -250,7 +250,7 @@ def main() -> int:
             continue
 
         action = "将归档" if args.dry_run else "已归档"
-        print(f"{action}: {path.name}  ->  spec/plan/{target.name}")
+        print(f"{action}: {path.name}  ->  docs/plan/{target.name}")
         if not args.dry_run:
             shutil.move(str(path), str(target))
             update_index(
