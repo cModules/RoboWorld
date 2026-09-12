@@ -2040,6 +2040,9 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.obj_param_widgets = {}
         self.sliders = {}
         self.value_labels = {}
+        #: 设备中可动轴（关节）的滑块与数值标签
+        self.axis_sliders = {}
+        self.axis_value_labels = {}
         self._renderer = None
         self._setup_ui()
     
@@ -2093,13 +2096,15 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.note_label.hide()
         obj_layout.addWidget(self.note_label)
 
-        # 位置（基座位姿，可编辑）
+        # 位置（虚拟环境坐标，可编辑）—— 6DOF：XYZ + 绕XYZ
         self.pose_grp = QtWidgets.QGroupBox("位置")
         pose_layout = QtWidgets.QFormLayout(self.pose_grp)
         for key, label, lo, hi, step in (
             ("x", "X (mm)", -20000, 20000, 10),
             ("y", "Y (mm)", -20000, 20000, 10),
             ("z", "Z (mm)", -5000, 10000, 10),
+            ("rx", "绕 X (°)", -180, 180, 5),
+            ("ry", "绕 Y (°)", -180, 180, 5),
             ("rz", "绕 Z (°)", -360, 360, 5),
         ):
             spin = QtWidgets.QDoubleSpinBox()
@@ -2112,12 +2117,24 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             pose_layout.addRow(label, spin)
         obj_layout.addWidget(self.pose_grp)
 
-        # 参数（按组件/机器人参数动态重建，可编辑；机器人则显示关节滑块）
+        # 参数（设备模型参数化：只放尺寸参数，轴不在这里）
         self.obj_params_group = QtWidgets.QGroupBox("参数")
         self.obj_params_layout = QtWidgets.QVBoxLayout(self.obj_params_group)
         self.obj_params_layout.setContentsMargins(4, 4, 4, 4)
         self.obj_params_layout.setSpacing(4)
         obj_layout.addWidget(self.obj_params_group)
+
+        # 关节（设备关节姿态调节：机器人 6 轴 / 多轴设备的轴）
+        self.obj_joint_group = QtWidgets.QGroupBox("关节")
+        self.obj_joint_layout = QtWidgets.QVBoxLayout(self.obj_joint_group)
+        self.obj_joint_layout.setContentsMargins(4, 4, 4, 4)
+        self.obj_joint_layout.setSpacing(4)
+        obj_layout.addWidget(self.obj_joint_group)
+
+        # 让上方各分组保持自然高度。滚动区会把多余高度分给 QGroupBox，
+        # 导致「信息」这类内容少的分组被拉高、出现大片空白。
+        # （注意与外层的区别：外层 layout 加 stretch 会抢滚动区高度，不能加。）
+        obj_layout.addStretch(1)
 
         self.object_scroll = QtWidgets.QScrollArea()
         self.object_scroll.setWidgetResizable(True)
@@ -2225,39 +2242,46 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.note_label.setVisible(False)
 
         # 位姿回填（blockSignals 避免触发写回）
+        # _matrix_to_rpy 返回弧度，转成角度后再填进 6 个输入框
         tf = obj.pose
         xyz = tf.matrix[:3, 3]
-        rz = math.degrees(math.atan2(tf.matrix[1, 0], tf.matrix[0, 0]))
+        rx, ry, rz = (math.degrees(v) for v in _matrix_to_rpy(tf.matrix))
         for key, val in (("x", float(xyz[0])), ("y", float(xyz[1])),
-                         ("z", float(xyz[2])), ("rz", rz)):
+                         ("z", float(xyz[2])),
+                         ("rx", rx), ("ry", ry), ("rz", rz)):
             w = self.obj_pose_widgets[key]
             w.blockSignals(True)
             w.setValue(val)
             w.blockSignals(False)
 
-        # 参数控件：机器人显示关节滑块，组件按 ParamSpec 重建
+        # 参数（模型参数化）与关节（姿态调节）各归其位：
+        # - 机器人：无尺寸参数，关节面板给 6 轴滑块
+        # - 组件：参数面板给尺寸参数（已排除轴），关节面板给它的可动轴
         if is_robot and self._renderer is not None:
+            self._rebuild_param_rows(None, {})
             self._setup_joint_controls(self._renderer)
         else:
             self._rebuild_param_rows(spec, obj.params)
+            self._rebuild_axis_rows(spec, obj)
 
-    def _clear_params_layout(self) -> None:
-        """清空参数面板内的所有控件与嵌套布局。"""
-        while self.obj_params_layout.count():
-            item = self.obj_params_layout.takeAt(0)
+    def _clear_layout(self, layout) -> None:
+        """清空任意布局内的所有控件与嵌套布局（「参数」与「关节」共用）。"""
+        while layout.count():
+            item = layout.takeAt(0)
             if item is None:
                 continue
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
             else:
-                layout = item.layout()
-                if layout is not None:
-                    while layout.count():
-                        sub = layout.takeAt(0)
-                        if sub and sub.widget():
-                            sub.widget().deleteLater()
-                    layout.deleteLater()
+                sub = item.layout()
+                if sub is not None:
+                    self._clear_layout(sub)
+                    sub.deleteLater()
+
+    def _clear_params_layout(self) -> None:
+        """清空参数面板。"""
+        self._clear_layout(self.obj_params_layout)
 
     def _rebuild_param_rows(self, spec, params: dict) -> None:
         """根据组件 ParamSpec 重建参数编辑行。"""
@@ -2272,7 +2296,8 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.obj_params_layout.addWidget(lbl)
             return
 
-        for p in spec.params:
+        # 用 plain_params()：轴由「关节」面板负责，这里不再重复出现
+        for p in spec.plain_params():
             row = QtWidgets.QHBoxLayout()
             row.setSpacing(8)
             lbl = QtWidgets.QLabel(p.label)
@@ -2294,10 +2319,11 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.obj_params_layout.addLayout(row)
 
     def _setup_joint_controls(self, renderer) -> None:
-        """为机器人在“参数”面板内构建关节滑块。"""
+        """为机器人在「关节」面板内构建 6 轴滑块。"""
         self._renderer = renderer
-        self._clear_params_layout()
-        self.obj_param_widgets.clear()
+        self._clear_layout(self.obj_joint_layout)
+        self.axis_sliders.clear()
+        self.axis_value_labels.clear()
         self.sliders.clear()
         self.value_labels.clear()
 
@@ -2341,12 +2367,77 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             row.addWidget(label)
             row.addWidget(slider, 1)
             row.addWidget(val)
-            self.obj_params_layout.addLayout(row)
+            self.obj_joint_layout.addLayout(row)
 
         if not joint_items:
-            lbl = QtWidgets.QLabel("（无可调参数）")
+            lbl = QtWidgets.QLabel("（该设备无关节）")
             lbl.setStyleSheet("color:#7f8192; font-size:11px;")
-            self.obj_params_layout.addWidget(lbl)
+            self.obj_joint_layout.addWidget(lbl)
+
+    def _rebuild_axis_rows(self, spec, obj) -> None:
+        """为多轴设备在「关节」面板构建轴滑块。
+
+        轴值写回 ``obj.params``，由既有的参数驱动几何通路重建几何，
+        因此不需要任何渲染侧改动。
+        """
+        self.sliders.clear()
+        self.value_labels.clear()
+        self.axis_sliders.clear()
+        self.axis_value_labels.clear()
+        self._clear_layout(self.obj_joint_layout)
+
+        axes = tuple(getattr(spec, "axes", ()) or ()) if spec is not None else ()
+        if not axes:
+            lbl = QtWidgets.QLabel("（该设备无关节）")
+            lbl.setStyleSheet("color:#7f8192; font-size:11px;")
+            self.obj_joint_layout.addWidget(lbl)
+            return
+
+        for axis in axes:
+            row = QtWidgets.QHBoxLayout()
+            row.setSpacing(6)
+            row.setContentsMargins(2, 1, 2, 1)
+
+            label = QtWidgets.QLabel(axis.label)
+            label.setFixedWidth(58)
+            label.setStyleSheet("font-size:11px;")
+
+            init = float(obj.params.get(axis.param, 0.0))
+            slider = QtWidgets.QSlider(Qt.Horizontal)
+            slider.setMinimum(int(axis.minimum * 100))
+            slider.setMaximum(int(axis.maximum * 100))
+            slider.setValue(int(init * 100))
+            slider.setFixedHeight(18)
+            slider.setSizePolicy(
+                QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            slider.setToolTip(f"范围 {axis.minimum:g} ~ {axis.maximum:g} {axis.unit}")
+            slider.valueChanged.connect(
+                lambda v, a=axis: self._on_axis_slider_changed(a, v))
+            self.axis_sliders[axis.name] = slider
+
+            val = QtWidgets.QLabel(f"{init:g}{axis.unit}")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            val.setFixedWidth(48)
+            val.setStyleSheet("font-size:11px;")
+            self.axis_value_labels[axis.name] = val
+
+            row.addWidget(label)
+            row.addWidget(slider, 1)
+            row.addWidget(val)
+            self.obj_joint_layout.addLayout(row)
+
+    def _on_axis_slider_changed(self, axis, value) -> None:
+        """轴值变化：写回 obj.params，触发几何重建。"""
+        v = value / 100.0
+        if axis.name in self.axis_value_labels:
+            self.axis_value_labels[axis.name].setText(f"{v:g}{axis.unit}")
+        if not self.current_object or self.scene is None:
+            return
+        obj = self.scene.objects.get(self.current_object)
+        if obj is None:
+            return
+        obj.params[axis.param] = float(v)
+        self.objectChanged.emit()
 
     def _on_joint_slider_changed(self, name, value):
         angle = value / 100.0
@@ -2373,7 +2464,8 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.obj_pose_widgets["x"].value(),
             self.obj_pose_widgets["y"].value(),
             self.obj_pose_widgets["z"].value(),
-            0.0, 0.0,
+            self.obj_pose_widgets["rx"].value(),
+            self.obj_pose_widgets["ry"].value(),
             self.obj_pose_widgets["rz"].value(),
         )
         self.objectChanged.emit()

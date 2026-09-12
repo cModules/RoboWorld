@@ -97,3 +97,6 @@ cnb.config.*
 # 轻量 STL，见 models/<brand>/<model>/meshes/。
 # ---------------------------------------------------------------------------
 assets/vendor/
+
+# 开发启动器（含本机绝对路径，不入仓库）
+RobotWorld-Dev.app/

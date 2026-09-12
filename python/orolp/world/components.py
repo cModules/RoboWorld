@@ -82,6 +82,30 @@ class ParamSpec:
 
 
 @dataclass(frozen=True)
+class AxisSpec:
+    """设备的一个可动轴（关节）。
+
+    轴与尺寸参数的区别：尺寸参数描述"这个设备长什么样"（进「参数」面板），
+    轴描述"这个设备当前摆成什么姿势"（进「关节」面板，供调姿态）。
+
+    Attributes:
+        name: 轴标识
+        label: 中文显示名（如「倾斜轴」）
+        param: 对应的参数键；**必须已被 builder 支持**，否则调了没有几何响应
+        minimum: 最小角度/位移
+        maximum: 最大角度/位移
+        unit: 单位（默认度；直线轴传 "mm"）
+    """
+
+    name: str
+    label: str
+    param: str
+    minimum: float
+    maximum: float
+    unit: str = "°"
+
+
+@dataclass(frozen=True)
 class ComponentSpec:
     """一个参数化组件。
 
@@ -92,6 +116,7 @@ class ComponentSpec:
         params: 参数定义列表
         builder: 构建函数，接收参数字典返回 :class:`Part` 列表
         description: 说明文字
+        axes: 可动轴定义；有轴的设备在「关节」面板提供调节滑块
     """
 
     id: str
@@ -100,6 +125,16 @@ class ComponentSpec:
     params: Tuple[ParamSpec, ...]
     builder: Callable[..., List[Part]]
     description: str = ""
+    axes: Tuple[AxisSpec, ...] = ()
+
+    def axis_param_keys(self) -> Tuple[str, ...]:
+        """所有轴对应的参数键，便于从「参数」面板中排除。"""
+        return tuple(a.param for a in self.axes)
+
+    def plain_params(self) -> Tuple[ParamSpec, ...]:
+        """排除掉轴之后的普通尺寸参数。"""
+        keys = set(self.axis_param_keys())
+        return tuple(p for p in self.params if p.name not in keys)
 
 
 # --------------------------------------------------------------------------- #
@@ -268,31 +303,48 @@ def _build_fence(length: float, height: float, **_) -> List[Part]:
 
 
 def _build_positioner_1axis(
-    table_diameter: float, table_height: float, **_
+    table_diameter: float, table_height: float, rot_deg: float = 0.0, **_
 ) -> List[Part]:
-    """单轴回转变位机（转台）。"""
+    """单轴回转变位机（转台）。
+
+    立柱固定，**台面与工件接口随回转轴转动**——否则加了 rot_deg 参数
+    在几何上也看不出变化。
+    """
+    rot = _TRz(0, 0, 0, deg=rot_deg)
     return [
-        Part(Cylinder(table_diameter * 0.42, table_height * 0.8), _T(0, 0, table_height * 0.4), C_STEEL),
-        Part(Cylinder(table_diameter * 0.5, 30.0), _T(0, 0, table_height * 0.8 + 15.0), C_DARK),
-        Part(Cylinder(table_diameter * 0.28, table_height * 0.2), _T(0, 0, table_height * 0.9), C_FIXTURE),
+        # 立柱（固定）
+        Part(Cylinder(table_diameter * 0.42, table_height * 0.8),
+             _T(0, 0, table_height * 0.4), C_STEEL),
+        # 台面（随回转）
+        Part(Cylinder(table_diameter * 0.5, 30.0),
+             rot @ _T(0, 0, table_height * 0.8 + 15.0), C_DARK),
+        # 工件接口（随回转）
+        Part(Cylinder(table_diameter * 0.28, table_height * 0.2),
+             rot @ _T(0, 0, table_height * 0.9), C_FIXTURE),
     ]
 
 
 def _build_positioner_2axis(
-    table_diameter: float, table_height: float, tilt_deg: float, **_
+    table_diameter: float, table_height: float,
+    tilt_deg: float, rot_deg: float = 0.0, **_
 ) -> List[Part]:
-    """双轴变位机（L 型，回转 + 倾斜）。"""
+    """双轴变位机（L 型，回转 + 倾斜）。
+
+    变换顺序为**先倾斜、再在倾斜坐标系上回转**（``tilt @ rot``），
+    与真实 L 型变位机一致：倾斜臂抬起后，回转台绕自身轴转动。
+    """
     parts = [
-        Part(Cylinder(table_diameter * 0.34, table_height * 0.9), _T(0, 0, table_height * 0.45), C_STEEL),
+        Part(Cylinder(table_diameter * 0.34, table_height * 0.9),
+             _T(0, 0, table_height * 0.45), C_STEEL),
         Part(Box((table_diameter * 0.9, table_diameter * 0.5, 40.0)),
              _T(0, 0, table_height * 0.9 + 20.0), C_DARK),
     ]
-    # 倾斜臂与回转台：绕 Y 倾斜后叠回转台
     tilt = _TRy(0, 0, table_height * 0.9 + 40.0, deg=tilt_deg)
-    parts.append(Part(Cylinder(table_diameter * 0.42, 30.0), tilt @ _T(0, 0, 15.0), C_FIXTURE))
-    parts.append(
-        Part(Cylinder(table_diameter * 0.3, 25.0), tilt @ _T(0, 0, 42.0), C_STEEL)
-    )
+    table = tilt @ _TRz(0, 0, 0, deg=rot_deg)
+    parts.append(Part(Cylinder(table_diameter * 0.42, 30.0),
+                      table @ _T(0, 0, 15.0), C_FIXTURE))
+    parts.append(Part(Cylinder(table_diameter * 0.3, 25.0),
+                      table @ _T(0, 0, 42.0), C_STEEL))
     return parts
 
 
@@ -536,6 +588,7 @@ COMPONENTS: Dict[str, ComponentSpec] = {
                 _P("body_height", "总高", 160, 80, 400),
             ),
             builder=_build_vise,
+            axes=(AxisSpec("jaw", "钳口开合", "jaw_opening", 0, 300, "mm"),),
         ),
         ComponentSpec(
             id="clamp",
@@ -556,8 +609,12 @@ COMPONENTS: Dict[str, ComponentSpec] = {
             params=(
                 _P("table_diameter", "台面直径", 600, 200, 2000),
                 _P("table_height", "台面高度", 600, 200, 1500),
+                # rot_deg 必须在这里声明：build_component 只接受 spec.params
+                # 里登记过的键，未声明的话轴滑块的值会被静默丢弃。
+                _P("rot_deg", "回转角", 0, -180, 180, unit="°", step=5),
             ),
             builder=_build_positioner_1axis,
+            axes=(AxisSpec("rot", "回转轴", "rot_deg", -180, 180),),
         ),
         ComponentSpec(
             id="positioner_2axis",
@@ -568,8 +625,14 @@ COMPONENTS: Dict[str, ComponentSpec] = {
                 _P("table_diameter", "台面直径", 800, 300, 2500),
                 _P("table_height", "台面高度", 700, 300, 1800),
                 _P("tilt_deg", "倾斜角", 0, -90, 90, unit="°", step=5),
+                # 同上：未声明的键会被 build_component 过滤掉
+                _P("rot_deg", "回转角", 0, -180, 180, unit="°", step=5),
             ),
             builder=_build_positioner_2axis,
+            axes=(
+                AxisSpec("rot", "回转轴", "rot_deg", -180, 180),
+                AxisSpec("tilt", "倾斜轴", "tilt_deg", -90, 90),
+            ),
         ),
         ComponentSpec(
             id="conveyor",
@@ -593,6 +656,7 @@ COMPONENTS: Dict[str, ComponentSpec] = {
                 _P("jaw_opening", "开口量", 60, 0, 250, step=5),
             ),
             builder=_build_tool_gripper,
+            axes=(AxisSpec("jaw", "开合", "jaw_opening", 0, 250, "mm"),),
         ),
         ComponentSpec(
             id="tool_weldgun",
