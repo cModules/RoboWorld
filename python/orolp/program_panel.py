@@ -21,8 +21,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .planner import ProgramReport, TrajectoryPlanner
+from .pickplace import PointType, gripper_action_for
 from .program import Program, ProgramBuilder
 from .post import get_post_processor, list_post_processors
+from .world.animation import GraspAnimator
 from .link import FileLink
 
 if TYPE_CHECKING:  # 仅类型标注
@@ -68,12 +70,15 @@ class ProgramPanel(QtWidgets.QWidget):
         statusMessage(str): 适合放进状态栏的提示
         playbackFrame(dict): 回放帧，``{关节名: 弧度}``
         playbackFinished(): 回放结束
+        gripperStateChanged(str): 夹爪状态变化（``"close"/"open"/""``，
+            空串表示回放复位、未夹持），供主窗口驱动工件吸附/释放
         reportReady(object): :class:`ProgramReport`，供其他面板复用
     """
 
     statusMessage = QtCore.Signal(str)
     playbackFrame = QtCore.Signal(dict)
     playbackFinished = QtCore.Signal()
+    gripperStateChanged = QtCore.Signal(str)
     reportReady = QtCore.Signal(object)
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
@@ -84,8 +89,15 @@ class ProgramPanel(QtWidgets.QWidget):
         self._scene: Optional["Scene"] = None
         self._joint_names: List[str] = []
         self._taught: List[Dict[str, float]] = []
+        #: 与 ``_taught`` 对齐的示教点工艺语义（PICK/PLACE…）；``None`` 表示无语义
+        self._point_types: Optional[List[PointType]] = None
         self._trajectory: Optional["Trajectory"] = None
         self._report: Optional[ProgramReport] = None
+        #: 最近一次校验的规划器——保留 IO 事件映射所需的指令→时间区间
+        self._planner: Optional[TrajectoryPlanner] = None
+        #: 抓取动画驱动器（按轨迹时间给出夹爪状态）
+        self._gripper_animator: Optional[GraspAnimator] = None
+        self._last_gripper_state: str = ""
 
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(PLAYBACK_INTERVAL_MS)
@@ -263,9 +275,24 @@ class ProgramPanel(QtWidgets.QWidget):
         """绑定工作单元场景；给出后校验会包含沿路径干涉检查。"""
         self._scene = scene
 
-    def set_taught_points(self, positions: Sequence[Dict[str, float]]) -> None:
-        """导入示教点（``{关节名: 弧度}``）。"""
+    def set_taught_points(
+        self,
+        positions: Sequence[Dict[str, float]],
+        types: Optional[Sequence[PointType]] = None,
+    ) -> None:
+        """导入示教点（``{关节名: 弧度}``）。
+
+        Args:
+            positions: 示教点序列
+            types: 与示教点对齐的工艺语义（``PointType.PICK/PLACE…``）；
+                给出后 ``build_program`` 会在抓取/放置点自动插入
+                ``gripper()`` 指令，程序与动画共用同一份抓取定义
+        """
         self._taught = [dict(p) for p in positions]
+        self._point_types = list(types) if types is not None else None
+        # 长度必须对齐：语义少了会漏动作，多了会错位
+        if self._point_types is not None and len(self._point_types) != len(self._taught):
+            self._point_types = None
         n = len(self._taught)
         self.statusMessage.emit(f"导入 {n} 个示教点")
         if self._robot is not None:
@@ -287,6 +314,8 @@ class ProgramPanel(QtWidgets.QWidget):
         """把示教点组装成程序。
 
         示教点内部以弧度保存，:class:`Motion` 期望角度。
+        带工艺语义的示教点（抓取/放置）会自动追加 ``gripper()`` 指令组，
+        于是回放动画、程序校验与后处理出码共用同一份抓取时序。
 
         Returns:
             :class:`Program`；无机器人或无示教点时返回 ``None``
@@ -295,11 +324,18 @@ class ProgramPanel(QtWidgets.QWidget):
             return None
         speed = float(self.spin_speed.value())
         builder = ProgramBuilder(self._robot)
-        for pos in self._taught:
+        for i, pos in enumerate(self._taught):
             joints = [math.degrees(float(pos.get(n, 0.0))) for n in self._joint_names]
             builder.moveJ(joints, speed=speed)
+            t = (
+                self._point_types[i]
+                if self._point_types and i < len(self._point_types)
+                else None
+            )
+            action = gripper_action_for(t)
+            if action:
+                builder.gripper(action)
         return builder.build()
-
     def validate_program(self) -> Optional[ProgramReport]:
         """校验程序并刷新界面。
 
@@ -318,15 +354,19 @@ class ProgramPanel(QtWidgets.QWidget):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             report = program.validate(scene=self._scene)
-            self._trajectory = TrajectoryPlanner(
-                self._robot, scene=self._scene
-            ).plan(program)
+            planner = TrajectoryPlanner(self._robot, scene=self._scene)
+            self._trajectory = planner.plan(program)
         except Exception as exc:
             # 校验本身崩了也要让用户看见——这类异常几乎总是模型数据的问题
             self.statusMessage.emit(f"校验异常：{type(exc).__name__}: {exc}")
             return None
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+
+        # 规划器要留着：其内部记录了每条指令的时间区间，抓取动画靠它把
+        # gripper() 指令映射到轨迹时刻
+        self._planner = planner
+        self._gripper_animator = GraspAnimator(program, planner)
 
         self._report = report
         self._show_report(report)
@@ -441,6 +481,10 @@ class ProgramPanel(QtWidgets.QWidget):
         self._playhead = float(traj.waypoints[0].timestamp)
         self.btn_play.setEnabled(False)
         self.btn_stop.setEnabled(True)
+        # 回放从头开始：夹爪状态复位为未夹持，主窗口会据此放下工件
+        if self._gripper_animator is not None:
+            self._gripper_animator.reset()
+        self._set_gripper_state("")
         self._timer.start()
         self.statusMessage.emit("轨迹回放中…")
 
@@ -469,11 +513,21 @@ class ProgramPanel(QtWidgets.QWidget):
         t_end = float(traj.waypoints[-1].timestamp)
         if self._playhead >= t_end:
             self._emit_frame(traj.waypoints[-1].joints)
+            # 终点处的事件（程序以 gripper 收尾）也要应用
+            if self._gripper_animator is not None:
+                self._set_gripper_state(
+                    self._gripper_animator.state_at(t_end) or ""
+                )
             self.stop_playback()
             return
 
         waypoint = traj.interpolate(self._playhead)
         self._emit_frame(waypoint.joints)
+        # 越过关爪事件时刻时通知主窗口吸附/释放工件
+        if self._gripper_animator is not None:
+            self._set_gripper_state(
+                self._gripper_animator.state_at(self._playhead) or ""
+            )
 
     def _emit_frame(self, joints_deg: Sequence[float]) -> None:
         """把关节角（度）换算为弧度并发射给视口。"""
@@ -482,3 +536,9 @@ class ProgramPanel(QtWidgets.QWidget):
             if i < len(joints_deg):
                 values[name] = math.radians(float(joints_deg[i]))
         self.playbackFrame.emit(values)
+
+    def _set_gripper_state(self, action: str) -> None:
+        """夹爪状态去重后广播（避免每帧重复发射刷屏）。"""
+        if action != self._last_gripper_state:
+            self._last_gripper_state = action
+            self.gripperStateChanged.emit(action)

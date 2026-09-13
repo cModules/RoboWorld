@@ -65,7 +65,9 @@ class HuiChuanInoTeachPostProcessor(BasePostProcessor):
 
 PROGRAM {{ meta.program_name|default('OROLP_PROG') }}
     {% for wp in waypoints %}
-    {% if wp.cmd == 'MOVC' %}
+    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+    {{ wp.text }}
+    {% elif wp.cmd == 'MOVC' %}
     {{ wp.cmd }} {{ wp.via }}, {{ wp.target }}, Speed={{ wp.speed }}, {{ wp.zone }}
     {% else %}
     {{ wp.cmd }} {{ wp.target }}, Speed={{ wp.speed }}, {{ wp.zone }}

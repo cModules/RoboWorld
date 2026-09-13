@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)](#development-progress)
+[![Tests](https://img.shields.io/badge/tests-263%20passed-brightgreen.svg)](#development-progress)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#installation--quick-start)
 
 **An open-source robot programming & simulation platform**
@@ -23,11 +23,15 @@ Snapshot of what's actually in `main` as of the latest commit. Numbers reflect t
 |---|---|---|
 | **Robot model library** | ✅ 28 models | UR / KUKA / ABB / FANUC / Estun / JAKA / Huichuan; program-generated URDFs + 7 vendor-CAD JAKA models with real mesh |
 | **Offline programming API** | ✅ complete | Chainable `Robot.moveJ / moveL / moveC / moveSpline`; planner expansion; cycle-time estimate; collision-aware validation |
-| **Post-processors** | ✅ 7 brands | Jinja2 templates: `ur_polyscope` / `kuka_krc4` / `abb_rapid` / `fanuc_tp` / `estun_er` / `jaka_zu` / `huichuan_inoteach`; SPLINE auto-degrades to PTP/LIN |
+| **Post-processors** | ✅ 7 brands | Jinja2 templates: `ur_polyscope` / `kuka_krc4` / `abb_irc5` / `fanuc_r30ib` / `estun_er` / `jaka_zu` / `huichuan_inoteach`; SPLINE auto-degrades to PTP/LIN |
 | **Code upload (`link.py`)** | ✅ complete | `ControllerLink` abstraction — `FileLink` (offline export + manifest), `SimLink` (in-process kinematics echo); real controllers plug in behind the same interface |
 | **Online debug (`debug.py`)** | ✅ complete | `DebugSession`: step / continuous playback, read-back actual pose, deviation vs. planned (mm + deg), jog |
-| **Kinematics** | ✅ pure-Python | FK / IK / Jacobian fallback (C++ core optional); 137 unit/regression tests passing |
+| **Kinematics** | ✅ pure-Python | FK / IK / Jacobian fallback (C++ core optional); 263 unit/regression tests passing |
 | **3D GUI (`rw.py`)** | ✅ complete | PySide6 + OpenGL viewport, joint sliders, robot library, path-code editor, scene & OLP panels |
+| **Workcell templates** | ✅ S1 done | `orolp.world.templates`: one-call grasping workstation (UR5e + vacuum gripper w/ TCP + conveyor/bin/pallet + 4 parts); layout reach-calibrated against the shipped UR5e model (2026-09-13); loadable JSON `examples/assets/grasping_workstation.json`; demo site: `tools/build_web_site.py` → deploy/web |
+| **Process IO commands** | ✅ S2 done | Chainable `setDO` / `waitDI` / `waitTime` / `gripper("open"/"close")` on Program & builder (interlocked signals + clamped feedback wait); brand IO syntax: UR `set_digital_out`, KUKA `$OUT`, ABB `SetDO`, FANUC `DO[n]=ON`; unmapped signals → visible `TODO`, never fake addresses |
+| **Grasp animation (workpiece follow)** | ✅ S3 done | Program-level playback drives the scene: `orolp.world.animation` maps `gripper()` instructions onto the trajectory timeline (`GraspAnimator`); on close the workpiece attaches to the flange (world pose preserved) and follows the TCP, on open it stays where released; ProgramPanel emits gripper state changes during interpolated replay, taught PICK/PLACE points auto-insert `gripper()` into the program (replay + codegen share one definition) |
+| **One-click workstation demo** | ✅ S4 done | File menu "抓取工作站演示": builds the template scene, loads UR5e into the viewport, generates an 8-point five-pick-cycle demo program via TCP-aware IK (`orolp.world.demo`, headless-testable), feeds it through the same teach-path pipeline, auto-validates (cycle time in the status bar) and auto-starts playback with workpiece attach/release |
 | **Scene / collision** | 🔧 scaffold | Per-link SAT intersection available; FCL integration planned |
 | **ROS 2 digital twin** | 📋 planned | Native `rclpy` bridge, target v0.3 |
 | **Trajectory optimization** | 📋 planned | TOPP-RA time-optimal parameterization, target v1.0 |
@@ -189,6 +193,9 @@ The key extensibility seams:
 - [x] PySide6 + OpenGL terminal GUI with library / path-code / scene / OLP tabs
 - [x] JAKA 7-model real-machine CAD integration via vendor STEP → mesh
 - [x] Multi-brand STEP ingestion tool (`tools/build_vendor_urdf.py`)
+- [x] Grasping workstation scene template (S1) + process IO commands with brand codegen (S2) — 233 tests passing
+- [x] Grasp animation: workpiece follows TCP on program replay (S3) — 251 tests passing
+- [x] One-click grasping-workstation demo in the GUI (S4): auto demo program via IK, cycle time + auto playback; workstation layout reach-calibrated (conveyor h=200 @ y=-400, pallet at (350, 450)) — 263 tests passing
 
 ### 🔧 v0.2.0 (Beta)
 - [ ] FCL collision integration (replacing the per-link SAT scaffold)
@@ -216,7 +223,7 @@ The key extensibility seams:
 ## 🧪 Tests
 
 ```bash
-pytest tests/ python/tests/    # 137 tests, covers kinematics / post / link / debug / vendor CAD
+pytest tests/ python/tests/    # 263 tests, covers kinematics / post / link / debug / vendor CAD
 ```
 The CI workflow lives at `.github/workflows/ci.yml`.
 

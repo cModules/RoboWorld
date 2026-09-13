@@ -42,6 +42,14 @@ from .scene import (
     SceneObject,
     load_robot_visuals,
 )
+from .templates import (
+    WorkcellTemplate,
+    build_grasping_workstation,
+    build_template,
+    list_templates,
+    load_workcell,
+)
+from .demo import demo_pick_place_points, demo_taught_points
 
 __all__ = [
     # geometry
@@ -68,4 +76,13 @@ __all__ = [
     "SceneObject",
     "Collision",
     "load_robot_visuals",
+    # templates
+    "WorkcellTemplate",
+    "build_grasping_workstation",
+    "build_template",
+    "list_templates",
+    "load_workcell",
+    # demo（抓取工作站一键演示示教点）
+    "demo_pick_place_points",
+    "demo_taught_points",
 ]

@@ -81,7 +81,9 @@ class JAKAZuPostProcessor(BasePostProcessor):
 # NOTE: 语法未经真实控制器验证，使用前请核对
 
 {% for wp in waypoints %}
-{% if wp.cmd == 'movec' %}
+{% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+{{ wp.text }}
+{% elif wp.cmd == 'movec' %}
 {{ wp.cmd }}({{ wp.via }}, {{ wp.args }}, {{ wp.speed }}, {{ wp.accel }})
 {% else %}
 {{ wp.cmd }}({{ wp.args }}, {{ wp.speed }}, {{ wp.accel }})

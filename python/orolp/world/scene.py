@@ -255,6 +255,71 @@ class Scene:
             child.parent = obj.parent
         del self.objects[name]
 
+    def attach(
+        self,
+        name: str,
+        parent: Optional[str],
+        keep_world: bool = False,
+    ) -> None:
+        """把对象挂到父对象下；``parent`` 为 :data:`ROBOT_NAME` 即挂到法兰。
+
+        Args:
+            name: 待挂载的对象名
+            parent: 父对象名；``None`` 表示挂回场景根
+            keep_world: 是否保持当前世界位姿——
+
+                * ``False``（默认）：局部位姿归零，对象**吸附到父对象原点**。
+                  把夹爪装到法兰上要的是这个行为（夹爪应当出现在法兰处，
+                  而不是留在原地不动却"名义上"属于机器人）。
+                * ``True``：反解局部位姿使世界位置不变。抓取工件时要这个
+                  行为——工件被夹住的瞬间应当停在原地，之后才跟着法兰走。
+
+        Raises:
+            KeyError: 对象不存在
+            ValueError: 父对象不存在、挂到自己身上、或会形成父子环
+        """
+        if name not in self.objects:
+            raise KeyError(name)
+        if parent is not None and parent not in self.objects:
+            raise ValueError(f"父对象不存在: {parent}")
+        if parent == name:
+            raise ValueError("不能把对象挂到自己身上")
+
+        # 沿父链向上走：若撞回自己说明会成环，world_transform 将无限递归
+        cur = parent
+        while cur is not None:
+            if cur == name:
+                raise ValueError(f"挂载会形成循环父子关系: {name} → {parent}")
+            cur = self.objects[cur].parent
+
+        obj = self.objects[name]
+        if keep_world and parent is not None:
+            # 先用**旧**父系算当前世界位姿，再反解新父系下的局部位姿
+            world_now = self.world_transform(name)
+            parent_tf = self.world_transform(parent)
+            if parent == ROBOT_NAME and self.has_robot:
+                parent_tf = parent_tf @ self.flange_transform()
+            obj.pose = Pose(np.linalg.inv(parent_tf) @ world_now)
+        elif not keep_world:
+            obj.pose = Pose()
+        obj.parent = parent
+
+    def detach(self, name: str) -> None:
+        """解除挂载、挂回场景根，并**保持世界位姿不变**。
+
+        这就是"放置"动作的实现：工件在释放瞬间停在当前位置，不再跟随法兰。
+
+        Raises:
+            KeyError: 对象不存在
+        """
+        if name not in self.objects:
+            raise KeyError(name)
+        obj = self.objects[name]
+        if obj.parent is None:
+            return
+        obj.pose = Pose(self.world_transform(name))
+        obj.parent = None
+
     def _clear_robot(self) -> None:
         """清空机器人运动学状态（对象壳由调用方负责移除）。"""
         self.robot_urdf = None
@@ -274,8 +339,55 @@ class Scene:
 
     # --------------------------- 变换 --------------------------- #
 
+    def flange_transform(self) -> np.ndarray:
+        """机器人法兰在**机器人基坐标系**下的 4x4 变换（毫米）。
+
+        由当前关节角正向求解。未加载机器人时返回单位阵——此时即便有对象挂在
+        :data:`ROBOT_NAME` 下也退化为"不跟随"，不会崩。
+
+        注意返回的是**基坐标系**而非世界系：调用方需自行左乘机器人基座位姿，
+        通常直接用 :meth:`parent_transform` 更省事。
+        """
+        if self._kinematics is None:
+            return np.eye(4)
+        q_rad = np.radians(self._robot_joints_deg)
+        T_m = self._kinematics.forward_kinematics(q_rad)
+        T_mm = T_m.copy()
+        T_mm[:3, 3] *= 1000.0  # kinematics 内部用米，场景用毫米
+        return T_mm
+
+    def parent_transform(self, name: str) -> np.ndarray:
+        """对象父系在世界坐标系下的完整变换（毫米）。
+
+        与直接取 ``world_transform(obj.parent)`` 的区别：父对象是机器人时，
+        额外右乘**当前法兰位姿**——这就是"夹爪/工件挂在法兰上随之运动"的
+        全部实现。渲染、干涉检查、拖动都经这里，改一处即全局生效。
+
+        单独抽成方法，是为了让拖动这类需要"父系逆变换"的调用方复用同一份
+        逻辑，避免两处各写一套导致挂载后拖动错位。
+
+        Args:
+            name: 子对象名
+
+        Returns:
+            4x4 齐次矩阵；父对象缺失时返回单位阵（退化为不跟随）
+
+        Raises:
+            KeyError: 对象不存在
+        """
+        obj = self.objects[name]
+        if obj.parent is None or obj.parent not in self.objects:
+            # 父对象缺失（手工编辑过的场景文件）：退化为不跟随，不抛异常
+            return np.eye(4)
+        tf = self.world_transform(obj.parent)
+        if obj.parent == ROBOT_NAME and self.has_robot:
+            tf = tf @ self.flange_transform()
+        return tf
+
     def world_transform(self, name: str) -> np.ndarray:
         """对象在世界坐标系下的 4x4 变换（含父级链）。
+
+        父对象为机器人时自动追加法兰位姿，使挂载件跟随机器人运动。
 
         Args:
             name: 对象名
@@ -288,9 +400,9 @@ class Scene:
         """
         obj = self.objects[name]
         local = obj.pose.matrix
-        if obj.parent is None:
+        if obj.parent is None or obj.parent not in self.objects:
             return local
-        return self.world_transform(obj.parent) @ local
+        return self.parent_transform(name) @ local
 
     def object_parts(self, name: str) -> List[Part]:
         """对象在世界坐标系下的零件几何。
@@ -362,9 +474,21 @@ class Scene:
         """更新机器人关节角。
 
         Args:
-            joints_deg: 关节角（**度**）
+            joints_deg: 关节角（**度**）。数量应与自由度一致；不一致时自动
+                补齐/截断并告警——URDF 里常含 fixed 关节，调用方很容易把
+                ``renderer.joints``（含 fixed）当成可动关节传进来，而这类
+                错误表现为"法兰不动"，极难定位。
         """
-        self._robot_joints_deg = [float(v) for v in joints_deg]
+        vals = [float(v) for v in joints_deg]
+        if self._kinematics is not None:
+            n = self._kinematics.dof
+            if len(vals) != n:
+                print(
+                    f"[warning] 关节值数量({len(vals)})与自由度({n})不符，"
+                    f"已自动补齐/截断；请检查是否误传了 fixed 关节"
+                )
+                vals = (vals + [0.0] * n)[:n]
+        self._robot_joints_deg = vals
 
     @property
     def has_robot(self) -> bool:
@@ -395,6 +519,27 @@ class Scene:
         return out
 
     # --------------------------- 碰撞检测 --------------------------- #
+
+    def _mounted_on_robot(self, name: str) -> bool:
+        """对象是否挂在机器人下（含多级子孙）。
+
+        用于把挂载件排除在"机器人 vs 对象"的干涉检查之外——它们本来就与
+        法兰固连，永远接触。
+
+        Args:
+            name: 对象名
+
+        Returns:
+            挂在 :data:`ROBOT_NAME` 下返回 ``True``
+        """
+        seen = set()
+        cur = self.objects.get(name)
+        while cur is not None and cur.name not in seen:
+            if cur.parent == ROBOT_NAME:
+                return True
+            seen.add(cur.name)
+            cur = self.objects.get(cur.parent) if cur.parent else None
+        return False
 
     def check_collisions(
         self,
@@ -427,6 +572,10 @@ class Scene:
         # 机器人 vs 场景对象
         if robot:
             for name in names:
+                # 挂在法兰上的对象（夹爪、被抓取的工件）与机器人本体必然接触，
+                # 参与检查只会产生恒定误报——把"装了工具"报成"干涉"会让检查失去意义
+                if self._mounted_on_robot(name):
+                    continue
                 hit = _parts_collide(robot, cache[name], margin)
                 if hit is not None:
                     ia, ib = hit

@@ -29,15 +29,16 @@ JAKA          **米**    **弧度**
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 from ..pose import Pose
-from ..program import Motion, MotionType
+from ..program import Motion, MotionType, SetDO, WaitDI, WaitTime
 
 __all__ = ["PostConfig", "PostProcessError", "BasePostProcessor"]
 
@@ -126,25 +127,37 @@ class BasePostProcessor(ABC):
 
     def generate(
         self,
-        motions: Sequence[Motion],
+        motions: Sequence[Any],
         metadata: Dict[str, Any] | None = None,
     ) -> str:
-        """把 Motion 列表渲染为目标控制器源码。
+        """把指令序列渲染为目标控制器源码。
 
         Args:
-            motions: 运动指令序列
-            metadata: 附加信息（程序名、机器人名、版本等）
+            motions: 指令序列，**运动与 IO 混排**（见
+                :attr:`~orolp.program.Program.items`）。沿用历史参数名
+                ``motions`` 以兼容既有调用方。
+            metadata: 附加信息（程序名、机器人名、版本等）。其中
+                ``io_map`` 为「信号逻辑名 → 物理地址」映射，用于把
+                ``gripper_close`` 这类逻辑名解析成 ``Q0.1``。
 
         Returns:
             生成的源代码文本
 
         Raises:
-            PostProcessError: 运动类型不被该后处理器支持，或模板渲染失败
+            PostProcessError: 指令类型不被该后处理器支持，或模板渲染失败
         """
+        io_map: Dict[str, str] = dict((metadata or {}).get("io_map") or {})
+
+        if any(not isinstance(m, Motion) for m in motions) and not self._io_adapted():
+            print(
+                f"[warning] {self.full_name} 尚未适配 IO 指令，"
+                f"将输出通用伪语法；下装前必须人工核对"
+            )
+
         converted: List[Dict[str, Any]] = []
-        for i, motion in enumerate(motions):
+        for i, item in enumerate(motions):
             try:
-                converted.append(self._dispatch_motion(motion))
+                converted.append(self._dispatch(item, io_map))
             except PostProcessError:
                 raise
             except Exception as exc:  # 保留异常链，便于定位具体指令
@@ -188,6 +201,21 @@ class BasePostProcessor(ABC):
     def _get_template(self) -> str:
         """返回 Jinja2 模板字符串。"""
 
+    def _dispatch(self, item: Any, io_map: Dict[str, str]) -> Dict[str, Any]:
+        """把一条指令（运动或 IO）转换为模板可用的字典。
+
+        Args:
+            item: :class:`~orolp.program.Motion` 或
+                :class:`~orolp.program.SetDO` / ``WaitDI`` / ``WaitTime``
+            io_map: 信号逻辑名 → 物理地址
+
+        Returns:
+            供 Jinja2 模板使用的字典
+        """
+        if isinstance(item, Motion):
+            return self._dispatch_motion(item)
+        return self._dispatch_io(item, io_map)
+
     def _dispatch_motion(self, motion: Motion) -> Dict[str, Any]:
         """把一条 Motion 分派给具体转换逻辑。
 
@@ -228,6 +256,111 @@ class BasePostProcessor(ABC):
         raise PostProcessError(
             f"{self.full_name} 尚未实现原生 SPLINE 指令；"
             f"默认已将其降级为 PTP/LIN（目的地一致）"
+        )
+
+    # ------------------------- IO 指令 ------------------------- #
+
+    def _io_adapted(self) -> bool:
+        """子类是否覆盖了任一 IO 格式化方法。
+
+        没覆盖的品牌会输出通用伪语法，此时 :meth:`generate` 会打印告警——
+        宁可让用户看到"没适配"，也不能悄悄产出语法错误的代码。
+        """
+        t = type(self)
+        return any(
+            getattr(t, m) is not getattr(BasePostProcessor, m)
+            for m in ("format_setdo", "format_waitdi", "format_waittime")
+        )
+
+    def resolve_signal(self, signal: str, io_map: Dict[str, str]) -> str:
+        """逻辑信号名 → 物理地址。
+
+        解析不到时**绝不编造假地址**：返回 ``TODO_<信号名>`` 占位并打印告警。
+        这样下装前必然被人工发现，而不是悄悄写错点位。
+        """
+        addr = io_map.get(signal, "")
+        if addr:
+            return addr
+        print(
+            f"[warning] {self.full_name}: 信号 {signal!r} 未映射到物理地址，"
+            f"已输出 TODO 占位（下装前必须补全）"
+        )
+        return f"TODO_{signal}"
+
+    @staticmethod
+    def io_index(addr: str) -> Optional[int]:
+        """把 ``Q0.1`` / ``I1.3`` 这类地址解析成数字量序号（byte*8+bit）。
+
+        解析不了返回 ``None``——调用方**必须给出可见的 TODO**，不得凭空猜一个
+        序号。写错点位会导致夹爪不动作甚至误动作，是现场最贵的一类错误。
+        """
+        m = re.fullmatch(r"\s*([QI])\s*(\d+)\s*\.\s*(\d+)\s*", addr, re.IGNORECASE)
+        if not m:
+            return None
+        return int(m.group(2)) * 8 + int(m.group(3))
+
+    @staticmethod
+    def io_kind(addr: str) -> str:
+        """地址方向：``"out"``（Q）/ ``"in"``（I）；无法判断返回空串。"""
+        m = re.fullmatch(r"\s*([QI])\s*(\d+)\s*\.\s*(\d+)\s*", addr, re.IGNORECASE)
+        return ("out" if m.group(1).upper() == "Q" else "in") if m else ""
+
+    def io_symbol(self, signal: str, addr: str) -> str:
+        """ABB 这类用**符号名**寻址的语言取信号标识符。
+
+        RAPID 的 ``SetDO`` 要求信号在系统参数里声明过名字，直接用逻辑名最合适；
+        物理地址以注释附在行尾，便于核对。
+        """
+        return signal
+
+    def format_setdo(self, signal: str, value: bool, io_map: Dict[str, str]) -> str:
+        """置位/复位数字输出。
+
+        默认实现是**通用伪语法**。子类应按品牌覆盖：KUKA ``$OUT``、
+        ABB ``SetDO``、UR ``set_digital_out``。
+        """
+        return f"SET_DO({self.resolve_signal(signal, io_map)}, {str(value).upper()})"
+
+    def format_waitdi(
+        self,
+        signal: str,
+        value: bool,
+        timeout: float,
+        io_map: Dict[str, str],
+    ) -> str:
+        """等待数字输入达到期望电平。``timeout <= 0`` 表示无限等待。"""
+        addr = self.resolve_signal(signal, io_map)
+        level = str(value).upper()
+        if timeout and timeout > 0:
+            return f"WAIT_DO({addr}, {level}, TIMEOUT={timeout:.3f})"
+        return f"WAIT_DO({addr}, {level})"
+
+    def format_waittime(self, seconds: float) -> str:
+        """纯延时（秒）。"""
+        return f"WAIT_TIME({seconds:.3f})"
+
+    def _dispatch_io(self, item: Any, io_map: Dict[str, str]) -> Dict[str, Any]:
+        """把一条 IO / 流程指令转换为模板可用的字典。
+
+        统一带 ``cmd`` 与 ``text`` 两个键：模板只需判断 ``cmd`` 是否为
+        ``SETDO`` / ``WAITDI`` / ``WAITTIME``，是则直接输出 ``text``。
+        """
+        if isinstance(item, SetDO):
+            return {
+                "cmd": "SETDO",
+                "text": self.format_setdo(item.signal, item.value, io_map),
+            }
+        if isinstance(item, WaitDI):
+            return {
+                "cmd": "WAITDI",
+                "text": self.format_waitdi(
+                    item.signal, item.value, item.timeout, io_map
+                ),
+            }
+        if isinstance(item, WaitTime):
+            return {"cmd": "WAITTIME", "text": self.format_waittime(item.seconds)}
+        raise PostProcessError(
+            f"{self.full_name}: 不支持的指令类型: {type(item).__name__}"
         )
 
     # ------------------------- 格式化工具 ------------------------- #

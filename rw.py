@@ -67,7 +67,7 @@ except Exception as _exc:  # pragma: no cover
 # 工作单元模型 + PLC（西门子 SCL）代码生成
 try:
     from orolp.cell import CellConfig, Device, DEVICE_TYPES
-    from orolp.plc_scl import generate_scl
+    from orolp.plc_scl import generate_scl, steps_from_program
 
     _HAS_CELL = True
 except Exception as _exc:  # pragma: no cover
@@ -77,6 +77,36 @@ except Exception as _exc:  # pragma: no cover
     Device = None
     DEVICE_TYPES = ()
     generate_scl = None
+    steps_from_program = None
+
+# 抓取工艺（示教点语义 → IO 指令 + 吸附事件）
+try:
+    from orolp.pickplace import (
+        DEFAULT_SEQUENCE,
+        PointType,
+        build_pick_place,
+        default_types_for_count,
+    )
+
+    _HAS_PICKPLACE = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] pickplace unavailable: {_exc}")
+    _HAS_PICKPLACE = False
+    PointType = None
+    build_pick_place = None
+    default_types_for_count = None
+
+# 工作单元模板 + 一键演示示教点（抓取工作站演示入口）
+try:
+    from orolp.world.demo import demo_taught_points
+    from orolp.world.templates import build_grasping_workstation
+
+    _HAS_TEMPLATES = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] workcell templates unavailable: {_exc}")
+    _HAS_TEMPLATES = False
+    build_grasping_workstation = None
+    demo_taught_points = None
 
 # 离线编程（轨迹展开 + 节拍估算 + 程序校验面板）
 try:
@@ -1406,7 +1436,9 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             return
         wx, wy, wz = x_mm, y_mm, z_mm
         if obj.parent and obj.parent in self.scene.objects:
-            parent_tf = self.scene.world_transform(obj.parent)
+            # 必须用 parent_transform 而非 world_transform(obj.parent)：
+            # 挂到机器人法兰的对象，其父系变换含法兰位姿，否则拖动会错位。
+            parent_tf = self.scene.parent_transform(name)
             inv = np.linalg.inv(parent_tf)
             lp = inv @ np.array([wx, wy, wz, 1.0])
             lx, ly, lz = lp[:3]
@@ -1662,6 +1694,11 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.playback_timer = None
         self.current_playback_index = 0
         self.playback_speed = 50
+        #: 与 recorded_positions 一一对应的工艺语义（PointType）。
+        #: 抓取点/放置点会在播放时触发工件吸附与释放，并在生成代码时插入 IO 指令
+        self.point_types = []
+        #: 工作单元场景（由 MainWindow 注入），用于枚举可抓取的工件
+        self._scene = None
         #: 工作单元模型（硬件列表 / PLC 程序逻辑共用同一份）
         self.cell = CellConfig() if _HAS_CELL else None
         #: 供「机器人子程序」生成用的真实机器人（含运动学）
@@ -1701,6 +1738,16 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.play_btn.setStyleSheet("background-color: #4CAF50; color: white;")
         self.play_btn.clicked.connect(self._on_play_clicked)
 
+        self.pause_btn = QtWidgets.QPushButton("⏸ 暂停")
+        self.pause_btn.setStyleSheet("background-color: #8a8a8a; color: white;")
+        self.pause_btn.setToolTip("暂停 / 继续；暂停保留当前点位，便于逐点核对")
+        self.pause_btn.clicked.connect(self._on_pause_clicked)
+
+        self.step_btn = QtWidgets.QPushButton("⏭ 单步")
+        self.step_btn.setStyleSheet("background-color: #6a6a6a; color: white;")
+        self.step_btn.setToolTip("走一个示教点——核对抓取/放置时机最有用的操作")
+        self.step_btn.clicked.connect(self._on_step_clicked)
+
         self.stop_btn = QtWidgets.QPushButton("■ Stop")
         self.stop_btn.setStyleSheet("background-color: #f44336; color: white;")
         self.stop_btn.clicked.connect(self._on_stop_clicked)
@@ -1714,9 +1761,32 @@ class PathCodeEditor(QtWidgets.QWidget):
 
         control_layout.addWidget(self.record_btn)
         control_layout.addWidget(self.play_btn)
+        control_layout.addWidget(self.pause_btn)
+        control_layout.addWidget(self.step_btn)
         control_layout.addWidget(self.stop_btn)
         control_layout.addWidget(self.clear_btn)
         control_layout.addWidget(self.pos_count_label)
+
+        # ---- 抓取工艺：点位语义 + 工件选择 ----
+        if _HAS_PICKPLACE:
+            control_layout.addSpacing(12)
+            control_layout.addWidget(QtWidgets.QLabel("点位:"))
+            self.point_type_combo = QtWidgets.QComboBox()
+            self.point_type_combo.setToolTip(
+                "记录时赋予该示教点的工艺语义。\n"
+                "抓取点：插入夹紧 IO，播放时把工件吸附到法兰；\n"
+                "放置点：插入松开 IO，播放时把工件释放到世界。"
+            )
+            for t in PointType:
+                self.point_type_combo.addItem(t.label, t)
+            control_layout.addWidget(self.point_type_combo)
+
+            control_layout.addWidget(QtWidgets.QLabel("工件:"))
+            self.workpiece_combo = QtWidgets.QComboBox()
+            self.workpiece_combo.setMinimumWidth(90)
+            self.workpiece_combo.setToolTip("被抓取的场景对象；留空表示只演示轨迹")
+            control_layout.addWidget(self.workpiece_combo)
+
         teach_layout.addLayout(control_layout)
 
         self.sub_tabs.addTab(teach, "路径示教")
@@ -1824,12 +1894,39 @@ class PathCodeEditor(QtWidgets.QWidget):
         layout.addWidget(self.plc_preview, 1)
         return w
 
+    def _taught_points_deg(self):
+        """把示教点（关节**弧度**字典）转成**度**列表，供抓取工艺模块使用。
+
+        关节名以**示教点里实际存在的键**为准：``joint_names`` 来自
+        ``renderer.joints``（含 fixed 关节，KR16 是 7 个），而运动学只认 6 个
+        可动关节，照抄会让后续的 FK 直接抛错。
+        """
+        positions = self.recorded_positions
+        if not positions:
+            return []
+        keys = list(positions[0].keys())
+        names = [n for n in self.joint_names if n in keys] or keys
+        return [
+            [math.degrees(float(p.get(n, 0.0))) for n in names]
+            for p in positions
+        ]
+
     def _generate_plc(self):
         if self.cell is None or generate_scl is None:
             self.plc_preview.setPlainText("单元模型不可用")
             return
         try:
-            code = generate_scl(self.cell, program_name="CellControl")
+            # 优先按**真实示教出来的抓取 IO 时序**生成步序；没有示教点时
+            # 回退到默认骨架，这样 PLC 与机器人程序共用同一份 IO 定义
+            steps = None
+            if _HAS_PICKPLACE:
+                pts = self._taught_points_deg()
+                if pts:
+                    plan = build_pick_place(pts, self.get_point_types())
+                    derived = steps_from_program(plan.items)
+                    if derived:
+                        steps = derived
+            code = generate_scl(self.cell, program_name="CellControl", steps=steps)
         except Exception as exc:
             self.plc_preview.setPlainText(f"生成失败：\n{exc}")
             return
@@ -1930,11 +2027,52 @@ class PathCodeEditor(QtWidgets.QWidget):
         self._stop_playback()
         self.playbackStopped.emit()
 
-    def _stop_playback(self):
-        if self.playback_timer and self.playback_timer.isActive():
+    def _ensure_timer(self) -> None:
+        """惰性创建播放定时器（与 Play 分支共用同一份创建逻辑）。"""
+        if self.playback_timer is None:
+            self.playback_timer = QtCore.QTimer(self)
+            self.playback_timer.timeout.connect(self._on_playback_tick)
+
+    def _on_pause_clicked(self):
+        """暂停 / 继续。
+
+        暂停只停定时器、**保留当前索引**，这样继续时从断点接着走，而不是
+        从头重来——否则逐点核对抓取时机根本没法做。
+        """
+        if not self.recorded_positions:
+            return
+        self._ensure_timer()
+        if self.playback_timer.isActive():
             self.playback_timer.stop()
-        self.playback_timer = None
+        else:
+            if self.current_playback_index >= len(self.recorded_positions):
+                self.current_playback_index = 0
+            self.playback_timer.start(self.playback_speed)
+        self._sync_pause_button()
+
+    def _on_step_clicked(self):
+        """单步：只走一个示教点。"""
+        if not self.recorded_positions:
+            return
+        self._ensure_timer()
+        if self.playback_timer.isActive():
+            self.playback_timer.stop()
+        if self.current_playback_index >= len(self.recorded_positions):
+            self.current_playback_index = 0
+        self._on_playback_tick()
+        self._sync_pause_button()
+
+    def _sync_pause_button(self):
+        """按定时器状态刷新暂停按钮文案。"""
+        running = self.playback_timer is not None and self.playback_timer.isActive()
+        self.pause_btn.setText("⏸ 暂停" if running else "▶ 继续")
+
+    def _stop_playback(self):
+        # 定时器对象保留（不再置 None），否则暂停后再 Stop 会拿不到它来停
+        if self.playback_timer is not None:
+            self.playback_timer.stop()
         self.current_playback_index = 0
+        self._sync_pause_button()
 
     def _on_playback_tick(self):
         if self.current_playback_index < len(self.recorded_positions):
@@ -1947,17 +2085,82 @@ class PathCodeEditor(QtWidgets.QWidget):
     def _on_clear_clicked(self):
         self._stop_playback()
         self.recorded_positions.clear()
+        self.point_types.clear()
         self.pos_count_label.setText("Positions: 0")
         self.code_edit.clear()
         self.code_edit.append("# OLP Path Code\n")
         self.clearRequested.emit()
+        self._suggest_next_point_type()
 
     def record_position(self, joint_values):
         if self.record_btn.isChecked():
             self.recorded_positions.append(dict(joint_values))
+            if _HAS_PICKPLACE:
+                self.point_types.append(self.point_type_combo.currentData())
             self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
             self.positionRecorded.emit(len(self.recorded_positions))
             self._update_code_with_positions()
+            self._suggest_next_point_type()
+
+    def _suggest_next_point_type(self) -> None:
+        """把点位下拉预置成"下一个"该用的语义，用户可随时改。
+
+        例如已有 1 个点时，下一次默认建议「抓取点」——正好是五点式循环的顺序。
+        """
+        if not _HAS_PICKPLACE:
+            return
+        nxt = default_types_for_count(len(self.recorded_positions) + 1)
+        if len(nxt) > len(self.recorded_positions):
+            idx = self.point_type_combo.findData(nxt[len(self.recorded_positions)])
+            if idx >= 0:
+                self.point_type_combo.setCurrentIndex(idx)
+
+    def sync_point_types(self) -> None:
+        """把 point_types 补齐到与 recorded_positions 等长。
+
+        MainWindow 会直接改写 ``recorded_positions``（视口 Record 的路径），
+        此时语义列表要跟着同步，否则两边长度不一致会直接报错。
+        """
+        if not _HAS_PICKPLACE:
+            return
+        n = len(self.recorded_positions)
+        if len(self.point_types) > n:
+            self.point_types = self.point_types[:n]
+        while len(self.point_types) < n:
+            self.point_types.append(
+                default_types_for_count(n)[len(self.point_types)]
+            )
+
+    def get_point_types(self):
+        return self.point_types
+
+    def set_scene(self, scene) -> None:
+        """注入工作单元场景，用于枚举可抓取的工件。"""
+        self._scene = scene
+        self.refresh_workpiece_combo()
+
+    def refresh_workpiece_combo(self) -> None:
+        """重建「工件」下拉：场景里除机器人外的全部对象。"""
+        if not _HAS_PICKPLACE:
+            return
+        current = self.workpiece_combo.currentData()
+        self.workpiece_combo.blockSignals(True)
+        self.workpiece_combo.clear()
+        self.workpiece_combo.addItem("（无）", None)
+        if self._scene is not None:
+            for name in self._scene.objects:
+                if name == ROBOT_NAME:
+                    continue
+                self.workpiece_combo.addItem(name, name)
+        idx = self.workpiece_combo.findData(current)
+        self.workpiece_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.workpiece_combo.blockSignals(False)
+
+    def get_workpiece(self):
+        """当前选中的工件名；未选返回 None。"""
+        if not _HAS_PICKPLACE:
+            return None
+        return self.workpiece_combo.currentData()
 
     def _update_code_with_positions(self):
         self.code_edit.clear()
@@ -1991,6 +2194,9 @@ class PathCodeEditor(QtWidgets.QWidget):
     def _parse_code_to_positions(self):
         """从代码编辑器中解析路径位置数据"""
         code_text = self.code_edit.toPlainText()
+        # 语义不在代码文本里，解析会重建位置列表——先存下来，数量一致就沿用它，
+        # 否则用户打的「抓取点 / 放置点」标记会在每次 Play 时被抹掉
+        old_types = list(self.point_types)
         self.recorded_positions.clear()
         
         # 匹配 movej([value1, value2, ...], vel=X.X) 格式
@@ -2019,6 +2225,12 @@ class PathCodeEditor(QtWidgets.QWidget):
         
         # 更新位置计数显示
         self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
+
+        if len(old_types) == len(self.recorded_positions):
+            self.point_types = old_types
+        else:
+            self.point_types = []
+            self.sync_point_types()
 
 
 class DevicePropertyPanel(QtWidgets.QWidget):
@@ -2062,6 +2274,19 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.obj_type_label = QtWidgets.QLabel("N/A")
         info_layout.addRow("名称:", self.obj_name_label)
         info_layout.addRow("类型:", self.obj_type_label)
+
+        # 挂载（把对象挂到机器人法兰或另一对象下；机器人自身不可挂载）
+        self.obj_mount_widget = QtWidgets.QWidget()
+        mount_layout = QtWidgets.QFormLayout(self.obj_mount_widget)
+        mount_layout.setContentsMargins(0, 4, 0, 4)
+        self.obj_parent_combo = QtWidgets.QComboBox()
+        self.obj_parent_combo.setToolTip(
+            "挂到「机器人」＝ 安装到法兰，工具将跟随机器人运动；\n"
+            "挂到其它对象 ＝ 保持当前位置，仅建立随动关系。"
+        )
+        self.obj_parent_combo.currentIndexChanged.connect(self._on_obj_parent_edited)
+        mount_layout.addRow("挂载到:", self.obj_parent_combo)
+        info_layout.addRow(self.obj_mount_widget)
 
         # 机器人规格（仅机器人对象可见）
         self.robot_spec_widget = QtWidgets.QWidget()
@@ -2236,10 +2461,14 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.obj_type_label.setText("机器人")
             self.robot_spec_widget.setVisible(True)
             self.note_label.setVisible(bool(self.note_label.text()))
+            # 机器人是场景根级设备，不能被挂到别的对象下
+            self.obj_mount_widget.setVisible(False)
         else:
             self.obj_type_label.setText(spec.name if spec else "自定义")
             self.robot_spec_widget.setVisible(False)
             self.note_label.setVisible(False)
+            self.obj_mount_widget.setVisible(True)
+            self._refresh_parent_combo(name)
 
         # 位姿回填（blockSignals 避免触发写回）
         # _matrix_to_rpy 返回弧度，转成角度后再填进 6 个输入框
@@ -2470,6 +2699,54 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         )
         self.objectChanged.emit()
 
+    def _descendant_names(self, name: str) -> set:
+        """对象自身及其全部后代名——挂载候选里必须排除，否则会成环。"""
+        out = {name}
+        changed = True
+        while changed:
+            changed = False
+            for o in self.scene.objects.values():
+                if o.parent in out and o.name not in out:
+                    out.add(o.name)
+                    changed = True
+        return out
+
+    def _refresh_parent_combo(self, name: str) -> None:
+        """重建「挂载到」下拉：场景根 + 所有不会形成环的候选父对象。"""
+        combo = self.obj_parent_combo
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("(场景根)", None)
+        excluded = self._descendant_names(name)
+        for o in self.scene.objects.values():
+            if o.name in excluded:
+                continue
+            combo.addItem(o.name, o.name)
+        cur = self.scene.objects[name].parent
+        idx = combo.findData(cur)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _on_obj_parent_edited(self) -> None:
+        """切换挂载父对象。
+
+        挂到机器人＝**工具安装**语义（吸附到法兰原点）；挂到其它对象＝
+        **放到其上**语义（保持世界位置，只建立随动关系）。
+        """
+        name = self.current_object
+        if not name or self.scene is None:
+            return
+        target = self.obj_parent_combo.currentData()
+        try:
+            self.scene.attach(name, target, keep_world=(target != ROBOT_NAME))
+        except (KeyError, ValueError) as exc:
+            self._refresh_parent_combo(name)
+            print(f"[warning] 挂载失败: {exc}")
+            return
+        # 局部位姿已被 attach 改写，整块回填一遍（位置分组也要跟着变）
+        self.set_object(name)
+        self.objectChanged.emit()
+
     def _on_obj_param_edited(self, name: str, value: float) -> None:
         if not self.current_object or self.scene is None:
             return
@@ -2538,6 +2815,199 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.statusBar().showMessage("该型号 URDF 不可用")
     
+    def _setup_status_bar(self) -> None:
+        """状态栏**常驻**区：节拍 / 干涉 / IO / 报错。
+
+        必须用 ``addPermanentWidget`` 而不是 ``showMessage``：后者是临时消息，
+        会被下一条直接冲掉，演示时根本看不到持续状态（而节拍、干涉这类
+        指标恰恰是要一直盯着的）。
+        """
+        self.status_cycle = QtWidgets.QLabel("节拍 —")
+        self.status_collision = QtWidgets.QLabel("干涉 —")
+        self.status_io = QtWidgets.QLabel("IO —")
+        self.status_error = QtWidgets.QLabel("无报错")
+
+        for w in (self.status_cycle, self.status_collision,
+                  self.status_io, self.status_error):
+            w.setStyleSheet(
+                "color:#c8cad4; padding:0 8px; font-size:11px;"
+            )
+            self.statusBar().addPermanentWidget(w)
+
+    def _on_report_ready(self, report) -> None:
+        """校验报告出来后刷新节拍与报错。"""
+        cycle = getattr(report, "cycle_time", None)
+        self.status_cycle.setText(
+            f"节拍 {cycle:.2f} s" if cycle is not None else "节拍 —"
+        )
+        issues = list(getattr(report, "issues", None) or [])
+        if issues:
+            self.status_error.setText(f"报错 {len(issues)}")
+            self.status_error.setStyleSheet(
+                "color:#ff8a80; padding:0 8px; font-size:11px;"
+            )
+        else:
+            self.status_error.setText("无报错")
+            self.status_error.setStyleSheet(
+                "color:#a5d6a7; padding:0 8px; font-size:11px;"
+            )
+
+    def _adopt_scene(self, scene) -> None:
+        """接管一个新场景，把各处引用一次性换掉。
+
+        场景对象是**按引用共享**的：视口、属性面板、工件下拉各存了一份。
+        替换场景时三处必须一起换，否则会出现"树里变了、视口没变"这类
+        极难排查的不一致。
+        """
+        self.scene_panel.set_scene(scene)
+        self.gl_widget.scene = scene
+        self.code_editor.set_scene(scene)
+        if hasattr(self, "property_panel"):
+            self.property_panel.set_scene(scene)
+        self.scene_panel._refresh_tree()
+        self.scene_panel.sceneChanged.emit()
+        self.gl_widget.update()
+
+    def load_preset_cell(self) -> None:
+        """一键载入预置工作单元场景（Demo 起手式）。
+
+        预置场景放在 ``assets/cells/``：载入后机器人、夹爪（已挂法兰）、
+        工作台、工件、输送线、围栏、控制柜一次到位，可以直接开始示教。
+        """
+        if not _HAS_WORLD or not hasattr(self, "scene_panel"):
+            QtWidgets.QMessageBox.information(self, "预置工作站", "环境建模模块不可用。")
+            return
+
+        cells_dir = Path(__file__).resolve().parent / "assets" / "cells"
+        files = sorted(cells_dir.glob("*.json")) if cells_dir.is_dir() else []
+        if not files:
+            QtWidgets.QMessageBox.information(
+                self, "预置工作站", f"未找到预置场景（{cells_dir} 下没有 .json）"
+            )
+            return
+
+        if len(files) == 1:
+            target = files[0]
+        else:
+            names = [f.stem for f in files]
+            choice, ok = QtWidgets.QInputDialog.getItem(
+                self, "载入预置工作站", "选择工作站:", names, 0, False
+            )
+            if not ok:
+                return
+            target = files[names.index(choice)]
+
+        try:
+            scene = Scene.load(target)
+        except (OSError, ValueError) as exc:
+            QtWidgets.QMessageBox.critical(self, "载入失败", str(exc))
+            return
+
+        # 场景里的机器人可能与当前视口的不同——先让视口加载它
+        if scene.robot_urdf and Path(scene.robot_urdf).exists():
+            self.gl_widget.load_robot(scene.robot_urdf)
+            if scene.has_robot:
+                self.gl_widget.set_joint_values(
+                    {n: math.radians(v) for n, v in zip(
+                        self.gl_widget.renderer.actuated_names(),
+                        scene._robot_joints_deg)}
+                )
+
+        self._adopt_scene(scene)
+        self.statusBar().showMessage(
+            f"已载入 {target.name}（{len(scene)} 个对象）"
+        )
+
+    def load_grasping_workstation_demo(self) -> None:
+        """一键载入抓取工作站并自动装上示例程序（S4 能力展示入口）。
+
+        与 :meth:`load_preset_cell` 只装场景不同，这里把演示做成**一气呵成**：
+
+        1. 构建模板场景（UR5e + 吸盘 + 输送带 + 4 工件 + 托盘）并载入视口
+        2. 用模板 TCP + IK 生成五点式抓取循环示教点（含抓取/放置语义）
+        3. 灌进路径编辑器与离线编程面板（与手工示教同一条数据通路）
+        4. 自动校验 → 状态栏显示节拍 → 自动开始轨迹回放
+
+        任一步失败都弹窗如实说明，不做静默降级。
+        """
+        if not (_HAS_TEMPLATES and _HAS_WORLD and _HAS_PROGRAM and _HAS_PICKPLACE):
+            QtWidgets.QMessageBox.information(
+                self, "抓取工作站演示", "所需模块不可用（模板/环境建模/离线编程/抓取工艺）。"
+            )
+            return
+
+        try:
+            cell = build_grasping_workstation()
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self, "抓取工作站演示", f"模板构建失败：{type(exc).__name__}: {exc}"
+            )
+            return
+
+        # URDF 路径兼容仓库相对路径（模板 JSON 里存的是相对路径）
+        urdf = cell.scene.robot_urdf
+        if urdf and not Path(urdf).exists():
+            candidate = _REPO_ROOT / urdf
+            if candidate.exists():
+                urdf = str(candidate)
+        if not urdf or not Path(urdf).exists():
+            QtWidgets.QMessageBox.critical(
+                self, "抓取工作站演示", f"机器人模型不可用：{urdf}"
+            )
+            return
+
+        # 1) 视口载机器人（顺带初始化离线编程面板与场景机器人）
+        self.load_robot(urdf)
+        robot = self.olp_robot
+        if robot is None:
+            QtWidgets.QMessageBox.warning(
+                self, "抓取工作站演示", "离线编程机器人初始化失败，无法生成示例程序。"
+            )
+            return
+
+        # 2) 生成示例示教点（TCP 取模板定义的吸盘 TCP）
+        try:
+            positions, types = demo_taught_points(cell, robot)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self, "抓取工作站演示",
+                f"示例程序生成失败：{type(exc).__name__}: {exc}",
+            )
+            return
+
+        # 3) 接管模板场景 → 灌示教点（与手工示教同一条数据通路）
+        self._adopt_scene(cell.scene)
+        self.code_editor.recorded_positions = positions
+        self.code_editor.point_types = list(types)
+        self.code_editor.pos_count_label.setText(f"Positions: {len(positions)}")
+        self.code_editor._update_code_with_positions()
+        self.gl_widget.set_recorded_positions(positions)
+        self._sync_program_points()
+
+        # 工件下拉默认选第一个可抓工件，回放即可看到吸附/释放随动
+        if cell.grasp_objects and hasattr(self.code_editor, "workpiece_combo"):
+            idx = self.code_editor.workpiece_combo.findData(cell.grasp_objects[0])
+            if idx >= 0:
+                self.code_editor.workpiece_combo.setCurrentIndex(idx)
+
+        # 视口关节摆到模板 Home 位（load_robot 用的是通用待机位形，与模板不同）
+        names = self.gl_widget.renderer.actuated_names()
+        self.gl_widget.set_joint_values(
+            {n: math.radians(v) for n, v in zip(names, cell.home_joints)}
+        )
+        self._sync_scene_joints()
+
+        # 4) 自动校验出节拍 → 自动回放
+        report = self.program_panel.validate_program()
+        if report is not None:
+            self.program_panel.start_playback()
+        cycle = getattr(report, "cycle_time", None)
+        cycle_txt = f"，节拍 {cycle:.2f} s" if cycle is not None else ""
+        self.statusBar().showMessage(
+            f"抓取工作站演示已就绪：{len(positions)} 个示例示教点{cycle_txt}，"
+            "回放中（可暂停/单步/停止）"
+        )
+
     def setup_menu(self):
         menubar = self.menuBar()
         
@@ -2556,6 +3026,21 @@ class MainWindow(QtWidgets.QMainWindow):
         load_action.setShortcut("Ctrl+O")
         load_action.triggered.connect(self.load_path_code)
         file_menu.addAction(load_action)
+
+        if _HAS_WORLD:
+            file_menu.addSeparator()
+            cell_action = QAction("载入预置工作站(&W)...", self)
+            cell_action.triggered.connect(self.load_preset_cell)
+            file_menu.addAction(cell_action)
+
+        if _HAS_TEMPLATES and _HAS_PROGRAM and _HAS_PICKPLACE:
+            demo_action = QAction("抓取工作站演示（一键）(&D)", self)
+            demo_action.setToolTip(
+                "一键载入抓取工作站（UR5e + 吸盘 + 输送带 + 托盘），\n"
+                "自动装上示例抓取程序并开始回放，状态栏显示节拍。"
+            )
+            demo_action.triggered.connect(self.load_grasping_workstation_demo)
+            file_menu.addAction(demo_action)
 
         file_menu.addSeparator()
 
@@ -2657,6 +3142,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.program_panel.statusMessage.connect(self.statusBar().showMessage)
                 self.program_panel.playbackFrame.connect(self.on_playback_frame)
                 self.program_panel.playbackFinished.connect(self.on_playback_stopped)
+                # 程序级回放到 gripper() 指令时，驱动工件吸附/释放（S3）
+                self.program_panel.gripperStateChanged.connect(
+                    self.on_gripper_state_changed
+                )
 
             # ---- 左：资源库（建模区）----
             # 按设计方案，左侧只负责选设备/工件/场景；代码预览、导出打包、
@@ -2713,9 +3202,19 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             # 右面板编辑对象属性后重绘视口
             self.property_panel.objectChanged.connect(self.gl_widget.update)
+            # 挂载关系变化后场景树的层级也要跟着变（挂到法兰的夹爪要显示在
+            # 「机器人」节点下），否则树里仍显示在根层，与视口不一致
+            self.property_panel.objectChanged.connect(self.scene_panel._refresh_tree)
+            # 场景增删对象后同步「工件」下拉，否则新加的工件选不到
+            self.scene_panel.sceneChanged.connect(self.code_editor.refresh_workpiece_combo)
+            self.code_editor.set_scene(self.scene_panel.scene)
             # 机器组件库拖入视口：组件加入场景、机器人按 catalog key 载入
             self.gl_widget.componentDropped.connect(self._add_component_from_library)
             self.gl_widget.robotDropped.connect(self._on_robot_dropped)
+
+        self._setup_status_bar()
+        if _HAS_PROGRAM and hasattr(self, "program_panel"):
+            self.program_panel.reportReady.connect(self._on_report_ready)
 
         self.statusBar().showMessage("Ready")
     
@@ -2789,10 +3288,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gl_widget.update()
 
     def _sync_program_points(self) -> None:
-        """把路径代码编辑器里的示教点同步给离线编程面板。"""
+        """把路径代码编辑器里的示教点同步给离线编程面板。
+
+        工艺语义（抓取/放置点）一并传过去：程序面板据此在对应位置插入
+        gripper() 指令，回放动画与出码共用同一份抓取时序（S3）。
+        """
         if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
             return
-        self.program_panel.set_taught_points(self.code_editor.get_recorded_positions())
+        types = self.code_editor.get_point_types() if _HAS_PICKPLACE else None
+        self.program_panel.set_taught_points(
+            self.code_editor.get_recorded_positions(), types
+        )
 
     def validate_program(self) -> None:
         """校验程序并给出节拍（F7）。"""
@@ -2823,7 +3329,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if not self.scene_panel.scene.has_robot:
             return
-        names = list(self.gl_widget.renderer.joints.keys())
+        # 必须用 actuated_names() 而非 joints.keys()：后者含 fixed 关节
+        # （KR16 是 7 个 joints / 6 个可动），多传一个会让 FK 直接抛错
+        names = list(self.gl_widget.renderer.actuated_names())
         self.scene_panel.update_robot_joints(
             [math.degrees(self.gl_widget.renderer.joint_values.get(n, 0.0)) for n in names]
         )
@@ -2838,6 +3346,14 @@ class MainWindow(QtWidgets.QMainWindow):
         hits = self.scene_panel.run_collision_check()
         self.gl_widget.set_collision_results(hits)
 
+        # 干涉结果写进常驻状态栏：演示时一眼可见，不用去翻面板
+        if hasattr(self, "status_collision"):
+            self.status_collision.setText(f"干涉 {len(hits)}")
+            self.status_collision.setStyleSheet(
+                "color:#ff8a80; padding:0 8px; font-size:11px;" if hits
+                else "color:#a5d6a7; padding:0 8px; font-size:11px;"
+            )
+
     def on_joint_changed_for_record(self, name, value):
         self.gl_widget.renderer.joint_values[name] = value
         self.gl_widget.update()
@@ -2846,6 +3362,8 @@ class MainWindow(QtWidgets.QMainWindow):
             count = self.gl_widget.record_position()
             # 同步到 PathCodeEditor
             self.code_editor.recorded_positions = self.gl_widget.get_recorded_positions()
+            # 上面是直接改写列表，语义列表要跟着补，否则长度不一致
+            self.code_editor.sync_point_types()
             self.code_editor.pos_count_label.setText(f"Positions: {count}")
             self.code_editor._update_code_with_positions()
             self._sync_program_points()
@@ -2855,7 +3373,101 @@ class MainWindow(QtWidgets.QMainWindow):
         if 0 <= index < len(positions):
             self.gl_widget.set_joint_values(positions[index])
             self.property_panel.update_joint_displays(positions[index])
+            # 必须同步到场景：视口渲染器与工作单元场景是两套状态。只更新渲染器
+            # 的话场景机器人永远停在初始位形，法兰不动，挂在法兰上的夹爪与
+            # 被吸附的工件都不会跟着走（干涉检查也会按错误位形算）。
+            self._sync_scene_joints()
+            self._apply_pick_event(index)
+            self._update_io_status(index)
             self.gl_widget.update()
+
+    def _update_io_status(self, index: int) -> None:
+        """常驻状态栏显示当前工位的 IO 动作——演示时能一眼看到夹爪在干嘛。"""
+        if not hasattr(self, "status_io"):
+            return
+        action = "保持"
+        if _HAS_PICKPLACE:
+            types = self.code_editor.get_point_types()
+            t = types[index] if index < len(types) else None
+            action = {PointType.PICK: "夹紧", PointType.PLACE: "松开"}.get(t, "保持")
+        wp = self.code_editor.get_workpiece()
+        self.status_io.setText(f"IO {action}" + (f" · {wp}" if wp else ""))
+
+    def _apply_pick_event(self, index: int) -> None:
+        """播放到某个示教点时，按工艺语义挂载/释放工件。
+
+        工件被「吸附」的实现就是把它挂到机器人下（``parent=ROBOT_NAME``）——
+        复用与夹爪挂载完全相同的父子机制，于是它自动跟随法兰运动。
+        释放即解除挂载，并把当前世界位姿写回局部 pose，工件原地留下。
+        """
+        if not _HAS_PICKPLACE or not _HAS_WORLD:
+            return
+        scene = getattr(self, "scene", None) or getattr(
+            getattr(self, "scene_panel", None), "scene", None
+        )
+        if scene is None:
+            return
+
+        types = self.code_editor.get_point_types()
+        if index >= len(types):
+            return
+        t = types[index]
+        workpiece = self.code_editor.get_workpiece()
+        if not workpiece or workpiece not in scene.objects:
+            return
+
+        try:
+            if t is PointType.PICK:
+                scene.attach(workpiece, ROBOT_NAME, keep_world=True)
+            elif t is PointType.PLACE:
+                scene.detach(workpiece)
+            else:
+                return
+        except (KeyError, ValueError) as exc:
+            print(f"[warning] 工件吸附/释放失败: {exc}")
+            return
+        if hasattr(self, "scene_panel"):
+            self.scene_panel._refresh_tree()
+
+    def on_gripper_state_changed(self, action: str) -> None:
+        """程序级回放到夹爪指令时，吸附/释放工件（S3 抓取动画）。
+
+        与示教点回放（:meth:`_apply_pick_event`）共用同一机制：把工件
+        ``attach`` 到机器人下并保持世界位姿——被夹住的瞬间停在原地，之后
+        随法兰/TCP 随动；``detach`` 即原地释放。``action`` 为空串表示回放
+        从头开始，此时把残留挂载的工件复位。
+        """
+        if not _HAS_WORLD:
+            return
+        scene = getattr(self, "scene", None) or getattr(
+            getattr(self, "scene_panel", None), "scene", None
+        )
+        if scene is None:
+            return
+        workpiece = self.code_editor.get_workpiece()
+        if not workpiece or workpiece not in scene.objects:
+            return
+        obj = scene.objects.get(workpiece)
+        if obj is None:
+            return
+        try:
+            if action == "close":
+                if obj.parent != ROBOT_NAME:
+                    scene.attach(workpiece, ROBOT_NAME, keep_world=True)
+            elif obj.parent == ROBOT_NAME:  # "open" 或回放复位（""）
+                scene.detach(workpiece)
+            else:
+                return  # 状态未变，不必刷新
+        except (KeyError, ValueError) as exc:
+            print(f"[warning] 工件吸附/释放失败: {exc}")
+            return
+        if hasattr(self, "scene_panel"):
+            self.scene_panel._refresh_tree()
+        if hasattr(self, "status_io"):
+            label = {"close": "夹紧", "open": "松开"}.get(action, "保持")
+            self.status_io.setText(f"IO {label} · {workpiece}")
+        # 视口按场景世界位姿重画——工件随动就体现在这一帧帧的刷新里
+        self.gl_widget.update()
 
     def on_playback_stopped(self):
         self.statusBar().showMessage("Playback finished")

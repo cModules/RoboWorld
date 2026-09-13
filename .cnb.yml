@@ -1,14 +1,176 @@
-# 这里是一个示例 .cnb.yml
-  
-  # 匹配main分支
-  main:
-    # 触发事件为 push 事件
-    push:
-      # 这里是阶段任务示例，可配置任意多个阶段，这里以一个阶段为例
-      - name: "your first CNB building"
-        stages:
-          # 使用流水线输出你的构建配置数据
-          - name: echo your build data
-            script: echo ${CNB_BUILD_USER} 通过 ${CNB_BRANCH} 分支触发了 ${CNB_EVENT} 事件
-  
-  # 更多资料见 https://docs.cnb.cool/build/quick-start.html
+main:
+  push:
+    # 构建制成品镜像（根目录 Dockerfile）并推送到 CNB 内置 Docker 制品库
+    - name: docker-image
+      services:
+        - docker # 声明后 CNB 会自动 docker login docker.cnb.cool，无需额外配置凭证
+      stages:
+        - name: build-and-push
+          script: |
+            set -e
+            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/hello-cnb"
+            VERSION="main-${CNB_COMMIT_SHORT}"
+            echo "构建制成品镜像：$IMAGE:latest / $IMAGE:$VERSION"
+            docker build -t "$IMAGE:latest" -t "$IMAGE:$VERSION" .
+            docker push "$IMAGE:latest"
+            docker push "$IMAGE:$VERSION"
+            echo "✅ 已推送 $IMAGE:latest 与 $IMAGE:$VERSION"
+        - name: smoke-test
+          script: |
+            set -e
+            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/hello-cnb"
+            # 无头自检：跑纯 Python 回归测试（pick & place 出码链路），无需 docker-in-docker
+            docker run --rm "$IMAGE:latest" python -m pytest tests/test_pickplace.py -q
+            echo "✅ 制成品镜像可运行（pytest 无头自检通过）"
+
+    # 构建知识库：把仓库 Markdown 文档（含 Issue）切片、向量化后写入 CNB 知识库
+    - name: build-knowledge-base
+      stages:
+        - name: build knowledge base
+          type: knowledge:update
+          options:
+            include: "**/**.md"                       # 需要索引的文件，支持 md/mdx/docx/txt/pdf
+            exclude: ["node_modules/**", "dist/**"]   # 排除无需索引的目录
+            issueSyncEnabled: true                    # 同步 Issue 数据（默认开启）
+            chunkSize: 1500                           # 分块大小（默认 1500）
+            ignoreProcessFailures: true               # 个别文档解析失败不阻塞流水线
+            # forceRebuild: true                      # 首次全量重建时打开，跑通后记得注释掉
+
+  pull_request:
+    - name: pr-check
+      stages:
+        - name: pr-info
+          script: |
+            echo "PR 事件触发成功"
+            echo "PR 编号: $CNB_PULL_REQUEST_IID"
+            echo "源分支: $CNB_BRANCH"
+            echo "目标分支: $CNB_PULL_REQUEST_BRANCH"
+            echo "提交: $CNB_COMMIT_SHORT"
+        - name: lint
+          script: |
+            echo "代码检查：校验仓库必需文件"
+            test -f README.md && echo "README.md 存在" || { echo "缺少 README.md"; exit 1; }
+            test -f LICENSE && echo "LICENSE 存在" || { echo "缺少 LICENSE"; exit 1; }
+        - name: unit-test
+          image: node:16.13.0
+          script: |
+            echo "单元测试：执行仓库自带测试脚本（若无则跳过）"
+            if [ -f package.json ]; then
+              npm install
+              npm test --if-present
+            else
+              echo "未发现 package.json，跳过测试"
+            fi
+        - name: build-verify
+          script: |
+            echo "构建验证：检查 .cnb.yml 配置可解析"
+            if command -v python3 >/dev/null 2>&1; then
+              python3 -c "import yaml; yaml.safe_load(open('.cnb.yml')); print('.cnb.yml 语法校验通过')"
+            elif command -v node >/dev/null 2>&1; then
+              node -e "const fs=require('fs');const t=fs.readFileSync('.cnb.yml','utf8');const ok=t.split('\n').every((l,i)=>!l.trim()||/^[^\t]*$/.test(l)&&!l.includes('\t'));if(!ok){console.error('.cnb.yml 含制表符缩进');process.exit(1)}console.log('.cnb.yml 语法校验通过')"
+            else
+              grep -qE '^[a-zA-Z_]' .cnb.yml && echo ".cnb.yml 基本结构校验通过"
+            fi
+            echo "构建验证完成"
+
+  web_trigger_check_progress:
+    - name: 自检
+      stages:
+        - name: 检查仓库内可自动验证的关卡
+          script: |
+            echo "检查仓库内可自动验证的关卡"
+            echo "检查仓库内可自动验证的关卡"
+
+"v*":
+  tag_push:
+    - name: tag-build
+      stages:
+        - name: tag-info
+          script: |
+            echo "Tag 事件触发成功"
+            echo "Tag: $CNB_BRANCH"
+            echo "提交: $CNB_COMMIT_SHORT"
+        - name: release-verify
+          script: |
+            echo "发布校验：确认 Tag 指向的代码满足基本要求"
+            test -f README.md && echo "README.md 存在" || { echo "缺少 README.md"; exit 1; }
+            test -f LICENSE && echo "LICENSE 存在" || { echo "缺少 LICENSE"; exit 1; }
+        - name: package
+          script: |
+            echo "构建正式版本产物"
+            mkdir -p dist
+            echo "hello-cnb $CNB_BRANCH" > dist/version.txt
+            ls -l dist
+
+    # 打 Tag 时构建制成品镜像并推送，Tag 名即镜像版本号
+    - name: docker-image
+      services:
+        - docker
+      stages:
+        - name: build-and-push
+          script: |
+            set -e
+            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/robot_world"
+            echo "构建制成品镜像：$IMAGE:latest / $IMAGE:${CNB_BRANCH}"
+            # tag_push 事件下 CNB_BRANCH 即 Tag 名；用根目录 Dockerfile（Python 版）
+            docker build -t "$IMAGE:latest" -t "$IMAGE:${CNB_BRANCH}" .
+            docker push "$IMAGE:latest"
+            docker push "$IMAGE:${CNB_BRANCH}"
+            echo "✅ 已推送 $IMAGE:latest 与 $IMAGE:${CNB_BRANCH}"
+        - name: smoke-test
+          script: |
+            set -e
+            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/robot_world"
+            # 无头自检：跑纯 Python 回归测试（pick & place 出码链路），无需 docker-in-docker
+            docker run --rm "$IMAGE:${CNB_BRANCH}" python -m pytest tests/test_pickplace.py -q
+            echo "✅ 制成品镜像可运行（pytest 无头自检通过）"
+
+  # 自定义部署流程，环境定义见 .cnb/tag_deploy.yml
+  tag_deploy.development:
+    - name: deploy-development
+      stages:
+        - name: deploy
+          script: |
+            echo "部署环境: $name"
+            echo "发布版本: $tag_name"
+            mkdir -p dist && echo "hello-cnb $tag_name" > dist/release.txt
+            echo "✅ 开发环境部署完成"
+
+  tag_deploy.staging:
+    - name: deploy-staging
+      stages:
+        - name: deploy
+          script: |
+            echo "部署环境: $name"
+            echo "发布版本: $tag_name"
+            echo "✅ 预发环境部署完成（前置条件：development 已成功）"
+
+  tag_deploy.production:
+    - name: deploy-production
+      stages:
+        - name: deploy
+          script: |
+            echo "部署环境: $name"
+            echo "发布版本: $tag_name"
+            echo "✅ 生产环境部署完成（前置条件：staging 已成功 + 审批通过）"
+
+
+$:
+  vscode:
+    - docker:
+        # 使用仓库根目录的 .ide/Dockerfile 构建镜像
+        build: .ide/Dockerfile
+        # image 作为构建失败时的回退镜像（可选）
+        image: cnbcool/default-dev-env:latest
+      services:
+        - docker # 可选：额外挂载 docker 服务
+        - name: vscode
+          options:
+            onlyPreview: true # 必填：启用仅预览模式
+            launch: bash /app/.ide/start.sh # 必填：启动 noVNC 试运行栈（Xvfb→rw.py→x11vnc→websockify）
+            keepAliveTimeout: 10m # 可选：离线保活时间，默认 10 分钟
+            daemon: true # 可选：守护进程模式
+            backup: true # 可选：备份/恢复用户数据
+      stages:
+        - name: prepare # 可选：自定义启动前准备步骤
+          script: ls -al

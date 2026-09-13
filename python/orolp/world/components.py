@@ -439,6 +439,57 @@ def _build_tool_suction(cup_count: int = 4, plate_size: float = 200.0, **_) -> L
     return parts
 
 
+def _build_material_bin(
+    length: float, width: float, height: float, wall_thickness: float, **_
+) -> List[Part]:
+    """料箱（周转箱）：底板 + 四壁，顶部敞开便于取放工件。"""
+    wall = max(8.0, wall_thickness)
+    inner_h = max(10.0, height - wall)
+    parts = [
+        Part(Box((length, width, wall)), _T(0, 0, wall / 2), C_DARK),
+    ]
+    # 前后壁（沿 X 长边）
+    for sy in (-1, 1):
+        parts.append(
+            Part(
+                Box((length, wall, inner_h)),
+                _T(0, sy * (width / 2 - wall / 2), wall + inner_h / 2),
+                C_STEEL,
+            )
+        )
+    # 左右壁（沿 Y 短边）
+    for sx in (-1, 1):
+        parts.append(
+            Part(
+                Box((wall, max(10.0, width - 2 * wall), inner_h)),
+                _T(sx * (length / 2 - wall / 2), 0, wall + inner_h / 2),
+                C_STEEL,
+            )
+        )
+    return parts
+
+
+def _build_pallet_base(length: float, width: float, height: float, **_) -> List[Part]:
+    """空托盘：面板 + 三条纵梁 + 底垫（无料垛，供 pick & place 落件用）。"""
+    deck = min(30.0, height * 0.25)
+    foot = min(25.0, height * 0.2)
+    runner_h = height - deck - foot
+    runner = max(80.0, length * 0.08)
+    parts = [
+        Part(Box((length, width, deck)), _T(0, 0, height - deck / 2), C_DARK),
+    ]
+    for sx in (-1, 0, 1):
+        x = sx * (length / 2 - runner / 2)
+        parts.append(
+            Part(Box((runner, width, runner_h)), _T(x, 0, foot + runner_h / 2), C_STEEL)
+        )
+    for sy in (-1, 1):
+        parts.append(
+            Part(Box((length, width * 0.06, foot)), _T(0, sy * (width / 2 - width * 0.03), foot / 2), C_DARK)
+        )
+    return parts
+
+
 def _build_pallet(length: float, width: float, layers: float, **_) -> List[Part]:
     """码垛托盘 + 料垛（用于码垛应用仿真）。"""
     box_h = 150.0
@@ -564,6 +615,31 @@ COMPONENTS: Dict[str, ComponentSpec] = {
                 _P("radius", "半径", 80, 10, 600),
             ),
             builder=_build_workpiece_sphere,
+        ),
+        ComponentSpec(
+            id="material_bin",
+            name="料箱",
+            category="工件",
+            description="顶部敞开的周转料箱，用于毛坯上料/下料",
+            params=(
+                _P("length", "箱长", 600, 200, 1500),
+                _P("width", "箱宽", 400, 150, 1000),
+                _P("height", "箱高", 300, 100, 800),
+                _P("wall_thickness", "壁厚", 15, 8, 50, step=1),
+            ),
+            builder=_build_material_bin,
+        ),
+        ComponentSpec(
+            id="pallet_base",
+            name="空托盘",
+            category="工件",
+            description="无料垛托盘（面板 + 纵梁），供码垛/抓放落件",
+            params=(
+                _P("length", "托盘长", 1200, 400, 2000),
+                _P("width", "托盘宽", 800, 300, 1500),
+                _P("height", "托盘高", 144, 60, 300),
+            ),
+            builder=_build_pallet_base,
         ),
         ComponentSpec(
             id="pallet",

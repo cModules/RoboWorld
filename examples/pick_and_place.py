@@ -19,16 +19,16 @@ wobj = orp.Pose.from_xyz_rpy(500, 200, 0, 0, 0, 90)
 pick = orp.Pose.from_xyz_rpy(0, 0, 50, 0, 0, 0).relative_to(wobj)
 place = orp.Pose.from_xyz_rpy(100, 100, 50, 0, 0, 0).relative_to(wobj)
 
-# Build motion program (chainable API)
+# Build motion program (chainable API, motions and IO interleaved)
 program = (
     robot.moveJ([0, -90, 90, -90, 90, 0], speed=80)   # Home position
     .then(robot.moveL(pick, speed=50, blend=5))        # Approach pick
     .then(robot.moveL(pick.with_z_offset(-30)))         # Descend
-    # (gripper close would go here via IO)
+    .gripper("close")                                   # Gripper close + wait clamped
     .then(robot.moveL(pick.with_z_offset(50)))          # Lift
     .then(robot.moveL(place, speed=80, blend=5))         # Move to place
     .then(robot.moveL(place.with_z_offset(-30)))         # Descend
-    # (gripper open would go here)
+    .gripper("open")                                     # Gripper open
     .then(robot.moveL(place.with_z_offset(50)))          # Retreat
 )
 
@@ -44,10 +44,10 @@ print("\n--- KUKA KRL ---")
 print(program.to_post("kuka_krc4"))
 
 print("\n--- ABB RAPID ---")
-print(program.to_post("abb_rapid"))
+print(program.to_post("abb_irc5"))
 
 print("\n--- FANUC TP ---")
-print(program.to_post("fanuc_tp"))
+print(program.to_post("fanuc_r30ib"))
 
 print("\n--- HuiChuan InoTeach ---")
 print(program.to_post("huichuan_inoteach"))

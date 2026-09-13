@@ -1,5 +1,6 @@
 """Program class for robot motion programming and post-processing."""
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 import numpy as np
 from enum import Enum
@@ -48,19 +49,140 @@ class Motion:
         self.blend = blend
 
 
+# --------------------------------------------------------------------------- #
+# 非运动指令：IO 与流程控制
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class SetDO:
+    """置位/复位一个数字输出（夹爪开合、焊枪起弧……）。
+
+    Attributes:
+        signal: 信号**逻辑名**（如 ``gripper_close``），取自
+            :data:`~orolp.cell.HANDSHAKE_SIGNALS`。物理地址留到后处理期按
+            :class:`~orolp.cell.Device.io_map` 解析——同一份程序换台 PLC
+            只改映射，不改程序。
+        value: ``True`` 置位、``False`` 复位
+    """
+
+    signal: str
+    value: bool = True
+
+
+@dataclass
+class WaitDI:
+    """等待一个数字输入达到期望电平。
+
+    Attributes:
+        signal: 信号逻辑名
+        value: 期望电平
+        timeout: 超时（秒）；``<= 0`` 表示无限等待
+    """
+
+    signal: str
+    value: bool = True
+    timeout: float = 0.0
+
+
+@dataclass
+class WaitTime:
+    """纯延时（秒）——夹具夹紧/松开的保压时间之类。"""
+
+    seconds: float = 0.0
+
+
+#: 允许出现在 :attr:`Program.items` 中的指令类型
+Command = Union[Motion, SetDO, WaitDI, WaitTime]
+
+
 class Program:
     """Represents a complete robot program."""
 
-    def __init__(self, robot: Robot, motions: List[Motion] | None = None):
+    def __init__(self, robot: Robot, motions: List[Command] | None = None):
         """
         Initialize a program.
 
         Args:
             robot: Robot this program is for
-            motions: List of motions (optional)
+            motions: 指令序列（运动与 IO 混排）；为兼容旧调用名仍叫 motions
         """
         self.robot = robot
-        self.motions = motions.copy() if motions else []
+        #: 完整指令序列，**运动与 IO 混排**，顺序即执行顺序
+        self.items: List[Command] = list(motions) if motions else []
+
+    @property
+    def motions(self) -> List[Motion]:
+        """仅运动指令，按原顺序。
+
+        保留为属性是为了向后兼容：轨迹规划、节拍估算、干涉检查都只认 Motion，
+        新增的 IO 指令对它们应当**完全透明**——它们照旧工作，无需改动。
+        """
+        return [i for i in self.items if isinstance(i, Motion)]
+
+    def add(self, item: Command) -> None:
+        """追加一条指令（运动或 IO）。"""
+        self.items.append(item)
+
+    # ------------------------- IO 链式指令 ------------------------- #
+    # 与运动指令同源混排：插在哪条运动之后，就什么时候执行。
+
+    def setDO(self, signal: str, value: bool = True) -> "Program":
+        """追加一条置位/复位数字输出，返回自身以便链式书写。
+
+        Args:
+            signal: 信号**逻辑名**（如 ``gripper_close``），物理地址由
+                后处理期 ``io_map`` 解析
+            value: ``True`` 置位、``False`` 复位
+        """
+        self.items.append(SetDO(signal, value))
+        return self
+
+    def waitDI(self, signal: str, value: bool = True, timeout: float = 0.0) -> "Program":
+        """追加一条等待数字输入，返回自身以便链式书写。
+
+        Args:
+            signal: 信号逻辑名
+            value: 期望电平
+            timeout: 超时（秒）；``<= 0`` 表示无限等待
+        """
+        self.items.append(WaitDI(signal, value, timeout))
+        return self
+
+    def waitTime(self, seconds: float) -> "Program":
+        """追加一条纯延时（秒），返回自身以便链式书写。"""
+        self.items.append(WaitTime(seconds))
+        return self
+
+    def gripper(self, action: str, confirm: bool = True, timeout: float = 2.0) -> "Program":
+        """追加一条夹爪开/合指令组，返回自身以便链式书写。
+
+        语义与 :func:`~orolp.pickplace.build_pick_place` 保持一致：
+
+        * ``"close"``：先复位 ``gripper_open``，再置位 ``gripper_close``；
+          ``confirm=True`` 时追加 ``WaitDI("clamped", True, timeout)``
+        * ``"open"``：先复位 ``gripper_close``，再置位 ``gripper_open``
+          （两个信号互锁，避免同时为真）
+
+        Args:
+            action: ``"close"`` 或 ``"open"``
+            confirm: 是否等待夹紧反馈信号（``open`` 无反馈信号，忽略此项）
+            timeout: 等待 ``clamped`` 的超时（秒）
+
+        Returns:
+            自身（:class:`Program`），支持 ``robot.moveL(...).gripper("close")`` 链
+        """
+        if action == "close":
+            self.items.append(SetDO("gripper_open", False))
+            self.items.append(SetDO("gripper_close", True))
+            if confirm:
+                self.items.append(WaitDI("clamped", True, timeout))
+        elif action == "open":
+            self.items.append(SetDO("gripper_close", False))
+            self.items.append(SetDO("gripper_open", True))
+        else:
+            raise ValueError(f"gripper 动作只能是 'open'/'close'，收到 {action!r}")
+        return self
 
     def plan(self) -> "Trajectory":
         """把程序展开为真实轨迹（插补 + 逆解 + 节拍估算）。
@@ -171,7 +293,9 @@ class Program:
         if metadata:
             meta.update(metadata)
 
-        return pp.generate(self.motions, metadata=meta)
+        # 传 items 而非 motions：IO 指令也要进目标代码，否则生成的程序
+        # 只有轨迹、没有抓取动作
+        return pp.generate(self.items, metadata=meta)
 
     def deploy(
         self,
@@ -292,7 +416,8 @@ class ProgramBuilder:
             robot: Robot this program is for
         """
         self.robot = robot
-        self.motions: List[Motion] = []
+        #: 指令序列（运动与 IO 混排）；保留历史名 ``motions`` 以兼容旧调用方
+        self.motions: List[Command] = []
 
     def moveJ(
         self,
@@ -381,6 +506,42 @@ class ProgramBuilder:
         self.motions.append(Motion(MotionType.SPLINE, target, speed=speed, blend=blend))
         return self
 
+    # ------------------------- IO 链式指令 ------------------------- #
+    # 与运动指令同源混排，语义与 Program 上的同名方法一致。
+
+    def setDO(self, signal: str, value: bool = True) -> "ProgramBuilder":
+        """追加一条置位/复位数字输出，返回自身以便链式书写。"""
+        self.motions.append(SetDO(signal, value))
+        return self
+
+    def waitDI(self, signal: str, value: bool = True, timeout: float = 0.0) -> "ProgramBuilder":
+        """追加一条等待数字输入，返回自身以便链式书写。"""
+        self.motions.append(WaitDI(signal, value, timeout))
+        return self
+
+    def waitTime(self, seconds: float) -> "ProgramBuilder":
+        """追加一条纯延时（秒），返回自身以便链式书写。"""
+        self.motions.append(WaitTime(seconds))
+        return self
+
+    def gripper(self, action: str, confirm: bool = True, timeout: float = 2.0) -> "ProgramBuilder":
+        """追加夹爪开/合指令组，返回自身以便链式书写。
+
+        ``robot.moveL(pick).gripper("close")`` 即可得一段完整的抓取动作：
+        先复位对侧信号，再夹紧并等待 ``clamped`` 反馈。
+        """
+        if action == "close":
+            self.motions.append(SetDO("gripper_open", False))
+            self.motions.append(SetDO("gripper_close", True))
+            if confirm:
+                self.motions.append(WaitDI("clamped", True, timeout))
+        elif action == "open":
+            self.motions.append(SetDO("gripper_close", False))
+            self.motions.append(SetDO("gripper_open", True))
+        else:
+            raise ValueError(f"gripper 动作只能是 'open'/'close'，收到 {action!r}")
+        return self
+
     def then(self, other: Union["ProgramBuilder", "Program"]) -> "ProgramBuilder":
         """
         Append another program or builder.
@@ -390,11 +551,15 @@ class ProgramBuilder:
 
         Returns:
             This builder for chaining
+
+        Note:
+            合并 :class:`Program` 时取完整 ``items``（含 IO 指令）——
+            早期实现取 ``motions`` 会悄悄丢掉抓取动作。
         """
         if isinstance(other, ProgramBuilder):
             self.motions.extend(other.motions)
         elif isinstance(other, Program):
-            self.motions.extend(other.motions)
+            self.motions.extend(other.items)
         return self
 
     def build(self) -> Program:

@@ -1,0 +1,297 @@
+{
+  "format_version": 1,
+  "robot_urdf": "models/ur/ur5e/ur5e.urdf",
+  "robot_joints_deg": [
+    0.0,
+    -90.0,
+    90.0,
+    -90.0,
+    90.0,
+    0.0
+  ],
+  "objects": [
+    {
+      "name": "吸盘工具",
+      "component_id": "tool_suction",
+      "params": {},
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        60.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": "机器人",
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "输送带",
+      "component_id": "conveyor",
+      "params": {
+        "length": 2400.0,
+        "width": 600.0,
+        "height": 200.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "工件_1",
+      "component_id": "workpiece_box",
+      "params": {
+        "length": 90.0,
+        "width": 90.0,
+        "height": 60.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        60.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "工件_2",
+      "component_id": "workpiece_box",
+      "params": {
+        "length": 90.0,
+        "width": 90.0,
+        "height": 60.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        170.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "工件_3",
+      "component_id": "workpiece_box",
+      "params": {
+        "length": 90.0,
+        "width": 90.0,
+        "height": 60.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        280.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "工件_4",
+      "component_id": "workpiece_box",
+      "params": {
+        "length": 90.0,
+        "width": 90.0,
+        "height": 60.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        390.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "料箱",
+      "component_id": "material_bin",
+      "params": {
+        "length": 600.0,
+        "width": 400.0,
+        "height": 300.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -500.0,
+        0.0,
+        1.0,
+        0.0,
+        550.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "托盘",
+      "component_id": "pallet_base",
+      "params": {
+        "length": 900.0,
+        "width": 700.0,
+        "height": 144.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        350.0,
+        0.0,
+        1.0,
+        0.0,
+        450.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    }
+  ],
+  "template": {
+    "id": "grasping_workstation",
+    "name": "抓取工作站",
+    "description": "UR5e + 真空吸盘：输送带上料、托盘码放，含 TCP 定义与 4 工件",
+    "tool": "吸盘工具",
+    "tcp_flange": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      77.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "home_joints": [
+      0.0,
+      -90.0,
+      90.0,
+      -90.0,
+      90.0,
+      0.0
+    ],
+    "grasp_objects": [
+      "工件_1",
+      "工件_2",
+      "工件_3",
+      "工件_4"
+    ],
+    "place_target": "托盘"
+  }
+}

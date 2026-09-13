@@ -512,11 +512,16 @@ class TrajectoryPlanner:
                 self.issues.append(
                     Issue(SEVERITY_ERROR, "planning", idx, str(exc))
                 )
+                # 失败的指令也要在时间轴上占一个（空）区间——下游
+                # （如抓取动画的 IO 事件映射）按 motions 索引对齐 spans，
+                # 少一段就会把后续事件的时刻整体错位
+                self._motion_spans.append((t_now, t_now))
                 continue
             except Exception as exc:  # IK 等底层异常统一收敛为可报告的问题
                 self.issues.append(
                     Issue(SEVERITY_ERROR, "planning", idx, f"{type(exc).__name__}: {exc}")
                 )
+                self._motion_spans.append((t_now, t_now))
                 continue
 
             if not pts:
