@@ -77,6 +77,11 @@ class Collision:
         part_b: 第二个对象中发生干涉的零件序号
         time: 沿轨迹检查时**首次**检出该干涉的时刻（秒）。静态检查（
             :meth:`Scene.check_collisions`）不填，保持 ``None``
+        link_a: 连杆级检查（:mod:`orolp.collision`）时，机器人侧的连杆名；
+            整机级检查不填，保持 ``None``
+        link_b: 自碰撞（连杆-连杆）时第二个连杆名；其余场景为 ``None``
+        motion: 沿轨迹检查时干涉所在**指令序号**（0 起，由规划器的
+            ``motion_at`` 回填）；静态/无定位信息时为 ``None``
     """
 
     obj_a: str
@@ -84,9 +89,14 @@ class Collision:
     part_a: int = -1
     part_b: int = -1
     time: Optional[float] = None
+    link_a: Optional[str] = None
+    link_b: Optional[str] = None
+    motion: Optional[int] = None
 
     def __str__(self) -> str:
-        return f"{self.obj_a} ↔ {self.obj_b}"
+        a = f"{self.obj_a}:{self.link_a}" if self.link_a else self.obj_a
+        b = f"{self.obj_b}:{self.link_b}" if self.link_b else self.obj_b
+        return f"{a} ↔ {b}"
 
 
 # --------------------------------------------------------------------------- #
@@ -495,28 +505,51 @@ class Scene:
         """场景中是否已加载机器人。"""
         return self._kinematics is not None
 
-    def robot_parts(self) -> List[Part]:
-        """机器人当前位形下的连杆几何（世界系）。
+    @property
+    def kinematics(self):
+        """机器人运动学实例（:class:`~orolp.kinematics.RobotKinematics`）。
+
+        碰撞检测（连杆树遍历、自碰撞邻接关系）需要读关节树结构；
+        未加载机器人时为 ``None``。
+        """
+        return self._kinematics
+
+    def robot_link_parts(self) -> Dict[str, List[Part]]:
+        """机器人当前位形下的**按连杆分组**的几何（世界系）。
+
+        与 :meth:`robot_parts` 的区别在于保留连杆归属——碰撞检测要定位
+        "撞在哪一段"，必须知道每个零件属于哪个 link。
 
         Returns:
-            :class:`Part` 列表；未加载机器人时为空列表
+            ``{link 名: [Part, ...]}``；未加载机器人时为空字典
         """
         if self._kinematics is None:
-            return []
-        # kinematics 内部用米；此处换算到场景的毫米
+            return {}
         q_rad = np.radians(self._robot_joints_deg)
-        # 用完整运动树而非主链：fixed 关节挂的工具/夹爪/TCP 也必须参与干涉检查
         link_tf = self._kinematics.all_link_transforms(q_rad)
 
-        out: List[Part] = []
+        out: Dict[str, List[Part]] = {}
         for link_name, part in self._robot_visuals:
             T = link_tf.get(link_name)
             if T is None:
                 continue
             tf_mm = T.copy()
             tf_mm[:3, 3] *= 1000.0
-            out.append(Part(part.prim, tf_mm @ part.transform, part.color))
+            out.setdefault(link_name, []).append(
+                Part(part.prim, tf_mm @ part.transform, part.color)
+            )
         return out
+
+    def robot_parts(self) -> List[Part]:
+        """机器人当前位形下的连杆几何（世界系）。
+
+        Returns:
+            :class:`Part` 列表；未加载机器人时为空列表
+        """
+        parts: List[Part] = []
+        for link_parts in self.robot_link_parts().values():
+            parts.extend(link_parts)
+        return parts
 
     # --------------------------- 碰撞检测 --------------------------- #
 
@@ -545,49 +578,55 @@ class Scene:
         self,
         include_robot: bool = True,
         margin: float = 0.0,
+        include_self: bool = False,
     ) -> List[Collision]:
         """检测场景中所有对象之间（含机器人）的碰撞。
+
+        机器人侧使用 :mod:`orolp.collision` 的连杆级检查：命中结果带
+        ``link_a``（撞在哪一段）；``include_self=True`` 时同时做连杆-连杆
+        自碰撞检查（结果 ``obj_a``/``obj_b`` 均为 ``"robot"``，``link_a``/
+        ``link_b`` 为两个连杆名）。
 
         Args:
             include_robot: 是否把机器人连杆计入
             margin: 安全裕度（毫米）
+            include_self: 是否检查机器人自碰撞（默认关——多数场景只关心
+                机器人撞环境，自碰撞留给专门的体检入口）
 
         Returns:
             :class:`Collision` 列表；空列表表示无干涉
         """
+        # 延迟导入避免模块环（collision 依赖本模块的数据结构）
+        from .collision import CollisionChecker
+
         names = [
             n for n, o in self.objects.items() if o.visible and n != ROBOT_NAME
         ]
-
-        # 预先算出所有世界系零件，避免重复计算
-        cache: Dict[str, List[Part]] = {n: self.object_parts(n) for n in names}
-        robot: List[Part] = (
-            self.object_parts(ROBOT_NAME)
-            if (include_robot and self.has_robot and ROBOT_NAME in self.objects)
-            else []
-        )
-
         results: List[Collision] = []
 
-        # 机器人 vs 场景对象
-        if robot:
-            for name in names:
-                # 挂在法兰上的对象（夹爪、被抓取的工件）与机器人本体必然接触，
-                # 参与检查只会产生恒定误报——把"装了工具"报成"干涉"会让检查失去意义
-                if self._mounted_on_robot(name):
-                    continue
-                hit = _parts_collide(robot, cache[name], margin)
-                if hit is not None:
-                    ia, ib = hit
-                    results.append(Collision("robot", name, ia, ib))
+        # 机器人 vs 场景对象（连杆级，命中带 link_a）
+        if include_robot and self.has_robot:
+            checker = CollisionChecker(self, margin=margin)
+            results.extend(checker.check_config(self._robot_joints_deg))
 
         # 场景对象两两之间
+        cache: Dict[str, List[Part]] = {n: self.object_parts(n) for n in names}
         for i, na in enumerate(names):
             for nb in names[i + 1 :]:
                 hit = _parts_collide(cache[na], cache[nb], margin)
                 if hit is not None:
                     ia, ib = hit
                     results.append(Collision(na, nb, ia, ib))
+
+        # 连杆-连杆自碰撞（可选）
+        if include_self and self.has_robot:
+            checker = getattr(self, "_self_checker", None)
+            if checker is None or checker.margin != margin:
+                checker = CollisionChecker(self, margin=margin)
+                self._self_checker = checker
+            results.extend(
+                h for h in checker.check_config(self._robot_joints_deg) if h.obj_b == "robot"
+            )
 
         return results
 

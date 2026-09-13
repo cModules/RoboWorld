@@ -612,9 +612,12 @@ class TrajectoryPlanner:
     def check_trajectory_collisions(
         self, traj: Trajectory, margin: float = -0.5, stride: int = 0
     ) -> List["Collision"]:
-        """沿整条轨迹做干涉检查。
+        """沿整条轨迹做干涉检查（连杆级）。
 
         不只是检查路径点本身——两点之间机器人可能已经撞上了，所以必须密集采样。
+        检查由 :class:`orolp.collision.CollisionChecker` 完成（广相 AABB →
+        窄相 SAT）：命中带连杆名（``link_a``，撞在哪一段连杆）与指令序号
+        （``motion``，撞在哪段轨迹），连杆-连杆自碰撞一并覆盖。
 
         Args:
             traj: 展开后的轨迹
@@ -629,30 +632,12 @@ class TrajectoryPlanner:
         if scene is None or not traj.waypoints:
             return []
 
-        n = len(traj.waypoints)
-        if stride <= 0:
-            stride = max(1, n // 300)
+        from .collision import CollisionChecker
 
-        seen: Dict[Tuple[str, str], "Collision"] = {}
-
-        def _collect(t: float) -> None:
-            for hit in scene.check_collisions(include_robot=True, margin=margin):
-                key = (hit.obj_a, hit.obj_b)
-                if key not in seen:
-                    # Collision 是 frozen dataclass，不能就地改；用 replace 生成
-                    # 带时刻的副本。（早先版本直接 ``hit.time = ...``，抛出的
-                    # FrozenInstanceError 被 except 吞掉，导致时刻永远是 None）
-                    seen[key] = replace(hit, time=t)
-
-        for i in range(0, n, stride):
-            wp = traj.waypoints[i]
-            scene.set_robot_joints(np.asarray(wp.joints, dtype=np.float64))
-            _collect(float(wp.timestamp))
-        # 末点必查，避免 stride 刚好跳过收尾位姿
-        last = traj.waypoints[-1]
-        scene.set_robot_joints(np.asarray(last.joints, dtype=np.float64))
-        _collect(float(last.timestamp))
-        return list(seen.values())
+        checker = CollisionChecker(scene, margin=margin)
+        return checker.check_trajectory(
+            traj, stride=stride, motion_at=self.motion_at
+        )
 
     # ---------------------------- 内部：单条指令 ---------------------------- #
 

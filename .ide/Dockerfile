@@ -57,14 +57,22 @@ RUN set +e; \
 # 需确保版本 >= 2.137.0，详见「CodeBuddy Web」文档；npm 不可达时跳过（可选）
 RUN npm install -g @tencent-ai/codebuddy-code || echo "codebuddy-code 安装跳过（可选）"
 
-# Python 依赖：核心运行时 + 测试 + GUI（PySide6 / PyOpenGL，供 rw.py 试运行）
 # Debian/bookworm 的 Python 为「外部管理」(PEP 668)，需显式放行系统级 pip 安装
-ENV PIP_BREAK_SYSTEM_PACKAGES=1
+# PIP_NO_BUILD_ISOLATION=1 避免 pip 建临时构建 venv（省内存）；PIP_PREFER_BINARY=1 强制用 wheel
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_NO_BUILD_ISOLATION=1 \
+    PIP_PREFER_BINARY=1
+
+# 先装轻量核心依赖（与 GUI 库拆层，降低单步内存峰值，避免一处失败重装全部）
 RUN python3 -m pip install --no-cache-dir --upgrade pip \
     && python3 -m pip install --no-cache-dir \
         "numpy>=1.21" "scipy>=1.7" "jinja2>=3.0" "pyyaml>=6.0" "pydantic>=2.0" \
-        "pytest>=7.0" \
-        "PySide6>=6.4" "PyOpenGL"
+        "pytest>=7.0"
+
+# GUI 依赖：用 PySide6-Essentials 替代完整 PySide6
+# Essentials 仅含 QtCore/QtGui/QtWidgets/QtOpenGLWidgets，项目未用 3D/Charts 等 Addons，
+# 体积与解压内存峰值远小于完整元包，可缓解 Cloud Studio 等内存受限构建机的 OOM
+RUN python3 -m pip install --no-cache-dir "PySide6-Essentials>=6.4" "PyOpenGL"
 
 # 复制仓库源码（开发容器里直接可编辑 / 试运行）
 COPY . .
