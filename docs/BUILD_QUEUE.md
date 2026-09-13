@@ -14,7 +14,7 @@
 - [x] **S2 工艺 IO 指令（v0.3.3 的展示子集）**：Program 加 `setDO` / `waitDI` / `gripper(open|close)` 指令；后处理输出对应品牌 IO 语法（UR `set_digital_out`、KUKA `OUT`、FANUC `DO`，其余品牌可先降级为注释）；更新 pick_and_place.py 去掉两处 IO 占位注释。测试：`tests/test_io_instructions.py`。（2026-09-13 完成：`Program`/`ProgramBuilder` 链式 `setDO`/`waitDI`/`waitTime`/`gripper`（信号互锁 + clamped 反馈等待）；FANUC TP 补齐品牌语法 `DO[n]=ON`/`WAIT DI[n]`/`WAIT n(sec)`（超时留提示注释）；修复 `then(Program)` 合并丢 IO 指令的缺陷；pick_and_place.py 占位注释替换为 `.gripper("close"/"open")` 并修正后处理名 `abb_rapid→abb_irc5`、`fanuc_tp→fanuc_r30ib`；新增 14 测试，233 passed + 2 skipped）
 - [x] **S3 抓取动画与工件随动**：仿真回放时，程序执行到抓取指令后，工件挂到 TCP 随动，执行释放指令后留在 place 位姿；碰撞/穿透不做硬校验（后续 v0.2.1 碰撞检测上线后接入）。涉及 `world/panel.py` 回放逻辑 + `rw.py` 视口刷新。（2026-09-13 完成：新增 `orolp/world/animation.py`——`gripper_events()` 把程序里的夹爪指令映射到轨迹时刻（IO 事件=上一条运动的边界），`GraspAnimator.sync()` 按播放头驱动 `Scene.attach/detach`（吸附瞬间保持世界位姿→随 TCP 随动，释放原地留下）；修复 planner 规划失败的指令不占时间区间的缺陷（此前会让事件时刻错位）；ProgramPanel 校验后保留规划器、按示教点 PICK/PLACE 语义自动插入 `gripper()`（回放+出码共用一份时序）、回放越事件发 `gripperStateChanged` 信号；rw.py 连接该信号完成工件吸附/释放+场景树+状态栏+视口刷新；新增 14 测试，251 passed + 2 skipped）
 - [x] **S4 GUI 一键展示**：rw.py 加"抓取工作站"一键加载入口（机器人库或 OLP 标签），加载后自动载入示例程序；回放控制（已有）+ 节拍时间显示；运行稳定无崩溃。（2026-09-13 完成：File 菜单新增「抓取工作站演示（一键）」——构建模板场景 → 视口载 UR5e → `orolp.world.demo.demo_taught_points` 用模板 TCP + IK 生成 8 点五点式抓取循环示教点（VIA/APPROACH/PICK/LIFT/VIA/PLACE/RETRACT/VIA，含随机初值重试）→ 灌入路径编辑器与离线编程面板（与手工示教同一条数据通路）→ 自动校验出节拍 → 自动开始回放；**附带修复 S1 遗留几何缺陷**：原布局（输送带 y=-600/皮带面 768mm、托盘 (450,550)）超出 UR5e 模型工作空间，IK 全局无解（scipy 多起点优化证实非求解器问题），重校准为输送带 h=200@y=-400、工件 X∈[60,170,280,390]（长 90mm）、托盘 (350,450)，全部位姿余量 ≥27mm；新增 `tests/test_gui_demo.py` 12 测试，263 passed + 2 skipped）
-- [ ] **S5 展示物料**：`examples/grasping_workstation_demo.py`（无 GUI 一键跑通全流程：仿真→节拍→UR/KUKA/ABB 出码打印）+ README「Key Features Demo」增加抓取工作站小节 + 3 张截图（docs/screenshots/）。
+- [x] **S5 展示物料**：`examples/grasping_workstation_demo.py`（无 GUI 一键跑通全流程：仿真→节拍→UR/KUKA/ABB 出码打印）+ README「Key Features Demo」增加抓取工作站小节 + 3 张截图（docs/screenshots/）。（2026-09-13 完成：`examples/grasping_workstation_demo.py` 一条命令跑通「模板工作站 → IK 示例示教点 → 程序构建自动插夹爪 IO → 校验 + 仿真节拍 6.33s → UR/KUKA/ABB/FANUC 出码」，与 GUI 一键入口同一条 `demo_pick_place_points` 数据通路；新增 `tests/test_demo_script.py` 4 测试（子进程真实运行示例脚本验收）；`tools/capture_grasp_screenshots.py` 真实 GUI 会话抓取 3 张截图（grasping_workstation/grasping_playback/grasping_offline_programming.png）；README 新增「Grasping workstation · one-click demo」小节；267 passed + 2 skipped）
 - [x] **S6 Web 可体验部署（持续维护）**：建一个网页版演示站点（静态页 + three.js/动画：抓取工作站示意、TCP 轨迹动画、节拍数据、UR/KUKA/ABB 出码样例、GUI 截图），源文件放 `/Users/jayhan/RobotWorld/deploy/web/`。通过 WorkBuddy 的「发布为应用」能力发布为在线链接。**此后每次任务完成后更新该页面内容并重新发布同一目录，保持链接不变**，通知里始终附上最新链接。（2026-09-13 首版上线：`tools/build_web_site.py` 自动生成，数据来自真实仿真（节拍 8.1s）与真实后处理；在线链接 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host ；后续每次任务完成后运行 `python tools/build_web_site.py` 并重新发布同一目录）
 
 ### 展示任务与主队列的关系
@@ -25,7 +25,7 @@ S2 完成后把 v0.3.3 剩余部分（工艺模板库、waitDI 完整语义）�
 
 1. **取任务**：优先取「🎯 短期目标」区第一个未完成任务（S1→S5 顺序）；短期目标全部完成后，再按主队列顺序取第一个未完成任务。
 2. **实现**：参考 `docs/ROADMAP.md` 对应小节的技术方案；动手前先读相关源码（`python/orolp/`、`rw.py`）。
-3. **测试**：为新增功能编写/更新测试（`tests/`、`python/tests/`），运行 `pytest tests python/tests` 全量通过后才算完成（2026-09-13 基线 263 passed + 2 skipped，不得引入回归；旧的 251/219/137 基线已过时）。
+3. **测试**：为新增功能编写/更新测试（`tests/`、`python/tests/`），运行 `pytest tests python/tests` 全量通过后才算完成（2026-09-13 基线 267 passed + 2 skipped，不得引入回归；旧的 263/251/219/137 基线已过时）。
 4. **记账**：完成后勾选本文件对应项，同步勾选 `docs/ROADMAP.md` 第 3 节，并把能力写入 `README.md` 开发进展表。
 5. **通知**：通过飞书给用户发消息，包含：完成内容摘要、测试结果、改动文件清单、**需要用户反馈/决策的问题**、下一个任务预告。
 6. **阻塞处理**：遇到无法自行决策的阻塞（如缺厂商 STEP、缺真机参数），在任务后标注 `[阻塞: 原因]`，跳到下一个任务，并在飞书消息中说明。不空转、不瞎猜。
@@ -60,4 +60,10 @@ _（用户随时口述补充在这里，下次自动开发前由 AI 整理成正
 -
 
 ---
-*最后更新：2026-09-13（S1 ✅、S2 ✅、S3 ✅、S4 ✅、S6 Web 演示持续维护；下一任务 S5 展示物料）*
+
+## 里程碑打包记录
+
+- **2026-09-13 短期目标全部完成（S1–S6）→ 里程碑打包**：`rw.spec` 修复 PyInstaller 6 兼容（移除已废弃的 `win_no_prefer_redirects`/`a.zipped_data`，onefile 改为 6.x 参数形态）并**补回被误排除的 scipy 依赖**（`kinematics.py` 顶层无条件 import scipy，旧 spec 排除会导致打包后运动学不可用）+ hiddenimports 补 jinja2；`pyinstaller -y rw.spec` 产出 `dist/RobotWorld.app`（66MB，macOS arm64），冒烟启动 10s 存活无导入错误；zip：`dist/RobotWorld-macOS-20260913.zip`（64MB）。`[阻塞: 百度网盘分享链接——网盘连接器本会话未连接且其能力不含本地文件上传，待连接后补传]`（同一原因不重复通知）
+
+---
+*最后更新：2026-09-13（短期目标全部完成：S1 ✅、S2 ✅、S3 ✅、S4 ✅、S5 ✅、S6 ✅——「抓取工作站能力展示」就绪；下一任务主队列 v0.2.1 碰撞检测模块）*

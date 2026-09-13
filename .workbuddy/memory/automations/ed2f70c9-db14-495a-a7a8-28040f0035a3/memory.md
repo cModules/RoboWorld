@@ -30,3 +30,14 @@
 - 通知：lark-cli bot → ou_...56ff1 发送成功（ok:true，message_id om_x100b6550a3b330a8c179d0dafbb18fc）
 - 坑：①pytest 直接跑会误收集 examples/test_opengl.py（内部 sys.exit），必须 `pytest tests python/tests`；②lark-cli --content 需单行 JSON，多行文本用 `--text` 单引号最稳；③测试里 moveJ 目标=零位与起点相同 → 零长运动 → 事件时刻 t=0，写测试时第一条运动要非零
 - 下轮：S4 GUI 一键展示（rw.py「抓取工作站」一键加载入口 + 自动载示例程序 + 节拍显示）
+
+## 2026-09-13（第四轮·里程碑）
+- 任务：S5 展示物料 ✅ → 短期目标 S1–S6 全部完成，触发里程碑打包
+- 产出：`examples/grasping_workstation_demo.py`（无 GUI 全流程：模板→IK 示教点→自动插夹爪 IO→校验+节拍 6.33s→4 品牌出码，与 GUI 同 `demo_pick_place_points` 通路）；`tests/test_demo_script.py`（4 测试，子进程真实运行示例）；`tools/capture_grasp_screenshots.py` + docs/screenshots/ 3 张新截图（真实 Cocoa 会话 widget.grab()）；README「Grasping workstation」小节 + 徽章 267
+- 测试：267 passed + 2 skipped（基线 263 → 267，无回归）
+- 发布：演示站同链接重新发布 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host（新增抓取工作站截图小节 + 无头示例命令行）
+- 里程碑打包：rw.spec 修 PyInstaller 6 兼容（删 win_no_prefer_redirects/a.zipped_data；onefile 用 EXE(pyz,scripts,binaries,datas)）+ **补回被误排除的 scipy**（kinematics.py 顶层 import，旧 spec 会让打包 app 运动学全挂）+ hiddenimports 加 jinja2；产出 dist/RobotWorld.app（66MB）冒烟 10s 存活；zip=dist/RobotWorld-macOS-20260913.zip（64MB）
+- 阻塞：百度网盘上传——连接器本会话未连接（connector-status 只有 agent-mail）且其能力不含本地文件上传，已标注队列「里程碑打包记录」；通知里已给用户替代选项（微信/飞书文件直发）
+- 通知：lark-cli bot → ou_...56ff1 ok:true（om_x100b655e4f7b54a0dee90e34c9eede6），已带「抓取工作站能力展示已就绪」标注
+- 坑：①PyInstaller `--clean` 会触发 safe-delete 批量删除门禁（删 pyinstaller 缓存 127 文件被拦），去掉 --clean 即可；②venv 缺 PyOpenGL/PyInstaller，清华源 403 用 -i https://pypi.org/simple 装；③lark-cli --markdown 对多行富文本很稳（比 --text 更适合通知）
+- 下轮：主队列 v0.2.1 碰撞检测模块（python/orolp/collision.py + tests/test_collision.py，包围体层次 + 连杆-环境/连杆-连杆）

@@ -106,6 +106,7 @@
 - [x] Web 可体验部署（短期目标 S6：deploy/web 演示站，持续维护）
 - [x] 抓取动画与工件随动（短期目标 S3：`orolp.world.animation` 把 `gripper()` 指令映射到轨迹时刻，回放越过事件即吸附/释放工件；吸附瞬间保持世界位姿、随后随 TCP 随动，释放原地留下；程序面板按示教点语义自动插入 gripper 指令，回放动画与出码共用一份时序，2026-09-13）
 - [x] GUI 一键展示（短期目标 S4：rw.py「抓取工作站演示」一键入口——构建模板场景载入视口、IK 生成五点式示例示教点（`orolp.world.demo`，无头可测）灌入示教/离线编程面板、自动校验出节拍并自动回放；布局经可达性重校准：输送带 h=200@y=-400、工件 X∈[60,390]、托盘 (350,450)——原布局（y=-600/皮带面 768mm）超出 UR5e 模型工作空间、IK 全局无解，2026-09-13）
+- [x] 展示物料（短期目标 S5：`examples/grasping_workstation_demo.py` 无 GUI 一键全流程——模板 → IK 示教点 → 夹爪 IO → 节拍 → UR/KUKA/ABB/FANUC 出码；`tools/capture_grasp_screenshots.py` 抓取 3 张 GUI 截图入 docs/screenshots/；README「Key Features Demo」新增抓取工作站小节，2026-09-13）
 - [ ] v0.2.1 碰撞检测模块 `collision.py` + 测试
 - [ ] v0.2.2 速度/加速度 S 曲线规划 + 节拍报表
 - [ ] v0.2.3 5 品牌真机 CAD（`assets/vendor/<brand>/step/` 待用户投放）

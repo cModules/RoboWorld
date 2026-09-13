@@ -312,7 +312,17 @@ _TPL = """<!DOCTYPE html>
 </section>
 
 <section>
-  <h2>GUI 截图</h2>
+  <h2>GUI 截图 · 抓取工作站一键演示（S1–S5 就绪）</h2>
+  <div class="shots">
+    <figure><img src="assets/grasping_workstation.png" alt="抓取工作站主视图"><figcaption>抓取工作站 · 一键载入（UR5e + 吸盘 + 输送带 + 托盘），状态栏显示节拍</figcaption></figure>
+    <figure><img src="assets/grasping_playback.png" alt="回放动画"><figcaption>回放中 · TCP 轨迹 + 夹爪抓取（工件随 TCP 随动，落件后留在托盘）</figcaption></figure>
+    <figure><img src="assets/grasping_offline_programming.png" alt="离线编程面板"><figcaption>离线编程 · 校验通过 + 节拍 + 4 品牌出码</figcaption></figure>
+  </div>
+  <p style="color:#9aa5b5;margin-top:10px">无 GUI 一条命令跑通同一流程：<code>python examples/grasping_workstation_demo.py</code>（模板 → IK 示教点 → 夹爪 IO → 节拍 → UR/KUKA/ABB/FANUC 出码）</p>
+</section>
+
+<section>
+  <h2>GUI 截图 · 更多视图</h2>
   <div class="shots">
     <figure><img src="assets/main_ur5e.png" alt="主视图"><figcaption>主视图 · 3D 视口 + 机器人库 + 关节控制</figcaption></figure>
     <figure><img src="assets/offline_programming.png" alt="离线编程"><figcaption>离线编程 · 程序校验 + 节拍 + 回放</figcaption></figure>
@@ -431,7 +441,14 @@ def main() -> None:
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
 
     # 复制 GUI 截图
-    for name in ("main_ur5e.png", "offline_programming.png", "path_code.png"):
+    for name in (
+        "main_ur5e.png",
+        "offline_programming.png",
+        "path_code.png",
+        "grasping_workstation.png",
+        "grasping_playback.png",
+        "grasping_offline_programming.png",
+    ):
         src = REPO_ROOT / "docs/screenshots" / name
         if src.exists():
             shutil.copy2(src, ASSET_DIR / name)

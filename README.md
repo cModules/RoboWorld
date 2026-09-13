@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-263%20passed-brightgreen.svg)](#development-progress)
+[![Tests](https://img.shields.io/badge/tests-267%20passed-brightgreen.svg)](#development-progress)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#installation--quick-start)
 
 **An open-source robot programming & simulation platform**
@@ -32,6 +32,7 @@ Snapshot of what's actually in `main` as of the latest commit. Numbers reflect t
 | **Process IO commands** | ✅ S2 done | Chainable `setDO` / `waitDI` / `waitTime` / `gripper("open"/"close")` on Program & builder (interlocked signals + clamped feedback wait); brand IO syntax: UR `set_digital_out`, KUKA `$OUT`, ABB `SetDO`, FANUC `DO[n]=ON`; unmapped signals → visible `TODO`, never fake addresses |
 | **Grasp animation (workpiece follow)** | ✅ S3 done | Program-level playback drives the scene: `orolp.world.animation` maps `gripper()` instructions onto the trajectory timeline (`GraspAnimator`); on close the workpiece attaches to the flange (world pose preserved) and follows the TCP, on open it stays where released; ProgramPanel emits gripper state changes during interpolated replay, taught PICK/PLACE points auto-insert `gripper()` into the program (replay + codegen share one definition) |
 | **One-click workstation demo** | ✅ S4 done | File menu "抓取工作站演示": builds the template scene, loads UR5e into the viewport, generates an 8-point five-pick-cycle demo program via TCP-aware IK (`orolp.world.demo`, headless-testable), feeds it through the same teach-path pipeline, auto-validates (cycle time in the status bar) and auto-starts playback with workpiece attach/release |
+| **Demo showcase pack** | ✅ S5 done | One-command headless showcase `examples/grasping_workstation_demo.py` (template → IK demo points → gripper IO → validation + cycle time → UR/KUKA/ABB/FANUC codegen); 3 GUI screenshots of the grasping workstation in `docs/screenshots/`; capture tool `tools/capture_grasp_screenshots.py` |
 | **Scene / collision** | 🔧 scaffold | Per-link SAT intersection available; FCL integration planned |
 | **ROS 2 digital twin** | 📋 planned | Native `rclpy` bridge, target v0.3 |
 | **Trajectory optimization** | 📋 planned | TOPP-RA time-optimal parameterization, target v1.0 |
@@ -67,6 +68,21 @@ The GUI is a single `rw.py` — load any URDF, switch the tab on the left, drag 
 - JAKA Zu5 loaded from `models/jaka/zu5/zu5_real.urdf` — meshes come from the **official STEP** (toolchain in `tools/build_vendor_urdf.py`, see [docs/VENDOR_CAD_SETUP.md](docs/VENDOR_CAD_SETUP.md)).
 - Joint limits on the right panel match the **real Zu5 spec** (`joint_2 -85..265°`, `joint_3 ±175°`, `joint_4 -85..265°`) — not generic ±360°.
 - This is the reference integration; KUKA / ABB / FANUC / Estun use the same pipeline — drop STEPs into `assets/vendor/<brand>/step/` and run the tool.
+
+### Grasping workstation · one-click demo (S1–S5)
+![Grasping workstation](docs/screenshots/grasping_workstation.png)
+
+- **File → 抓取工作站演示（一键）**: builds the standard grasping workstation (UR5e + vacuum gripper with TCP + conveyor with 4 parts + bin + pallet) and auto-installs an 8-point five-pick-cycle demo program — validation, cycle time (status bar) and playback start automatically.
+- One-command headless showcase of the same pipeline: `python examples/grasping_workstation_demo.py` → template scene → IK demo points → gripper IO → cycle time → UR / KUKA / ABB / FANUC code, all from the real API.
+
+![Playback](docs/screenshots/grasping_playback.png)
+
+- During replay the taught PICK/PLACE semantics drive the gripper: the part attaches to the flange, follows the TCP and stays on the pallet where released.
+- Online demo (same data, rendered in the browser): see **deploy/web** — built by `tools/build_web_site.py`.
+
+![Offline programming](docs/screenshots/grasping_offline_programming.png)
+
+- The **导出打包** panel validates the demo program against the real scene (5.4 s cycle, 638 TCP waypoints, 8 motions + 5 IO commands) and exports brand code from the same program definition.
 
 ---
 
@@ -196,6 +212,7 @@ The key extensibility seams:
 - [x] Grasping workstation scene template (S1) + process IO commands with brand codegen (S2) — 233 tests passing
 - [x] Grasp animation: workpiece follows TCP on program replay (S3) — 251 tests passing
 - [x] One-click grasping-workstation demo in the GUI (S4): auto demo program via IK, cycle time + auto playback; workstation layout reach-calibrated (conveyor h=200 @ y=-400, pallet at (350, 450)) — 263 tests passing
+- [x] Demo showcase pack (S5): headless one-command example (`examples/grasping_workstation_demo.py`, full pipeline → 4-brand codegen) + 3 grasping-workstation GUI screenshots — 267 tests passing
 
 ### 🔧 v0.2.0 (Beta)
 - [ ] FCL collision integration (replacing the per-link SAT scaffold)

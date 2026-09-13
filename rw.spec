@@ -46,6 +46,10 @@ a = Analysis(
         'numpy.core',
         'numpy.core.multiarray',
         'numpy.core._multiarray_umath',
+        'scipy',
+        'scipy.spatial.transform',
+        'scipy.optimize',
+        'jinja2',
     ],
     hookspath=[],
     hooksconfig={},
@@ -54,21 +58,15 @@ a = Analysis(
         'tkinter',
         'matplotlib',
         'PIL',
-        'scipy',
     ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
-    a.zipfiles,
     a.datas,
     [],
     name='RobotWorld',
