@@ -195,7 +195,7 @@ def test_mounted_object_excluded_from_robot_collision(scene):
     """
     g = scene.add("tool_gripper", parent=ROBOT_NAME)
     hits = scene.check_collisions()
-    assert not any({h.obj_a, h.obj_b} == {"robot", g.name} for h in hits), (
+    assert not any({h.obj_a, h.obj_b} == {ROBOT_NAME, g.name} for h in hits), (
         f"挂载件被误报为干涉: {hits}"
     )
 
@@ -215,7 +215,7 @@ def test_unmounted_object_still_checked_against_robot(scene):
         pose=Pose.from_xyz_rpy(float(tcp[0]), float(tcp[1]), float(tcp[2]), 0, 0, 0),
     )
     hits = scene.check_collisions()
-    assert any({h.obj_a, h.obj_b} == {"robot", box.name} for h in hits), (
+    assert any({h.obj_a, h.obj_b} == {ROBOT_NAME, box.name} for h in hits), (
         f"未挂载对象被漏检: {hits}"
     )
 

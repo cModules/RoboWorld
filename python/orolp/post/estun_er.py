@@ -1,4 +1,5 @@
 from .base import BasePostProcessor, PostConfig, PostProcessError
+from ..i18n import tr
 from ..program import Motion
 
 
@@ -66,7 +67,7 @@ class ESTUNERPostProcessor(BasePostProcessor):
             }
         if self.is_circular(motion):
             if motion.via is None:
-                raise PostProcessError("ESTUN 圆弧运动需要提供 via 中间点")
+                raise PostProcessError(tr("ESTUN 圆弧运动需要提供 via 中间点"))
             v = [float(t) for t in self.fmt_pose(motion.via, order="zyx").split(", ")]
             t = [float(x) for x in self.fmt_pose(motion.target, order="zyx").split(", ")]
             p = self.config.precision
@@ -79,16 +80,19 @@ class ESTUNERPostProcessor(BasePostProcessor):
                 "speed": f"V={motion.speed:.1f}",
                 "zone": f"CNT={motion.blend:.{p}f}" if motion.blend > 0 else "CNT=0",
             }
-        raise PostProcessError(f"ESTUN 不支持的运动类型: {motion.type}")
+        raise PostProcessError(tr("ESTUN 不支持的运动类型: {type}").format(type=motion.type))
 
     def _get_template(self) -> str:
-        return """# RobotWorld v{{ meta.version|default('0.1.0') }} generated ESTUN program
-# Robot: {{ meta.robot_name|default('unknown') }}
-# NOTE: 语法未经真实控制器验证，使用前请核对
-
-PROGRAM {{ meta.program_name|default('OROLP_PROG') }}
+        note = tr("# NOTE: 语法未经真实控制器验证，使用前请核对")
+        header = (
+            "# RobotWorld v{{ meta.version|default('0.1.0') }} generated ESTUN program\n"
+            "# Robot: {{ meta.robot_name|default('unknown') }}\n"
+            f"# {note}\n"
+            "\n"
+        )
+        return header + """PROGRAM {{ meta.program_name|default('OROLP_PROG') }}
     {% for wp in waypoints %}
-    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
     {{ wp.text }}
     {% elif wp.cmd == 'MOVC' %}
     {{ wp.cmd }} {{ wp.via }} {{ wp.target }} {{ wp.speed }} {{ wp.zone }}

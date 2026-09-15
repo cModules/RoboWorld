@@ -130,7 +130,8 @@ def test_then_merges_program_with_io(robot):
 
 
 def test_io_program_plans_transparently(robot):
-    """IO 混排不影响轨迹规划（planner 只看 Motion）。"""
+    """IO 混排不影响轨迹规划（SetDO/WaitDI 不占时间；v1.1.3 起 waitTime
+    作为驻留段占时间，见 tests/test_dwell.py）。"""
     prog = (
         robot.moveJ([0, -30, 60, 0, 30, 0])
         .setDO("gripper_close", True)
@@ -139,6 +140,29 @@ def test_io_program_plans_transparently(robot):
     )
     traj = prog.plan()
     assert len(traj.waypoints) > 0
+
+
+def test_validate_counts_only_motions_with_io_present(robot):
+    """回归：``validate()`` 曾把 IO 指令当运动指令。
+
+    ``ProgramBuilder.motions`` 是"全部指令"的历史别名，而校验要的是
+    ``Program.motions``（只有 :class:`Motion`）。混排时旧实现会抛
+    ``'SetDO' object has no attribute 'type'``，即便侥幸不抛，节拍明细也会
+    与夹爪事件错位（事件时刻被算到错误的下标上）。
+    """
+    prog = (
+        robot.moveJ([0, -30, 60, 0, 30, 0])
+        .setDO("gripper_close", True)
+        .waitTime(0.3)
+        .moveJ([0, -45, 90, 0, 45, 0])
+        .setDO("gripper_open", True)
+        .build()
+    )
+    report = prog.validate(check_dynamics=False)
+    assert report.num_motions == 2, "IO 指令不能计入运动指令条数"
+    assert report.motion_labels == ["moveJ", "moveJ"]
+    assert len(report.motion_times or []) == 2
+    assert report.cycle_time and report.cycle_time > 0.0
 
 
 def test_io_program_to_post_keeps_order(robot):

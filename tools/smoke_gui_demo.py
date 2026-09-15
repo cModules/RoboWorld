@@ -28,7 +28,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from PySide6 import QtWidgets, QtCore  # noqa: E402
 
-import rw  # noqa: E402
+import app  # noqa: E402
 
 
 def main() -> int:
@@ -53,7 +53,7 @@ def main() -> int:
     QtWidgets.QMessageBox.exec = _NoDialog.exec
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-    window = rw.MainWindow()
+    window = app.MainWindow()
     window.show()
 
     frames = []

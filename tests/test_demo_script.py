@@ -47,6 +47,20 @@ def test_demo_script_full_pipeline_sections():
     assert "节拍 0.00 s" not in out
 
 
+def test_demo_script_discloses_envelope_contacts():
+    """干涉按包络容差判定时必须**把放行量说出来**，不能悄悄放过。
+
+    本仓库用 URDF ``<collision>``（厂商保守包络盒）做干涉检查，浅穿透是
+    模型误差；演示放行 ≤``ENVELOPE_TOLERANCE_MM`` 的接触，但必须打印
+    容差值与放行条数，否则用户会以为"零错误 == 绝对不碰"。
+    """
+    from orolp.planner import ENVELOPE_TOLERANCE_MM
+
+    out = _run_demo().stdout
+    assert "包络容差" in out
+    assert f"{ENVELOPE_TOLERANCE_MM:g}" in out
+
+
 def test_demo_script_workstation_contents():
     out = _run_demo().stdout
     for name in ("吸盘工具", "输送带", "工件_1", "托盘"):

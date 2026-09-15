@@ -22,8 +22,11 @@ import os
 spec_dir = os.path.dirname(os.path.abspath(SPEC))
 
 a = Analysis(
-    ['rw.py'],
-    pathex=[spec_dir],
+    ['app.py'],
+    # app.py 会在运行时把 <repo>/python 插进 sys.path 再 import orolp.*；
+    # 打包时 pathex 必须同样包含 python/，否则 PyInstaller 解析不到 orolp，
+    # 冻结后的应用会在所有 try/except 里静默降级（机器人库/场景/OLP 全失效）。
+    pathex=[spec_dir, os.path.join(spec_dir, 'python')],
     binaries=[],
     datas=[
         ('logo.png', '.'),
@@ -50,6 +53,13 @@ a = Analysis(
         'scipy.spatial.transform',
         'scipy.optimize',
         'jinja2',
+        'orolp',
+        'orolp.calibration',
+        'orolp.cam',
+        'orolp.collision',
+        'orolp.ocpcompat',
+        'orolp.dynamics',
+        'orolp.process',
     ],
     hookspath=[],
     hooksconfig={},
@@ -58,10 +68,19 @@ a = Analysis(
         'tkinter',
         'matplotlib',
         'PIL',
+        # OCP = OpenCASCADE 内核（cadquery-ocp），只有 CAD/CAM 通道用，且是
+        # 函数内的软依赖（未装时 orolp.cam 的纯 numpy 部分照常可用）。
+        # 不排除的话会被 orolp.cam 拖进来，包体 66MB → 166MB。
+        'OCP',
+        'cadquery',
     ],
 )
 
 pyz = PYZ(a.pure)
+
+# 顺手剔掉 __pycache__：datas 是整目录拷贝，会把开发机上的 .pyc（甚至别的
+# Python 版本的）一并塞进安装包，既没用又白白撑大体积。
+a.datas = [d for d in a.datas if '__pycache__' not in str(d[0])]
 
 exe = EXE(
     pyz,
@@ -103,7 +122,7 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'RobotWorld',
         'CFBundleDisplayName': 'RobotWorld',
-        'CFBundleShortVersionString': '0.2.0',
+        'CFBundleShortVersionString': '1.2.4',
         'NSHighResolutionCapable': True,
     },
 )

@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -29,6 +30,27 @@ import numpy as np
 from .simulation import Waypoint
 
 __all__ = ["DebugSession", "Deviation"]
+
+
+def _accepts_kwarg(func: Any, name: str) -> bool:
+    """判断 ``func`` 是否接受名为 ``name`` 的关键字参数（用于能力探测）。
+
+    连接类型是开放的（``ControllerLink`` 家族之外还可能有合成真机、真机 SDK 包装
+    等），所以用签名探测而不是硬编码类型列表；探测失败一律当"不接受"，退回老调用
+    方式——宁可不传时间，也不能因为探测把调试链路搞崩。
+    """
+    if func is None:
+        return False
+    try:
+        sig = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+    for p in sig.parameters.values():
+        if p.name == name:
+            return True
+        if p.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+    return False
 
 
 class Deviation:
@@ -76,6 +98,10 @@ class DebugSession:
         self.link = link
         self._robot = robot
         self.feedback_available = bool(getattr(link, "is_actual_feedback", False))
+        # 有些连接（如合成真机 PlantLink）需要知道"这一刻是几点"才能建模伺服滞后，
+        # 因此下发时把时间戳一并给它；不接受的连接（FileLink/SimLink/真机驱动）
+        # 保持老签名不变，行为与以前逐字节一致。
+        self._link_takes_time = _accepts_kwarg(getattr(link, "set_joints", None), "at_time")
         self._idx = 0
         self._t = trajectory.waypoints[0].timestamp if trajectory.waypoints else 0.0
         self._executed = 0
@@ -83,6 +109,17 @@ class DebugSession:
         self._max_rot_dev = 0.0
 
     # --------------------------- 播放 --------------------------- #
+
+    def _command(self, q: np.ndarray, t: float) -> None:
+        """向连接下发关节角，并把时刻一并传给需要它的连接（如合成真机）。
+
+        老连接（``FileLink`` / ``SimLink`` / 真机驱动）的 ``set_joints(joints)`` 签名
+        不变，行为与以前完全一致。
+        """
+        if self._link_takes_time:
+            self.link.set_joints(q, at_time=t)
+        else:
+            self.link.set_joints(q)
 
     def reset(self) -> None:
         """回到轨迹起点。"""
@@ -113,8 +150,8 @@ class DebugSession:
             return None
         self._idx += 1
         wp = wps[self._idx]
-        self.link.set_joints(np.asarray(wp.joints, dtype=np.float64))
         self._t = float(wp.timestamp)
+        self._command(np.asarray(wp.joints, dtype=np.float64), self._t)
         self._executed += 1
         self._record_deviation()
         return wp
@@ -138,8 +175,8 @@ class DebugSession:
         i = int(np.clip(index, 0, len(wps) - 1))
         self._idx = i
         wp = wps[i]
-        self.link.set_joints(np.asarray(wp.joints, dtype=np.float64))
         self._t = float(wp.timestamp)
+        self._command(np.asarray(wp.joints, dtype=np.float64), self._t)
         self._executed += 1
         self._record_deviation()
         return wp

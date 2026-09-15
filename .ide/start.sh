@@ -7,7 +7,7 @@ Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
 sleep 2
 
 # 2) 在虚拟显示上启动 RobotWorld 图形界面
-DISPLAY=:99 python3 /app/rw.py >/tmp/rw.log 2>&1 &
+DISPLAY=:99 python3 /app/app.py >/tmp/app.log 2>&1 &
 sleep 3
 
 # 3) VNC 采集虚拟桌面（无密码，仅开发容器内部使用）

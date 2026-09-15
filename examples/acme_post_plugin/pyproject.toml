@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orolp-plugin-acme-post"
+version = "1.0.0"
+description = "RobotWorld 第一方示例插件：ACME-V2 品牌后处理器（通过 orolp.plugins 入口点被发现）"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+# 注意：orolp 本体由宿主环境提供（PYTHONPATH 指向仓库 python/ 或已 pip install 的 orolp），
+# 不写进 dependencies——插件包不该绑架宿主的 orolp 版本。
+dependencies = []
+
+[project.entry-points."orolp.plugins"]
+# 入口点加载结果是一个"提供函数"——返回 PluginSpec 列表（orolp.plugins 支持的三种
+# 写法之一：单个 spec / spec 列表 / 提供函数）。工厂用 "module:attr" 字符串，
+# 连 ACME 模块内的后处理类都是延迟导入的。
+acme_v2 = "orolp_acme_post:plugin_specs"
+
+[tool.setuptools]
+packages = ["orolp_acme_post"]

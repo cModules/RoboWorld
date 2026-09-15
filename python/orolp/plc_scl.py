@@ -21,7 +21,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
 from .cell import CellConfig, HANDSHAKE_SIGNALS
+from .iomap import PLC_INPUT_SIGNALS, PLC_OUTPUT_SIGNALS, validate_cell_io
+from .planner import SEVERITY_ERROR
 from .program import Motion, SetDO, WaitDI, WaitTime
+from .program import ArcStart, ArcEnd, SprayOn, SprayOff, ForceMode
 
 __all__ = [
     "Step",
@@ -32,19 +35,13 @@ __all__ = [
 ]
 
 
-#: PLC 主动驱动的信号（输出）
-_OUTPUT_SIGNALS: Sequence[str] = ("robot_start", "gripper_open", "gripper_close")
+#: PLC 主动驱动的信号（输出）。
+#: **定义在 :mod:`orolp.iomap`**——"谁驱动谁"只允许有一处定义，否则点表校验
+#: 与出码会各说各话。这里保留私有旧名以兼容既有引用。
+_OUTPUT_SIGNALS: Sequence[str] = PLC_OUTPUT_SIGNALS
 
-#: PLC 采样的信号（输入）；顺序即声明顺序
-_INPUT_SIGNALS: Sequence[str] = (
-    "robot_done",
-    "part_present",
-    "safety_ok",
-    "estop",
-    "clamped",
-    "at_home",
-    "error",
-)
+#: PLC 采样的信号（输入）；顺序即声明顺序。
+_INPUT_SIGNALS: Sequence[str] = PLC_INPUT_SIGNALS
 
 
 @dataclass
@@ -130,6 +127,8 @@ def steps_from_program(program) -> List[Step]:
             flush(f"等待 {item.signal}", wait=item.signal, wait_value=item.value)
         elif isinstance(item, WaitTime):
             flush(f"保压 {item.seconds:.2f}s", delay=item.seconds)
+        elif isinstance(item, (ArcStart, ArcEnd, SprayOn, SprayOff, ForceMode)):
+            pass  # 工艺指令由机器人侧执行，不进 PLC 步序
         elif isinstance(item, Motion):
             continue  # 运动不进 PLC 步序
 
@@ -157,18 +156,71 @@ def _format_pt(seconds: float) -> str:
 
 
 def _addr_comment(cell: CellConfig, signal: str) -> str:
-    """取信号的 IO 地址注释；未映射时留空。"""
+    """取信号的 IO 地址注释。
+
+    信号在点表里**没有地址**时不再留空——留空在现场等于"看起来没问题"，
+    而这个声明恰恰是下装前必须补的东西。直接写出来，让它在 TIA 里就看得见。
+    """
     for dev in cell.devices:
         addr = dev.io_address(signal)
         if addr:
             return f"    // {dev.name}: {addr}"
-    return ""
+    return "    // >>> 未映射（下装前必须补地址）"
+
+
+def _point_table_lines(
+    cell: CellConfig,
+    program=None,
+    steps: Optional[Sequence[Step]] = None,
+) -> List[str]:
+    """IO 点表注释块：逐点列地址/方向/用途/归属 + 校验摘要。
+
+    点表必须**跟 SCL 一起**交给现场：TIA 能编译只说明语法没问题，不代表两侧
+    点位对得上。未映射的点直接写在文件里，而不是只在某个界面里红一下。
+    """
+    extra: List[str] = []
+    for st in steps or ():
+        for sig in getattr(st, "outputs", {}):
+            extra.append(str(sig))
+        if getattr(st, "wait", None):
+            extra.append(str(st.wait))
+
+    report = validate_cell_io(cell, program, steps, extra_signals=extra)
+
+    lines = [
+        "(* ---------------- IO 点表（自动生成，下装前必须核对） ---------------- *)",
+        f"(*   信号 | 地址 | 方向 | 用途 | 归属 *)",
+    ]
+    for p in report.points:
+        lines.append(
+            "(*   {sig} | {addr} | {dir} | {usage} | {dev} *)".format(
+                sig=p.signal,
+                addr=p.address or ">>> 未映射",
+                dir=p.direction_text(),
+                usage=p.usage_text(),
+                dev=p.device or "—",
+            )
+        )
+    lines.append(
+        "(*   {summary} *)".format(
+            summary=report.summary()
+        )
+    )
+    for issue in report.issues:
+        mark = "!!!" if issue.severity == SEVERITY_ERROR else "注意"
+        lines.append(
+            f"(*   {mark} [{issue.signal or '-'}] {issue.message} *)"
+        )
+    lines.append("")
+    return lines
 
 
 def generate_scl(
     cell: CellConfig,
     program_name: str = "CellControl",
     steps: Optional[Sequence[Step]] = None,
+    program=None,
+    include_point_table: bool = True,
 ) -> str:
     """由工作单元配置生成 SCL 源码。
 
@@ -176,6 +228,9 @@ def generate_scl(
         cell: 工作单元配置（决定出现哪些信号与地址注释）
         program_name: 生成的 FB 名
         steps: 工步序列；``None`` 时用 :func:`default_steps`
+        program: 机器人程序（或指令列表）；给出后点表的"用途"列按它真实填写，
+            并能报出"程序在用但没映射"的点
+        include_point_table: 是否在文件头附 IO 点表注释块（默认附）
 
     Returns:
         SCL 源码文本
@@ -195,6 +250,9 @@ def generate_scl(
     a(f"          下装前必须核对 IO 地址与工艺步骤。")
     a(f" ============================================================ *)")
     a("")
+    if include_point_table:
+        for line in _point_table_lines(cell, program=program, steps=step_list):
+            a(line)
     a(f'FUNCTION_BLOCK "{program_name}"')
     a("{ S7_Optimized_Access := 'TRUE' }")
     a("VERSION : 0.1")
@@ -318,6 +376,7 @@ class SCLPostProcessor:
         cell: CellConfig,
         metadata: Optional[Dict] = None,
         items: Optional[Sequence] = None,
+        include_point_table: bool = True,
     ) -> str:
         """生成 SCL。
 
@@ -326,9 +385,14 @@ class SCLPostProcessor:
             metadata: 附加信息（``program_name`` 等）
             items: 机器人程序指令序列；给出时**按其真实 IO 时序**生成步序，
                 否则回退到 :func:`default_steps` 骨架
+            include_point_table: 是否附 IO 点表注释块（默认附）
         """
         meta = metadata or {}
         steps = steps_from_program(items) if items else None
         return generate_scl(
-            cell, program_name=meta.get("program_name", "CellControl"), steps=steps
+            cell,
+            program_name=meta.get("program_name", "CellControl"),
+            steps=steps,
+            program=items,
+            include_point_table=include_point_table,
         )

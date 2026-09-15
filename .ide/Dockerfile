@@ -2,7 +2,7 @@
 # RobotWorld 云端开发容器（Cloud Studio）—— 编码 + 网页试运行 GUI
 # 基础保留 node:20，兼容 code-server / CodeBuddy Code CLI / 插件生态；
 # 其上叠加 Python3.11、RobotWorld 运行/测试/GUI 依赖，以及 xvfb + x11vnc + websockify + noVNC，
-# 让 rw.py 跑在虚拟桌面并经 noVNC 投到浏览器，方便网站浏览测试。
+# 让 app.py 跑在虚拟桌面并经 noVNC 投到浏览器，方便网站浏览测试。
 
 FROM node:20
 
@@ -59,20 +59,27 @@ RUN npm install -g @tencent-ai/codebuddy-code || echo "codebuddy-code 安装跳�
 
 # Debian/bookworm 的 Python 为「外部管理」(PEP 668)，需显式放行系统级 pip 安装
 # PIP_NO_BUILD_ISOLATION=1 避免 pip 建临时构建 venv（省内存）；PIP_PREFER_BINARY=1 强制用 wheel
+# PIP_INDEX_URL 走国内镜像，规避 pypi.org 在构建机上的 ReadTimeout / 连接中断；
+# 超时与重试放大，避免网络抖动触发依赖回溯（ResolutionImpossible）
 ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
     PIP_NO_BUILD_ISOLATION=1 \
-    PIP_PREFER_BINARY=1
+    PIP_PREFER_BINARY=1 \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_TIMEOUT=120 \
+    PIP_RETRIES=10
 
 # 先装轻量核心依赖（与 GUI 库拆层，降低单步内存峰值，避免一处失败重装全部）
+# 版本钉死到 aarch64 wheel 齐全、体积适中的稳定版，避免拉取 numpy2.x / scipy1.17 等大 wheel
+# 与依赖回溯；pydantic 钉到 2.10.6（pydantic-core 2.27.2，manylinux_2_17 aarch64 可用）
 RUN python3 -m pip install --no-cache-dir --upgrade pip \
     && python3 -m pip install --no-cache-dir \
-        "numpy>=1.21" "scipy>=1.7" "jinja2>=3.0" "pyyaml>=6.0" "pydantic>=2.0" \
-        "pytest>=7.0"
+        "numpy==1.26.4" "scipy==1.13.1" "jinja2==3.1.4" "pyyaml==6.0.2" \
+        "pydantic==2.10.6" "pytest==8.3.4"
 
 # GUI 依赖：用 PySide6-Essentials 替代完整 PySide6
 # Essentials 仅含 QtCore/QtGui/QtWidgets/QtOpenGLWidgets，项目未用 3D/Charts 等 Addons，
 # 体积与解压内存峰值远小于完整元包，可缓解 Cloud Studio 等内存受限构建机的 OOM
-RUN python3 -m pip install --no-cache-dir "PySide6-Essentials>=6.4" "PyOpenGL"
+RUN python3 -m pip install --no-cache-dir "PySide6-Essentials>=6.4,<6.9" "PyOpenGL"
 
 # 复制仓库源码（开发容器里直接可编辑 / 试运行）
 COPY . .
@@ -80,6 +87,6 @@ COPY . .
 # 确保启动脚本可执行
 RUN chmod +x /app/.ide/start.sh
 
-# 默认启动 noVNC 试运行栈（Xvfb → rw.py → x11vnc → websockify/noVNC）
+# 默认启动 noVNC 试运行栈（Xvfb → app.py → x11vnc → websockify/noVNC）
 # Cloud Studio 的 code-server IDE 由平台另行拉起；此处 launch 提供 GUI 网页预览
 CMD ["bash", "/app/.ide/start.sh"]

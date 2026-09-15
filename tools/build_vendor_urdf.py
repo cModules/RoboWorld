@@ -51,6 +51,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR_STEP = REPO_ROOT / "assets" / "vendor"  # gitignored，可重新生成
 MODELS_DIR = REPO_ROOT / "models"
 
+# 复用库侧的 OCP 版本兼容层（不自己写一套 getattr）——它同时也是「哪一代绑定
+# 该用哪个符号名」的唯一出处，见 python/orolp/ocpcompat.py 的模块说明。
+if str(REPO_ROOT / "python") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "python"))
+
+from orolp.ocpcompat import bbox_of, describe, face_of, triangulation_of  # noqa: E402
+
 
 # --------------------------------------------------------------------------- #
 # 品牌配置表
@@ -93,7 +100,11 @@ def _coord_trsf(coord: str):
 
     rot = gp_Trsf()
     if coord == "y_up_mm":
-        # 源 Y-up → 目标 Z-up（右手系保持：(x,y,z)->(x,-z,y)）
+        # 源 Y-up → 目标 Z-up。实际点映射是 (x,y,z)→(x,z,-y)（绕 X 轴 −90°）：
+        # 源的竖直轴 Y 落到目标的竖直轴 Z 上、方向相反，右手系保持（det>0，不是镜像）。
+        # 轴符号由已验证的渲染/生成结果决定，锁住它的不是硬编码符号而是
+        # test_vendor_jaka.test_coord_trsf_yup_is_proper_uniform 的不变量
+        # （均匀缩放 0.001 + 保持手性）。
         src_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0))
         dst_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))
         rot.SetTransformation(src_ax, dst_ax)
@@ -150,19 +161,17 @@ def mesh_component(shape, rel_deflection: float = 0.01, angular: float = 0.5) ->
     本函数不再做坐标变换。
     """
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
-    from OCP.TopoDS import TopoDS
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopAbs import TopAbs_FACE
-    from OCP.BRep import BRep_Tool
     from OCP.TopLoc import TopLoc_Location
 
     BRepMesh_IncrementalMesh(shape, rel_deflection, True, angular, True)
     verts: List[np.ndarray] = []
     fx = TopExp_Explorer(shape, TopAbs_FACE)
     while fx.More():
-        face = TopoDS.Face_s(fx.Current())
+        face = face_of(fx.Current())
         loc = TopLoc_Location()
-        tri = BRep_Tool.Triangulation_s(face, loc)
+        tri = triangulation_of(face, loc)
         if tri is None:
             fx.Next()
             continue
@@ -326,11 +335,6 @@ def models_with_step(brand: str) -> List[str]:
 # --------------------------------------------------------------------------- #
 def probe_step(brand: str, model: Optional[str]) -> int:
     """打印 STEP 的组件数与包围盒（应用品牌轴系约定后），用于确认 coord/映射。"""
-    from OCP.BRepBndLib import BRepBndLib
-    from OCP.Bnd import Bnd_Box
-    from OCP.BRep import BRep_Tool
-    from OCP.TopoDS import TopoDS
-
     bspec = BRANDS[brand]
     if model:
         steps = [step_path_for(brand, model)]
@@ -344,6 +348,10 @@ def probe_step(brand: str, model: Optional[str]) -> int:
             print(f"[probe] {brand}: {sub} 下没有 STEP（先放厂商 CAD 进来）")
             return 1
 
+    info = describe()
+    print(f"[probe] OCP: {info['distribution']} {info['version']}  "
+          f"TopoDS.{info['casts']['Face']}  BRep_Tool.{info['functions']['Triangulation']}")
+
     trsf = _coord_trsf(bspec.coord)
     for step in steps:
         comps = load_step_components(step, trsf)
@@ -352,14 +360,10 @@ def probe_step(brand: str, model: Optional[str]) -> int:
         allmin = np.full(3, np.inf)
         allmax = np.full(3, -np.inf)
         for name, sh in comps:
-            box = Bnd_Box()
-            BRepBndLib.Add_s(sh, box)
-            if box.IsVoid():
+            bb = bbox_of(sh)
+            if bb is None:
                 continue
-            mn = box.CornerMin()
-            mx = box.CornerMax()
-            lo = np.array([mn.X(), mn.Y(), mn.Z()])
-            hi = np.array([mx.X(), mx.Y(), mx.Z()])
+            lo, hi = bb
             allmin = np.minimum(allmin, lo)
             allmax = np.maximum(allmax, hi)
             print(f"  {name}: x[{lo[0]:+.3f},{hi[0]:+.3f}] "

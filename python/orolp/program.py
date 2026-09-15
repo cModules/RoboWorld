@@ -10,6 +10,7 @@ from .robot import Robot
 if TYPE_CHECKING:  # 仅类型检查：simulation 依赖 pose，不反向依赖 program
     from .planner import ProgramReport
     from .simulation import Trajectory
+    from .process import SprayProcess, WeldProcess
     from .world.scene import Scene
 
 
@@ -31,6 +32,8 @@ class Motion:
         via: Optional[Union[List[float], Pose]] = None,
         speed: float = 100.0,
         blend: float = 0.0,
+        velocity: Optional[float] = None,
+        acceleration: Optional[float] = None,
     ):
         """
         Initialize a motion.
@@ -41,12 +44,18 @@ class Motion:
             via: Via point (for circular motion)
             speed: Speed percentage (0-100)
             blend: Blend radius in millimeters
+            velocity: 速度覆盖值；moveL/moveC 为 mm/s，moveJ/moveSpline 为
+                deg/s。``None`` 表示沿用 ``speed`` 百分比由后处理换算
+            acceleration: 加速度覆盖值；moveL/moveC 为 mm/s²，
+                moveJ/moveSpline 为 deg/s²。``None`` 表示用品牌默认值
         """
         self.type = type
         self.target = target
         self.via = via
         self.speed = speed
         self.blend = blend
+        self.velocity = velocity
+        self.acceleration = acceleration
 
 
 # --------------------------------------------------------------------------- #
@@ -72,17 +81,28 @@ class SetDO:
 
 @dataclass
 class WaitDI:
-    """等待一个数字输入达到期望电平。
+    """等待一个数字输入达到期望电平或边沿。
 
     Attributes:
         signal: 信号逻辑名
-        value: 期望电平
+        value: 期望电平（``trigger="level"`` 时生效）
         timeout: 超时（秒）；``<= 0`` 表示无限等待
+        trigger: 触发方式——``"level"`` 电平（默认，向后兼容）、
+            ``"rising"`` 上升沿、``"falling"`` 下降沿。边沿触发在部分品牌
+            后处理器上需要条件监控/看门狗实现，无法直译时后处理会留 TODO
+            注释提示，不会静默丢弃
     """
 
     signal: str
     value: bool = True
     timeout: float = 0.0
+    trigger: str = "level"
+
+    def __post_init__(self) -> None:
+        if self.trigger not in ("level", "rising", "falling"):
+            raise ValueError(
+                f"WaitDI trigger 只支持 'level'/'rising'/'falling'，收到 {self.trigger!r}"
+            )
 
 
 @dataclass
@@ -92,8 +112,61 @@ class WaitTime:
     seconds: float = 0.0
 
 
+@dataclass
+class ArcStart:
+    """起弧（焊接开始）——携带 :class:`~orolp.process.WeldProcess` 工艺参数。
+
+    品牌后处理器有原生焊接指令时直接翻译（FANUC ``ARCON``），否则降级为
+    置位起弧信号 + 参数注释，并提示人工核对。
+    """
+
+    process: "WeldProcess"
+
+
+@dataclass
+class ArcEnd:
+    """熄弧（焊接结束）；``process`` 用于输出收弧/保护气后流参数。"""
+
+    process: Optional["WeldProcess"] = None
+
+
+@dataclass
+class SprayOn:
+    """喷涂开——携带 :class:`~orolp.process.SprayProcess` 工艺参数。"""
+
+    process: "SprayProcess"
+
+
+@dataclass
+class SprayOff:
+    """喷涂关。"""
+
+    process: Optional["SprayProcess"] = None
+
+
+@dataclass
+class ForceMode:
+    """力控（阻抗/导纳）指令段——携带 :class:`~orolp.compliance.ComplianceSpec`。
+
+    品牌后处理器有原生力控指令时直接翻译（UR ``force_mode()`` /
+    ``end_force_mode()``，ABB ``FCRefForce``/``FCAct``/``FCDeact``），
+    没有的品牌输出力控参数 + 显式 TODO 注释，**不臆造语法**（与 IO 信号
+    地址同一条规矩）。
+
+    Attributes:
+        spec: 力控规格；``end=True`` 时可以不携带
+        end: ``True`` 表示**退出**力控（UR ``end_force_mode()``、
+            ABB ``FCDeact``）；``False`` 表示进入力控
+    """
+
+    spec: Optional[Any] = None
+    end: bool = False
+
+
 #: 允许出现在 :attr:`Program.items` 中的指令类型
-Command = Union[Motion, SetDO, WaitDI, WaitTime]
+Command = Union[
+    Motion, SetDO, WaitDI, WaitTime, ArcStart, ArcEnd, SprayOn, SprayOff, ForceMode
+]
 
 
 class Program:
@@ -110,13 +183,19 @@ class Program:
         self.robot = robot
         #: 完整指令序列，**运动与 IO 混排**，顺序即执行顺序
         self.items: List[Command] = list(motions) if motions else []
+        #: 标定集（:class:`~orolp.calibration.CalibrationSet`）；设置后程序
+        #: 出码时会把标定摘要写进代码头部注释——现场靠它核对"这份程序是按哪套
+        #: 标定生成的下装的"，避免拿旧标定的程序在重新标定过的机器上跑
+        self.calibration: Any = None
 
     @property
     def motions(self) -> List[Motion]:
         """仅运动指令，按原顺序。
 
-        保留为属性是为了向后兼容：轨迹规划、节拍估算、干涉检查都只认 Motion，
-        新增的 IO 指令对它们应当**完全透明**——它们照旧工作，无需改动。
+        保留为属性是为了向后兼容：干涉检查等只认 Motion。注意 v1.1.3 起
+        :meth:`~orolp.planner.TrajectoryPlanner.plan` 遍历的是完整指令序列
+        （:attr:`items`）——``WaitTime`` 会作为驻留段占时间，其余 IO 指令
+        （SetDO/WaitDI/起弧/喷涂/力控）仍对轨迹透明。
         """
         return [i for i in self.items if isinstance(i, Motion)]
 
@@ -138,15 +217,18 @@ class Program:
         self.items.append(SetDO(signal, value))
         return self
 
-    def waitDI(self, signal: str, value: bool = True, timeout: float = 0.0) -> "Program":
+    def waitDI(
+        self, signal: str, value: bool = True, timeout: float = 0.0, trigger: str = "level"
+    ) -> "Program":
         """追加一条等待数字输入，返回自身以便链式书写。
 
         Args:
             signal: 信号逻辑名
-            value: 期望电平
+            value: 期望电平（``trigger="level"`` 时生效）
             timeout: 超时（秒）；``<= 0`` 表示无限等待
+            trigger: ``"level"`` 电平 / ``"rising"`` 上升沿 / ``"falling"`` 下降沿
         """
-        self.items.append(WaitDI(signal, value, timeout))
+        self.items.append(WaitDI(signal, value, timeout, trigger))
         return self
 
     def waitTime(self, seconds: float) -> "Program":
@@ -182,6 +264,93 @@ class Program:
             self.items.append(SetDO("gripper_open", True))
         else:
             raise ValueError(f"gripper 动作只能是 'open'/'close'，收到 {action!r}")
+        return self
+
+    def arc_start(self, process: "WeldProcess | str | None" = None) -> "Program":
+        """追加一条起弧指令（焊接开始），返回自身以便链式书写。
+
+        Args:
+            process: :class:`~orolp.process.WeldProcess` 实例、模板名
+                （从 :class:`~orolp.process.ProcessLibrary.default()` 解析）
+                或 ``None`` 用内置默认模板
+        """
+        from .process import resolve_weld
+
+        self.items.append(ArcStart(resolve_weld(process)))
+        return self
+
+    def arc_end(self, process: "WeldProcess | str | None" = None) -> "Program":
+        """追加一条熄弧指令（焊接结束），返回自身以便链式书写。"""
+        from .process import resolve_weld
+
+        self.items.append(ArcEnd(resolve_weld(process) if process is not None else None))
+        return self
+
+    def spray_on(self, process: "SprayProcess | str | None" = None) -> "Program":
+        """追加一条喷涂开指令，返回自身以便链式书写。"""
+        from .process import resolve_spray
+
+        self.items.append(SprayOn(resolve_spray(process)))
+        return self
+
+    def spray_off(self, process: "SprayProcess | str | None" = None) -> "Program":
+        """追加一条喷涂关指令，返回自身以便链式书写。"""
+        from .process import resolve_spray
+
+        self.items.append(SprayOff(resolve_spray(process) if process is not None else None))
+        return self
+
+    def force_mode(self, spec: Optional[Any] = None, **kwargs: Any) -> "Program":
+        """追加一条**进入力控**指令，返回自身以便链式书写。
+
+        力控柔顺（v1.0.2）：进入力控后，柔顺轴由期望力/刚度决定 TCP 的
+        退让（导纳），非柔顺轴仍按位置控走轨迹。典型用法::
+
+            prog = (
+                robot.moveL(place_pose)
+                .force_mode(ComplianceSpec.constant_force("z", -30.0))
+                .moveL(surface_pose)   # 力控下沿面走
+                .force_mode_end()
+            )
+
+        Args:
+            spec: :class:`~orolp.compliance.ComplianceSpec` 实例；
+                ``None`` 时用 ``kwargs`` 构造一个（透传全部字段）
+            **kwargs: ``spec`` 为空时透传给 ``ComplianceSpec(**kwargs)``
+
+        Returns:
+            自身（:class:`Program`）
+        """
+        from .compliance import ComplianceSpec
+
+        if spec is None:
+            spec = ComplianceSpec(**kwargs)
+        elif kwargs:
+            raise ValueError("force_mode 不能同时给 spec 和构造关键字参数")
+        self.items.append(ForceMode(spec))
+        return self
+
+    def force_mode_end(self) -> "Program":
+        """追加一条**退出力控**指令，返回自身以便链式书写。"""
+        self.items.append(ForceMode(end=True))
+        return self
+
+    def apply_calibration(self, calibration: Any, apply_to_robot: bool = True) -> "Program":
+        """挂上标定集（并把 TCP/基坐标写进本程序的机器人）。
+
+        Args:
+            calibration: :class:`~orolp.calibration.CalibrationSet`
+            apply_to_robot: 是否同时把标定值写进 ``self.robot``。默认写——
+                既然程序是按这套标定排布的，运动学也必须按同一套算，否则
+                规划与出码会各自用一套参数（现场表现为"仿真好好的、机器
+                不动"或直接撞机）
+
+        Returns:
+            自身，便于链式书写
+        """
+        self.calibration = calibration
+        if apply_to_robot:
+            calibration.apply_to_robot(self.robot)
         return self
 
     def plan(self) -> "Trajectory":
@@ -240,14 +409,17 @@ class Program:
         self,
         scene: Optional["Scene"] = None,
         margin: float = -0.5,
+        check_dynamics: bool = True,
     ) -> "ProgramReport":
         """生成代码前的全面体检。
 
-        检查项：不可达、关节越限、接近奇异、配置跳变、沿路径干涉。
+        检查项：不可达、关节越限、接近奇异、配置跳变、沿路径干涉、
+        关节力矩超额定（有惯性参数时）。
 
         Args:
             scene: 工作单元场景；``None`` 时跳过干涉检查
             margin: 干涉裕度 (mm)
+            check_dynamics: 是否做力矩/功率校验（缺惯性参数自动跳过）
 
         Returns:
             :class:`~orolp.planner.ProgramReport`
@@ -255,7 +427,10 @@ class Program:
         from .planner import TrajectoryPlanner
 
         return TrajectoryPlanner(self.robot, scene=scene).validate(
-            self, check_collision=scene is not None, margin=margin
+            self,
+            check_collision=scene is not None,
+            margin=margin,
+            check_dynamics=check_dynamics,
         )
 
     def to_post(
@@ -292,6 +467,10 @@ class Program:
         }
         if metadata:
             meta.update(metadata)
+        # 标定摘要进程序头注释：下装到真机前，现场第一眼就能看到"这份程序是
+        # 按哪套 TCP / 外参生成的"，也方便出问题时回查
+        if self.calibration is not None:
+            meta.setdefault("calibration_lines", self.calibration.summary_lines())
 
         # 传 items 而非 motions：IO 指令也要进目标代码，否则生成的程序
         # 只有轨迹、没有抓取动作
@@ -365,11 +544,26 @@ class Program:
             code=code,
             handle=handle,
             ok=True,
-            notes=(
-                "支持实际位置回读" if getattr(link, "is_actual_feedback", False)
-                else "离线导出，无实际位置回读"
-            ),
+            notes=self._deployment_notes(link),
         )
+
+    @staticmethod
+    def _deployment_notes(link: "ControllerLink") -> str:
+        """部署备注：按连接形态**如实**描述回读能力（随界面语言）。
+
+        此前统一写"离线导出，无实际位置回读"——对 :class:`~orolp.link.FileLink`
+        是对的，但对"程序真的发到了控制器上"的 Socket/SSH 连接就是误导：
+        现场看到这句话会以为代码没上机。SSH 形态（v1.1.2）与不支持回读的
+        Socket 控制器各给各的说法。
+        """
+        from .i18n import tr
+
+        if getattr(link, "is_actual_feedback", False):
+            return tr("支持实际位置回读")
+        protocol = str(getattr(link, "protocol", "file"))
+        if protocol == "file":
+            return tr("离线导出，无实际位置回读")
+        return tr("{protocol} 连接，控制器不提供实际位置回读").format(protocol=protocol)
 
     def _infer_post_processor(self) -> str:
         """根据 URDF 路径中的品牌目录推断后处理器。
@@ -418,12 +612,24 @@ class ProgramBuilder:
         self.robot = robot
         #: 指令序列（运动与 IO 混排）；保留历史名 ``motions`` 以兼容旧调用方
         self.motions: List[Command] = []
+        #: 标定集；设置后随 :meth:`build` 传给 :class:`Program`（见
+        #: :meth:`Program.apply_calibration`）
+        self.calibration: Any = None
+
+    def apply_calibration(self, calibration: Any, apply_to_robot: bool = True) -> "ProgramBuilder":
+        """挂上标定集，返回自身以便链式书写。语义见 :meth:`Program.apply_calibration`。"""
+        self.calibration = calibration
+        if apply_to_robot:
+            calibration.apply_to_robot(self.robot)
+        return self
 
     def moveJ(
         self,
         joints: List[float] | np.ndarray,
         speed: float = 100.0,
         blend: float = 0.0,
+        velocity: float | None = None,
+        acceleration: float | None = None,
     ) -> "ProgramBuilder":
         """
         Add a joint space motion.
@@ -432,13 +638,18 @@ class ProgramBuilder:
             joints: Target joint positions
             speed: Speed percentage (0-100)
             blend: Blend radius in millimeters
+            velocity: 速度覆盖 (deg/s)；``None`` 沿用百分比
+            acceleration: 加速度覆盖 (deg/s²)；``None`` 用品牌默认值
 
         Returns:
             This builder for chaining
         """
         if isinstance(joints, np.ndarray):
             joints = joints.tolist()
-        self.motions.append(Motion(MotionType.JOINTS, joints, speed=speed, blend=blend))
+        self.motions.append(
+            Motion(MotionType.JOINTS, joints, speed=speed, blend=blend,
+                   velocity=velocity, acceleration=acceleration)
+        )
         return self
 
     def moveL(
@@ -446,6 +657,8 @@ class ProgramBuilder:
         pose: Pose,
         speed: float = 100.0,
         blend: float = 0.0,
+        velocity: float | None = None,
+        acceleration: float | None = None,
     ) -> "ProgramBuilder":
         """
         Add a linear motion in Cartesian space.
@@ -454,11 +667,16 @@ class ProgramBuilder:
             pose: Target tool pose
             speed: Speed percentage (0-100)
             blend: Blend radius in millimeters
+            velocity: TCP 线速度覆盖 (mm/s)；``None`` 沿用百分比
+            acceleration: TCP 加速度覆盖 (mm/s²)；``None`` 用品牌默认值
 
         Returns:
             This builder for chaining
         """
-        self.motions.append(Motion(MotionType.LINEAR, pose, speed=speed, blend=blend))
+        self.motions.append(
+            Motion(MotionType.LINEAR, pose, speed=speed, blend=blend,
+                   velocity=velocity, acceleration=acceleration)
+        )
         return self
 
     def moveC(
@@ -467,6 +685,8 @@ class ProgramBuilder:
         target: Pose,
         speed: float = 100.0,
         blend: float = 0.0,
+        velocity: float | None = None,
+        acceleration: float | None = None,
     ) -> "ProgramBuilder":
         """
         Add a circular motion.
@@ -476,11 +696,16 @@ class ProgramBuilder:
             target: Target point
             speed: Speed percentage (0-100)
             blend: Blend radius in millimeters
+            velocity: TCP 线速度覆盖 (mm/s)；``None`` 沿用百分比
+            acceleration: TCP 加速度覆盖 (mm/s²)；``None`` 用品牌默认值
 
         Returns:
             This builder for chaining
         """
-        self.motions.append(Motion(MotionType.CIRCULAR, target, via=via, speed=speed, blend=blend))
+        self.motions.append(
+            Motion(MotionType.CIRCULAR, target, via=via, speed=speed, blend=blend,
+                   velocity=velocity, acceleration=acceleration)
+        )
         return self
 
     def moveSpline(
@@ -488,6 +713,8 @@ class ProgramBuilder:
         target: Union[List[float], "Pose"],
         speed: float = 100.0,
         blend: float = 0.0,
+        velocity: float | None = None,
+        acceleration: float | None = None,
     ) -> "ProgramBuilder":
         """Add a smooth (minimum-jerk) joint-space motion.
 
@@ -499,11 +726,16 @@ class ProgramBuilder:
             target: 目标关节角或工具位姿
             speed: 速度百分比 (0-100)
             blend: 融合半径 (mm)
+            velocity: 速度覆盖（关节 deg/s / 位姿 mm/s）；``None`` 沿用百分比
+            acceleration: 加速度覆盖；``None`` 用品牌默认值
 
         Returns:
             This builder for chaining
         """
-        self.motions.append(Motion(MotionType.SPLINE, target, speed=speed, blend=blend))
+        self.motions.append(
+            Motion(MotionType.SPLINE, target, speed=speed, blend=blend,
+                   velocity=velocity, acceleration=acceleration)
+        )
         return self
 
     # ------------------------- IO 链式指令 ------------------------- #
@@ -514,9 +746,13 @@ class ProgramBuilder:
         self.motions.append(SetDO(signal, value))
         return self
 
-    def waitDI(self, signal: str, value: bool = True, timeout: float = 0.0) -> "ProgramBuilder":
-        """追加一条等待数字输入，返回自身以便链式书写。"""
-        self.motions.append(WaitDI(signal, value, timeout))
+    def waitDI(self, signal: str, value: bool = True, timeout: float = 0.0, trigger: str = "level") -> "ProgramBuilder":
+        """追加一条等待数字输入，返回自身以便链式书写。
+
+        ``trigger`` 支持 ``"level"``/``"rising"``/``"falling"``，语义见
+        :class:`WaitDI`。
+        """
+        self.motions.append(WaitDI(signal, value, timeout, trigger))
         return self
 
     def waitTime(self, seconds: float) -> "ProgramBuilder":
@@ -540,6 +776,57 @@ class ProgramBuilder:
             self.motions.append(SetDO("gripper_open", True))
         else:
             raise ValueError(f"gripper 动作只能是 'open'/'close'，收到 {action!r}")
+        return self
+
+    def arc_start(self, process: "WeldProcess | str | None" = None) -> "ProgramBuilder":
+        """追加一条起弧指令（焊接开始），返回自身以便链式书写。
+
+        ``process`` 可为 :class:`~orolp.process.WeldProcess` 实例、模板名或
+        ``None``（内置默认模板），语义与 :meth:`Program.arc_start` 一致。
+        """
+        from .process import resolve_weld
+
+        self.motions.append(ArcStart(resolve_weld(process)))
+        return self
+
+    def arc_end(self, process: "WeldProcess | str | None" = None) -> "ProgramBuilder":
+        """追加一条熄弧指令（焊接结束），返回自身以便链式书写。"""
+        from .process import resolve_weld
+
+        self.motions.append(ArcEnd(resolve_weld(process) if process is not None else None))
+        return self
+
+    def spray_on(self, process: "SprayProcess | str | None" = None) -> "ProgramBuilder":
+        """追加一条喷涂开指令，返回自身以便链式书写。"""
+        from .process import resolve_spray
+
+        self.motions.append(SprayOn(resolve_spray(process)))
+        return self
+
+    def spray_off(self, process: "SprayProcess | str | None" = None) -> "ProgramBuilder":
+        """追加一条喷涂关指令，返回自身以便链式书写。"""
+        from .process import resolve_spray
+
+        self.motions.append(SprayOff(resolve_spray(process) if process is not None else None))
+        return self
+
+    def force_mode(self, spec: Optional[Any] = None, **kwargs: Any) -> "ProgramBuilder":
+        """追加一条**进入力控**指令，返回自身以便链式书写。
+
+        参数含义同 :meth:`Program.force_mode`。
+        """
+        from .compliance import ComplianceSpec
+
+        if spec is None:
+            spec = ComplianceSpec(**kwargs)
+        elif kwargs:
+            raise ValueError("force_mode 不能同时给 spec 和构造关键字参数")
+        self.motions.append(ForceMode(spec))
+        return self
+
+    def force_mode_end(self) -> "ProgramBuilder":
+        """追加一条**退出力控**指令，返回自身以便链式书写。"""
+        self.motions.append(ForceMode(end=True))
         return self
 
     def then(self, other: Union["ProgramBuilder", "Program"]) -> "ProgramBuilder":
@@ -569,7 +856,10 @@ class ProgramBuilder:
         Returns:
             Program object
         """
-        return Program(self.robot, self.motions)
+        prog = Program(self.robot, self.motions)
+        if self.calibration is not None:
+            prog.calibration = self.calibration
+        return prog
 
     def simulate(
         self,

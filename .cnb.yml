@@ -8,7 +8,7 @@ main:
         - name: build-and-push
           script: |
             set -e
-            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/hello-cnb"
+            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}"
             VERSION="main-${CNB_COMMIT_SHORT}"
             echo "构建制成品镜像：$IMAGE:latest / $IMAGE:$VERSION"
             docker build -t "$IMAGE:latest" -t "$IMAGE:$VERSION" .
@@ -18,7 +18,7 @@ main:
         - name: smoke-test
           script: |
             set -e
-            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/hello-cnb"
+            IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}"
             # 无头自检：跑纯 Python 回归测试（pick & place 出码链路），无需 docker-in-docker
             docker run --rm "$IMAGE:latest" python -m pytest tests/test_pickplace.py -q
             echo "✅ 制成品镜像可运行（pytest 无头自检通过）"
@@ -167,7 +167,7 @@ $:
         - name: vscode
           options:
             onlyPreview: true # 必填：启用仅预览模式
-            launch: bash /app/.ide/start.sh # 必填：启动 noVNC 试运行栈（Xvfb→rw.py→x11vnc→websockify）
+            launch: bash /app/.ide/start.sh # 必填：启动 noVNC 试运行栈（Xvfb→app.py→x11vnc→websockify）
             keepAliveTimeout: 10m # 可选：离线保活时间，默认 10 分钟
             daemon: true # 可选：守护进程模式
             backup: true # 可选：备份/恢复用户数据

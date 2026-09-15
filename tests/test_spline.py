@@ -78,8 +78,11 @@ def test_spline_endpoint_smoothness(robot):
     incr_j = np.abs(np.diff(qj, axis=0))
     max_j = float(np.max(incr_j))
 
-    # 线性 moveJ：首步增量≈最大增量（恒定速度）
-    assert incr_j[0].max() > 0.8 * max_j
+    # 线性 moveJ：v0.2.2 起按梯形速度曲线推进，端点增量同样趋近 0，
+    # 平台期（匀速段）增量才接近最大值
+    assert incr_j[0].max() < 0.3 * max_j
+    assert incr_j[-1].max() < 0.3 * max_j
+    assert incr_j[len(incr_j) // 2].max() > 0.7 * max_j
     # 最小抖动 SPLINE：首/末步增量远小于最大增量（端点平滑）
     assert incr_s[0].max() < 0.3 * max_s
     assert incr_s[-1].max() < 0.3 * max_s

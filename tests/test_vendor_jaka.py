@@ -186,7 +186,8 @@ def test_coord_trsf_yup_is_proper_uniform():
 
 @pytest.mark.skipif(not _HAS_OCP, reason="需要 OCP + JAKA STEP")
 def test_build_zu3_to_tmp(tmp_path, monkeypatch):
-    step_src = next((ROOT / "assets" / "vendor" / "jaka" / "step").glob("JAKA_Zu_3*.STEP"))
+    _step_dir = ROOT / "assets" / "vendor" / "jaka" / "step"
+    step_src = next(_step_dir.glob("JAKA_Zu_3*.STEP"), None) if _step_dir.exists() else None
     if not step_src:
         pytest.skip("本地没有 JAKA STEP")
     # 把程序化 URDF 与 STEP 复制到临时目录，避免触碰已提交产物

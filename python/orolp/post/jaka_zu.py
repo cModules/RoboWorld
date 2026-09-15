@@ -1,4 +1,5 @@
 from .base import BasePostProcessor, PostConfig, PostProcessError
+from ..i18n import tr
 from ..program import Motion
 
 
@@ -65,7 +66,7 @@ class JAKAZuPostProcessor(BasePostProcessor):
             }
         if self.is_circular(motion):
             if motion.via is None:
-                raise PostProcessError("JAKA 圆弧运动需要提供 via 中间点")
+                raise PostProcessError(tr("JAKA 圆弧运动需要提供 via 中间点"))
             return {
                 "cmd": "movec",
                 "via": f"[{self.fmt_pose_rotvec(motion.via)}]",
@@ -73,15 +74,18 @@ class JAKAZuPostProcessor(BasePostProcessor):
                 "accel": f"{self.DEFAULT_ACCEL:.2f}",
                 "speed": f"{speed_m_s:.4f}",
             }
-        raise PostProcessError(f"JAKA 不支持的运动类型: {motion.type}")
+        raise PostProcessError(tr("JAKA 不支持的运动类型: {type}").format(type=motion.type))
 
     def _get_template(self) -> str:
-        return """# RobotWorld v{{ meta.version|default('0.1.0') }} generated JAKA script
-# Robot: {{ meta.robot_name|default('unknown') }}
-# NOTE: 语法未经真实控制器验证，使用前请核对
-
-{% for wp in waypoints %}
-{% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+        note = tr("# NOTE: 语法未经真实控制器验证，使用前请核对")
+        header = (
+            "# RobotWorld v{{ meta.version|default('0.1.0') }} generated JAKA script\n"
+            "# Robot: {{ meta.robot_name|default('unknown') }}\n"
+            f"# {note}\n"
+            "\n"
+        )
+        return header + """{% for wp in waypoints %}
+{% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
 {{ wp.text }}
 {% elif wp.cmd == 'movec' %}
 {{ wp.cmd }}({{ wp.via }}, {{ wp.args }}, {{ wp.speed }}, {{ wp.accel }})

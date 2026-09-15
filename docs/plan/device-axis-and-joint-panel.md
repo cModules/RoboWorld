@@ -92,7 +92,7 @@ todos:
 ## 执行要点
 
 - `_TRz` / `_TRy` 已存在（components.py 第 126、136 行），不要重复实现旋转矩阵
-- `_matrix_to_rpy` 已存在（rw.py 第 418 行），返回**弧度**的 (roll, pitch, yaw)，回填位置面板时需转角度
+- `_matrix_to_rpy` 已存在（app.py 第 418 行），返回**弧度**的 (roll, pitch, yaw)，回填位置面板时需转角度
 - 外层布局**不能**加 `addStretch`（会与滚动区平分高度），只能加在滚动区内部的属性布局末尾
 - `_clear_params_layout` 需泛化为可清空任意布局，以同时服务「参数」与「关节」两个分组
 - 改完必须三步验证：编译 → 无头探针实测 → 重启查日志
@@ -124,7 +124,7 @@ RobotWorld/
 │                                      #             并让台面随回转（tilt @ _TRz）；
 │                                      #          4) 为变位机/夹爪/台钳声明 axes 与
 │                                      #             rot_deg 参数
-└── rw.py                              # [MODIFY] DevicePropertyPanel：
+└── app.py                              # [MODIFY] DevicePropertyPanel：
                                        #          - _setup_ui：位置补 绕X/绕Y 共 6 项；
                                        #            新增「关节」分组；属性布局末尾加
                                        #            addStretch 修信息空白

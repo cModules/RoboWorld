@@ -95,7 +95,7 @@ def gripper_events(program: Program, planner) -> List[GripperEvent]:
 class GraspAnimator:
     """按轨迹时间驱动场景工件吸附/释放的无头动画器。
 
-    不依赖 Qt，GUI（rw.py）与离线脚本共用同一份抓取语义；回放器只需在
+    不依赖 Qt，GUI（app.py）与离线脚本共用同一份抓取语义；回放器只需在
     每帧调用 :meth:`sync`，越过事件时刻即自动挂载/释放。
 
     Args:

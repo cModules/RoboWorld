@@ -43,7 +43,7 @@ try {
 }
 
 # 创建 spec 文件（如果不存在）
-$specFile = Join-Path $ScriptDir "rw.spec"
+$specFile = Join-Path $ScriptDir "app.spec"
 if (-not (Test-Path $specFile)) {
     Write-Host ""
     Write-Host "创建 PyInstaller spec 文件..." -ForegroundColor Cyan
@@ -53,7 +53,7 @@ if (-not (Test-Path $specFile)) {
 block_cipher = None
 
 a = Analysis(
-    ['rw.py'],
+    ['app.py'],
     pathex=[r'$ScriptDir'],
     binaries=[],
     datas=[
@@ -107,7 +107,7 @@ exe = EXE(
 )
 "@
     $specContent | Out-File -FilePath $specFile -Encoding utf8
-    Write-Host "已创建 rw.spec" -ForegroundColor Green
+    Write-Host "已创建 app.spec" -ForegroundColor Green
 }
 
 # 执行打包
@@ -116,7 +116,7 @@ Write-Host "开始打包..." -ForegroundColor Cyan
 Write-Host "这可能需要几分钟时间，请耐心等待..." -ForegroundColor Yellow
 Write-Host ""
 
-& $pythonExe -m PyInstaller --clean rw.spec
+& $pythonExe -m PyInstaller --clean app.spec
 
 # 检查打包结果
 if (Test-Path (Join-Path $DistDir "RobotWorld.exe")) {

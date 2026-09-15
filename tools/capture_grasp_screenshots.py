@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from PySide6 import QtWidgets, QtCore  # noqa: E402
 
-import rw  # noqa: E402
+import app  # noqa: E402
 
 
 def main() -> int:
@@ -45,7 +45,7 @@ def main() -> int:
         )
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-    window = rw.MainWindow()
+    window = app.MainWindow()
     window.resize(1680, 1050)
     window.show()
     for _ in range(20):

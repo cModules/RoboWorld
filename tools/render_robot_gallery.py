@@ -250,7 +250,7 @@ def main() -> int:
     # 延迟导入 olp，它会在 import 时构造 Qt 相关常量
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("olp_main", _REPO_ROOT / "rw.py")
+    spec = importlib.util.spec_from_file_location("olp_main", _REPO_ROOT / "app.py")
     olp = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(olp)

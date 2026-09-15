@@ -3,7 +3,7 @@
 对标 Visual Components / RoboDK 的 eCatalog：一个可停靠的组件库侧栏，
 支持浏览品牌、搜索型号、按负载/臂展/轴数筛选，并一键把机器人载入 3D 视口。
 
-面板只负责"选"，不负责"载" —— 选中后通过 :attr:`robotSelected` 信号把
+面板只负责tr("选")，不负责tr("载") —— 选中后通过 :attr:`robotSelected` 信号把
 URDF 路径抛给主窗口，由主窗口完成加载与联动，保持职责单一。
 
 用法::
@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from .catalog import CatalogEntry, RobotCatalog
+from ..i18n import tr
 
 try:  # 组件库（环境建模）缺失时不阻塞机器人库本身
     from orolp.world.components import COMPONENTS, categories as _component_categories
@@ -102,7 +103,7 @@ RobotLibraryPanel QPushButton:pressed { background-color: #4a4a58; }
 
 # 负载筛选区间（kg）：(显示文本, min, max)
 PAYLOAD_FILTERS = [
-    ("全部负载", None, None),
+    (tr("全部负载"), None, None),
     ("≤ 5 kg", None, 5.0),
     ("5 ~ 20 kg", 5.0, 20.0),
     ("20 ~ 60 kg", 20.0, 60.0),
@@ -111,7 +112,7 @@ PAYLOAD_FILTERS = [
 
 # 臂展筛选区间（mm）
 REACH_FILTERS = [
-    ("全部臂展", None, None),
+    (tr("全部臂展"), None, None),
     ("< 1000 mm", None, 1000.0),
     ("1000 ~ 2000 mm", 1000.0, 2000.0),
     ("> 2000 mm", 2000.0, None),
@@ -172,7 +173,7 @@ class _RobotCard(QFrame):
         name_row.addWidget(name_label)
 
         if not entry.verified:
-            badge = QLabel("参数未核验")
+            badge = QLabel(tr("参数未核验"))
             badge.setStyleSheet(
                 "color: #d0a03a; background-color: #3a2f16; border-radius: 3px; padding: 0 4px;"
             )
@@ -185,7 +186,7 @@ class _RobotCard(QFrame):
 
         # 规格摘要行
         specs = []
-        specs.append(f"{entry.dof} 轴")
+        specs.append(tr("{n} 轴").format(n=entry.dof))
         if entry.payload_kg is not None:
             specs.append(f"{entry.payload_kg:g} kg")
         if entry.reach_mm is not None:
@@ -193,7 +194,7 @@ class _RobotCard(QFrame):
         if entry.repeatability_mm is not None:
             specs.append(f"±{entry.repeatability_mm:g} mm")
         if not specs:
-            specs.append("规格未知")
+            specs.append(tr("规格未知"))
 
         spec_label = QLabel(" · ".join(specs))
         spec_label.setStyleSheet("color: #9a9aab;")
@@ -255,16 +256,16 @@ class RobotLibraryPanel(QWidget):
 
         # --- 搜索框 --- #
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索型号 / 品牌 / 组件…")
+        self.search_edit.setPlaceholderText(tr("搜索型号 / 品牌 / 组件…"))
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._on_filters_changed)
         layout.addWidget(self.search_edit)
 
         # --- 分类（机器人 / 组件） --- #
         self.cat_combo = QComboBox()
-        self.cat_combo.addItem("全部", _CAT_ALL)
-        self.cat_combo.addItem("机器人", _CAT_ROBOT)
-        self.cat_combo.addItem("组件", _CAT_COMPONENT)
+        self.cat_combo.addItem(tr("全部"), _CAT_ALL)
+        self.cat_combo.addItem(tr("机器人"), _CAT_ROBOT)
+        self.cat_combo.addItem(tr("组件"), _CAT_COMPONENT)
         self.cat_combo.currentIndexChanged.connect(self._on_filters_changed)
         layout.addWidget(self.cat_combo)
 
@@ -277,9 +278,9 @@ class RobotLibraryPanel(QWidget):
         row1.addWidget(self.brand_combo, 3)
 
         self.type_combo = QComboBox()
-        self.type_combo.addItem("全部机型", None)
-        self.type_combo.addItem("工业臂", "industrial")
-        self.type_combo.addItem("协作臂", "cobot")
+        self.type_combo.addItem(tr("全部机型"), None)
+        self.type_combo.addItem(tr("工业臂"), "industrial")
+        self.type_combo.addItem(tr("协作臂"), "cobot")
         self.type_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.type_combo.currentIndexChanged.connect(self._on_filters_changed)
         row1.addWidget(self.type_combo, 2)
@@ -321,13 +322,13 @@ class RobotLibraryPanel(QWidget):
         self.stats_label.setFont(stats_font)
         bottom.addWidget(self.stats_label, 1)
 
-        refresh_btn = QPushButton("刷新")
-        refresh_btn.setToolTip("重新扫描 models/ 目录")
+        refresh_btn = QPushButton(tr("刷新"))
+        refresh_btn.setToolTip(tr("重新扫描 models/ 目录"))
         refresh_btn.clicked.connect(self.refresh)
         bottom.addWidget(refresh_btn)
         layout.addLayout(bottom)
 
-        hint = QLabel("拖拽到右侧视口加入场景 · 双击载入")
+        hint = QLabel(tr("拖拽到右侧视口加入场景 · 双击载入"))
         hint.setStyleSheet("color: #6f6f7d;")
         hint_font = QFont()
         hint_font.setPointSize(7)
@@ -337,7 +338,7 @@ class RobotLibraryPanel(QWidget):
     def _populate_brand_filter(self) -> None:
         """填充品牌下拉框（含各自的型号数量）。"""
         self.brand_combo.clear()
-        self.brand_combo.addItem("全部品牌", None)
+        self.brand_combo.addItem(tr("全部品牌"), None)
         for brand_id, display, count in self.catalog.brands():
             self.brand_combo.addItem(f"{display} ({count})", brand_id)
 
@@ -351,7 +352,7 @@ class RobotLibraryPanel(QWidget):
         idx = self.brand_combo.findData(current)
         self.brand_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._apply_filters()
-        self.statusMessage.emit(f"机器组件库：共 {len(self.catalog)} 个型号 / 组件已并入")
+        self.statusMessage.emit(tr("机器组件库：共 {n} 个型号 / 组件已并入").format(n=len(self.catalog)))
 
     def _on_filters_changed(self) -> None:
         if self._updating:
@@ -382,7 +383,7 @@ class RobotLibraryPanel(QWidget):
                     sort_by="brand",
                 )
                 if entries and cat != _CAT_ROBOT:
-                    self._add_header("机器人")
+                    self._add_header(tr("机器人"))
                 last_brand = None
                 for entry in entries:
                     if cat == _CAT_ROBOT and entry.brand_id != last_brand:
@@ -411,7 +412,7 @@ class RobotLibraryPanel(QWidget):
                         self._add_component_item(s)
                         added += 1
 
-            self.stats_label.setText(f"{added} 项")
+            self.stats_label.setText(tr("{n} 项").format(n=added))
         finally:
             self._updating = False
 
@@ -440,7 +441,7 @@ class RobotLibraryPanel(QWidget):
     def _on_selection_changed(self) -> None:
         entry = self._current_entry()
         if entry and entry.urdf_path:
-            self.statusMessage.emit(f"{entry.display_name} — 双击载入")
+            self.statusMessage.emit(tr("{name} — 双击载入").format(name=entry.display_name))
 
     def _on_item_activated(self, item: QListWidgetItem) -> None:
         data = item.data(Qt.UserRole)
@@ -451,7 +452,7 @@ class RobotLibraryPanel(QWidget):
             if entry is None:
                 return
             if not entry.urdf_path or not entry.urdf_path.exists():
-                self.statusMessage.emit(f"{entry.display_name} 的 URDF 不可用")
+                self.statusMessage.emit(tr("{name} 的 URDF 不可用").format(name=entry.display_name))
                 return
             self.robotSelected.emit(str(entry.urdf_path))
         elif data["kind"] == "component":
@@ -504,7 +505,7 @@ class RobotLibraryPanel(QWidget):
         for p in spec.params[:3]:
             summary.append(f"{p.label}: {p.default:g}{p.unit}")
         if not summary:
-            summary.append("固定几何")
+            summary.append(tr("固定几何"))
         sub = QLabel(" · ".join(summary))
         sub.setStyleSheet("color: #9a9aab; font-size: 8pt;")
         text.addWidget(sub)

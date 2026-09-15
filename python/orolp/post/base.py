@@ -37,8 +37,20 @@ from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from ..i18n import tr
 from ..pose import Pose
-from ..program import Motion, MotionType, SetDO, WaitDI, WaitTime
+from ..program import (
+    Motion,
+    MotionType,
+    SetDO,
+    WaitDI,
+    WaitTime,
+    ArcStart,
+    ArcEnd,
+    SprayOn,
+    SprayOff,
+    ForceMode,
+)
 
 __all__ = ["PostConfig", "PostProcessError", "BasePostProcessor"]
 
@@ -150,8 +162,9 @@ class BasePostProcessor(ABC):
 
         if any(not isinstance(m, Motion) for m in motions) and not self._io_adapted():
             print(
-                f"[warning] {self.full_name} 尚未适配 IO 指令，"
-                f"将输出通用伪语法；下装前必须人工核对"
+                tr("[warning] {name} 尚未适配 IO 指令，将输出通用伪语法；下装前必须人工核对").format(
+                    name=self.full_name
+                )
             )
 
         converted: List[Dict[str, Any]] = []
@@ -162,7 +175,9 @@ class BasePostProcessor(ABC):
                 raise
             except Exception as exc:  # 保留异常链，便于定位具体指令
                 raise PostProcessError(
-                    f"{self.full_name}: 第 {i + 1} 条指令转换失败: {exc}"
+                    tr("{name}: 第 {index} 条指令转换失败: {exc}").format(
+                        name=self.full_name, index=i + 1, exc=exc
+                    )
                 ) from exc
 
         context = {
@@ -175,11 +190,19 @@ class BasePostProcessor(ABC):
         }
         try:
             template = self.env.from_string(self._get_template())
-            return template.render(**context)
+            text = template.render(**context)
         except Exception as exc:
             raise PostProcessError(
-                f"{self.full_name}: 模板渲染失败: {exc}"
+                tr("{name}: 模板渲染失败: {exc}").format(name=self.full_name, exc=exc)
             ) from exc
+
+        # 标定摘要（若有）以品牌注释语法挂在文件头：现场拿到 .src/.script 时
+        # 一眼能看到这份程序用的是哪套 TCP 与外参，不必回软件里翻
+        calib_lines = (metadata or {}).get("calibration_lines")
+        if calib_lines:
+            header = "\n".join(self.comment(str(line)) for line in calib_lines)
+            text = f"{header}\n{text}"
+        return text
 
     # ------------------------- 子类实现点 ------------------------- #
 
@@ -247,15 +270,24 @@ class BasePostProcessor(ABC):
             :class:`MotionType.LINEAR`；速度与过渡半径沿用原指令
         """
         if isinstance(motion.target, Pose):
-            return Motion(MotionType.LINEAR, motion.target, speed=motion.speed, blend=motion.blend)
+            return Motion(
+                MotionType.LINEAR, motion.target, speed=motion.speed,
+                blend=motion.blend, velocity=motion.velocity,
+                acceleration=motion.acceleration,
+            )
         joints = [float(v) for v in np.asarray(motion.target, dtype=np.float64).ravel()]
-        return Motion(MotionType.JOINTS, joints, speed=motion.speed, blend=motion.blend)
+        return Motion(
+            MotionType.JOINTS, joints, speed=motion.speed,
+            blend=motion.blend, velocity=motion.velocity,
+            acceleration=motion.acceleration,
+        )
 
     def _convert_spline(self, motion: Motion) -> Dict[str, Any]:
         """SPLINE 的原生转换（默认未启用，子类可覆盖以输出品牌样条指令）。"""
         raise PostProcessError(
-            f"{self.full_name} 尚未实现原生 SPLINE 指令；"
-            f"默认已将其降级为 PTP/LIN（目的地一致）"
+            tr("{name} 尚未实现原生 SPLINE 指令；默认已将其降级为 PTP/LIN（目的地一致）").format(
+                name=self.full_name
+            )
         )
 
     # ------------------------- IO 指令 ------------------------- #
@@ -282,8 +314,10 @@ class BasePostProcessor(ABC):
         if addr:
             return addr
         print(
-            f"[warning] {self.full_name}: 信号 {signal!r} 未映射到物理地址，"
-            f"已输出 TODO 占位（下装前必须补全）"
+            tr(
+                "[warning] {name}: 信号 {signal} 未映射到物理地址，"
+                "已输出 TODO 占位（下装前必须补全）"
+            ).format(name=self.full_name, signal=repr(signal))
         )
         return f"TODO_{signal}"
 
@@ -321,23 +355,91 @@ class BasePostProcessor(ABC):
         """
         return f"SET_DO({self.resolve_signal(signal, io_map)}, {str(value).upper()})"
 
+    def comment(self, text: str) -> str:
+        """品牌注释行前缀。子类按语言覆盖（FANUC/ABB ``!``、KUKA ``;``）。
+
+        返回值**不含行首缩进**，调用方拼接 ``line + "  " + self.comment(t)``。
+        """
+        return f"# {text}"
+
     def format_waitdi(
         self,
         signal: str,
         value: bool,
         timeout: float,
         io_map: Dict[str, str],
+        trigger: str = "level",
     ) -> str:
-        """等待数字输入达到期望电平。``timeout <= 0`` 表示无限等待。"""
+        """等待数字输入达到期望电平。``timeout <= 0`` 表示无限等待。
+
+        ``trigger`` 为 ``"rising"``/``"falling"``（边沿触发）时，默认实现
+        降级为电平等待并留 TODO 注释——边沿检测多数控制器需要条件监控或
+        看门狗实现，不能静默当成电平。子类有原生边沿指令可覆盖。
+        """
         addr = self.resolve_signal(signal, io_map)
         level = str(value).upper()
         if timeout and timeout > 0:
-            return f"WAIT_DO({addr}, {level}, TIMEOUT={timeout:.3f})"
-        return f"WAIT_DO({addr}, {level})"
+            text = f"WAIT_DO({addr}, {level}, TIMEOUT={timeout:.3f})"
+        else:
+            text = f"WAIT_DO({addr}, {level})"
+        if trigger != "level":
+            text += (
+                f"  {self.comment(tr('TODO: 原语义为 {trigger} 边沿触发，需条件监控实现，当前按电平输出，请人工核对').format(trigger=trigger))}"
+            )
+        return text
 
     def format_waittime(self, seconds: float) -> str:
         """纯延时（秒）。"""
         return f"WAIT_TIME({seconds:.3f})"
+
+    # ------------------------- 工艺指令（起弧/熄弧/喷涂） ------------------------- #
+    # 默认实现：降级为品牌 SetDO 语法 + 参数注释（"通用伪语法"层次）。
+    # 有原生工艺指令的品牌子类覆盖（FANUC ARCON/ARCOFF）。
+
+    def format_arc_start(self, process: Any, io_map: Dict[str, str]) -> str:
+        """起弧。默认：置位起弧信号 + 工艺参数注释。"""
+        text = self.format_setdo(process.arc_start_signal, True, io_map)
+        if process.gas_preflow > 0:
+            text += f"  {self.comment(tr('起弧前保护气预流 {seconds:.1f}s').format(seconds=process.gas_preflow))}"
+        text += f"\n{self.comment(process.summary())}"
+        return text
+
+    def format_arc_end(self, process: Any, io_map: Dict[str, str]) -> str:
+        """熄弧。默认：复位起弧信号 + 后流注释。"""
+        sig = process.arc_end_signal if process is not None else "arc_end"
+        text = self.format_setdo(sig, False, io_map)
+        if process is not None and process.gas_postflow > 0:
+            text += f"  {self.comment(tr('熄弧后保护气滞流 {seconds:.1f}s').format(seconds=process.gas_postflow))}"
+        return text
+
+    def format_spray_on(self, process: Any, io_map: Dict[str, str]) -> str:
+        """喷涂开。默认：置位喷涂信号 + 参数注释。"""
+        text = self.format_setdo(process.spray_on_signal, True, io_map)
+        return text + f"\n{self.comment(process.summary())}"
+
+    def format_spray_off(self, process: Any, io_map: Dict[str, str]) -> str:
+        """喷涂关。"""
+        sig = process.spray_off_signal if process is not None else "spray_off"
+        return self.format_setdo(sig, False, io_map)
+
+    # ------------------------- 力控指令（v1.0.2） ------------------------- #
+    # 默认实现：输出力控参数 + 显式 TODO（"通用伪语法"层次）。
+    # 有原生力控指令的品牌子类覆盖（UR force_mode、ABB FCRefForce/FCAct）。
+    # KUKA/FANUC 的力控指令随选件版本而变，拿不到权威手册前绝不臆造语法。
+
+    def format_force_mode(self, spec: Any) -> str:
+        """进入力控。默认：参数注释 + 伪指令 + TODO。"""
+        text = f"FORCE_MODE_START({spec.summary()})"
+        todo = tr(
+            "TODO: 该品牌未适配原生力控指令（指令名随选件/版本而变），"
+            "请按上述参数对照品牌手册人工实现"
+        )
+        text += f"\n{self.comment(todo)}"
+        return text
+
+    def format_force_mode_end(self) -> str:
+        """退出力控。默认：伪指令。"""
+        return "FORCE_MODE_END()"
 
     def _dispatch_io(self, item: Any, io_map: Dict[str, str]) -> Dict[str, Any]:
         """把一条 IO / 流程指令转换为模板可用的字典。
@@ -354,13 +456,33 @@ class BasePostProcessor(ABC):
             return {
                 "cmd": "WAITDI",
                 "text": self.format_waitdi(
-                    item.signal, item.value, item.timeout, io_map
+                    item.signal, item.value, item.timeout, io_map, item.trigger
                 ),
             }
         if isinstance(item, WaitTime):
             return {"cmd": "WAITTIME", "text": self.format_waittime(item.seconds)}
+        if isinstance(item, ArcStart):
+            return {"cmd": "ARCSTART", "text": self.format_arc_start(item.process, io_map)}
+        if isinstance(item, ArcEnd):
+            return {"cmd": "ARCEND", "text": self.format_arc_end(item.process, io_map)}
+        if isinstance(item, SprayOn):
+            return {"cmd": "SPRAYON", "text": self.format_spray_on(item.process, io_map)}
+        if isinstance(item, SprayOff):
+            return {"cmd": "SPRAYOFF", "text": self.format_spray_off(item.process, io_map)}
+        if isinstance(item, ForceMode):
+            if item.end:
+                return {"cmd": "FORCEMODEEND", "text": self.format_force_mode_end()}
+            if item.spec is None:
+                raise PostProcessError(
+                    tr("{name}: 进入力控的 ForceMode 指令缺少 ComplianceSpec").format(
+                        name=self.full_name
+                    )
+                )
+            return {"cmd": "FORCEMODE", "text": self.format_force_mode(item.spec)}
         raise PostProcessError(
-            f"{self.full_name}: 不支持的指令类型: {type(item).__name__}"
+            tr("{name}: 不支持的指令类型: {type}").format(
+                name=self.full_name, type=type(item).__name__
+            )
         )
 
     # ------------------------- 格式化工具 ------------------------- #
@@ -404,7 +526,9 @@ class BasePostProcessor(ABC):
             mat = np.eye(4)
             mat[:3, 3] = arr
             return mat
-        raise PostProcessError(f"无法识别的目标表示，长度 {arr.size}（期望 3/6/16）")
+        raise PostProcessError(
+            tr("无法识别的目标表示，长度 {size}（期望 3/6/16）").format(size=arr.size)
+        )
 
     def fmt_pose(self, target: Any, order: str = "xyz") -> str:
         """格式化笛卡尔位姿为 ``x, y, z, rx, ry, rz``。
@@ -435,19 +559,23 @@ class BasePostProcessor(ABC):
             rx = np.arctan2(R[2, 1], R[2, 2])
             rz = np.arctan2(R[1, 0], R[0, 0])
         else:
-            raise PostProcessError(f"不支持的欧拉角顺序: {order}")
+            raise PostProcessError(tr("不支持的欧拉角顺序: {order}").format(order=order))
 
         if self.config.linear_unit == "m":
             xyz = xyz / 1000.0
         elif self.config.linear_unit != "mm":
-            raise PostProcessError(f"不支持的线位移单位: {self.config.linear_unit}")
+            raise PostProcessError(
+                tr("不支持的线位移单位: {unit}").format(unit=self.config.linear_unit)
+            )
 
         if self.config.angle_unit == "rad":
             pass  # 上述欧拉角本身即弧度
         elif self.config.angle_unit == "deg":
             rx, ry, rz = np.degrees([rx, ry, rz])
         else:
-            raise PostProcessError(f"不支持的角度单位: {self.config.angle_unit}")
+            raise PostProcessError(
+                tr("不支持的角度单位: {unit}").format(unit=self.config.angle_unit)
+            )
 
         p = self.config.precision
         return f"{xyz[0]:.{p}f}, {xyz[1]:.{p}f}, {xyz[2]:.{p}f}, {rx:.{p}f}, {ry:.{p}f}, {rz:.{p}f}"
@@ -492,7 +620,9 @@ class BasePostProcessor(ABC):
         if self.config.angle_unit == "deg":
             rotvec = np.degrees(rotvec)
         elif self.config.angle_unit != "rad":
-            raise PostProcessError(f"不支持的角度单位: {self.config.angle_unit}")
+            raise PostProcessError(
+                tr("不支持的角度单位: {unit}").format(unit=self.config.angle_unit)
+            )
         p = self.config.precision
         return (
             f"{xyz[0]:.{p}f}, {xyz[1]:.{p}f}, {xyz[2]:.{p}f}, "

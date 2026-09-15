@@ -1,4 +1,5 @@
 from .base import BasePostProcessor, PostConfig, PostProcessError
+from ..i18n import tr
 from ..program import Motion
 
 
@@ -48,7 +49,7 @@ class HuiChuanInoTeachPostProcessor(BasePostProcessor):
             }
         if self.is_circular(motion):
             if motion.via is None:
-                raise PostProcessError("InoTeach 圆弧运动需要提供 via 中间点")
+                raise PostProcessError(tr("InoTeach 圆弧运动需要提供 via 中间点"))
             return {
                 "cmd": "MOVC",
                 "via": self.fmt_pose(motion.via, order="zyx"),
@@ -56,7 +57,7 @@ class HuiChuanInoTeachPostProcessor(BasePostProcessor):
                 "speed": f"{motion.speed:.1f}",
                 "zone": f"PL{int(round(motion.blend))}" if motion.blend > 0 else "PL0",
             }
-        raise PostProcessError(f"InoTeach 不支持的运动类型: {motion.type}")
+        raise PostProcessError(tr("InoTeach 不支持的运动类型: {type}").format(type=motion.type))
 
     def _get_template(self) -> str:
         return """# RobotWorld generated InoTeach program
@@ -65,7 +66,7 @@ class HuiChuanInoTeachPostProcessor(BasePostProcessor):
 
 PROGRAM {{ meta.program_name|default('OROLP_PROG') }}
     {% for wp in waypoints %}
-    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
     {{ wp.text }}
     {% elif wp.cmd == 'MOVC' %}
     {{ wp.cmd }} {{ wp.via }}, {{ wp.target }}, Speed={{ wp.speed }}, {{ wp.zone }}

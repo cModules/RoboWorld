@@ -43,7 +43,7 @@
 ### P0 — 图标与打包（已完成）
 
 - [x] `_set_window_icon` 追加应用级图标
-- [x] `rw.spec` 新增 macOS `BUNDLE` 段（`CFBundleName` 等）
+- [x] `app.spec` 新增 macOS `BUNDLE` 段（`CFBundleName` 等）
 - [x] 由 `logo.png` 生成 `logo.icns`（1024×1024）
 - [x] 打包验证 `dist/RobotWorld.app`
 - [x] logo 替换为新设计并做圆角（1024×1024、四角透明）
@@ -101,7 +101,7 @@
 |---|---|
 | 面板内容超出可视高度被裁切 | 统一套 `QScrollArea`，每次改动后探针复测 |
 | `cnb` 推送含二进制时连接中断 | 用 `git -c http.postBuffer=524288000 push`（单次生效，不改配置） |
-| `logo.icns` 由 `logo.png` 派生，可能过期 | 生成命令已写入 `rw.spec` 头部注释 |
+| `logo.icns` 由 `logo.png` 派生，可能过期 | 生成命令已写入 `app.spec` 头部注释 |
 
 ## 6. 实施记录
 

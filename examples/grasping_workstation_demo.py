@@ -13,7 +13,7 @@
     python examples/grasping_workstation_demo.py
     # 或未安装 orolp 时：PYTHONPATH=python python examples/grasping_workstation_demo.py
 
-GUI 对照：rw.py 菜单 File → 抓取工作站演示（一键）(&D)。
+GUI 对照：app.py 菜单 File → 抓取工作站演示（一键）(&D)。
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
 
 from orolp import ProgramBuilder, Robot  # noqa: E402
 from orolp.pickplace import gripper_action_for  # noqa: E402
+from orolp.planner import ENVELOPE_TOLERANCE_MM, TrajectoryPlanner  # noqa: E402
 from orolp.world.demo import demo_pick_place_points  # noqa: E402
 from orolp.world.templates import build_grasping_workstation  # noqa: E402
 
@@ -89,21 +90,39 @@ def main() -> int:
     print("    语义: " + " → ".join(t.name for t in types))
 
     # 3) 构建程序（自动插入夹爪 IO）并校验
+    #
+    # 干涉判定用的是 URDF ``<collision>`` 里的**厂商简化包络体**（UR5e 是
+    # 7 个柱/盒），它比真实零件胖：前臂包络盒 59.7×49mm，而真机是 Ø54mm
+    # 圆管，盒角外扩最多约 11.6mm。所以这里按 ENVELOPE_TOLERANCE_MM 放行
+    # "包络接触"，只把更深的穿透算撞机——否则每个 6 轴机器人的程序都会
+    # 因为腕部/前臂的包络互相贴合而满屏报错。
     program = build_demo_program(robot, cell)
-    report = program.validate(scene=cell.scene)
+    planner = TrajectoryPlanner(robot, scene=cell.scene)
+    report = planner.validate(program, margin=-ENVELOPE_TOLERANCE_MM)
+    traj = planner.plan(program)
+    # 严格口径下（margin=0）的接触清单 = 被容差放行的"包络接触"
+    envelope_contacts = planner.check_trajectory_collisions(traj, margin=0.0)
     n_io = sum(
         1
         for item in program.items
         if type(item).__name__ in ("SetDO", "WaitDI", "WaitTime")
     )
-    print(f"\n[3] 程序校验: {'通过' if report.ok else '存在错误'}")
+    print(f"\n[3] 程序校验: {'通过' if report.ok else '存在错误'}"
+          f"（干涉按包络容差 {ENVELOPE_TOLERANCE_MM:g} mm 判定）")
+    if envelope_contacts:
+        print(f"    包络接触 {len(envelope_contacts)} 处"
+              f"（穿透 ≤{ENVELOPE_TOLERANCE_MM:g} mm，厂商包络体是保守模型、"
+              f"非真撞；实机落地前建议现场复核）")
+        for hit in envelope_contacts[:4]:
+            print(f"      ~ {hit}")
+        if len(envelope_contacts) > 4:
+            print(f"      ~ …另有 {len(envelope_contacts) - 4} 处")
     if not report.ok:
         for err in report.errors:
             print(f"    - {err}")
     print(f"    指令数: {len(program.items)}（含 IO 指令 {n_io} 条）")
 
     # 4) 轨迹仿真 → 节拍
-    traj = program.simulate(collision_check=False)
     cycle = traj.duration()
     print(f"\n[4] 仿真完成: {len(traj.waypoints)} 个路点，节拍 {cycle:.2f} s")
 
@@ -118,7 +137,7 @@ def main() -> int:
 
     print("=" * 62)
     print("演示完成：模板场景 + IK 示教 + 夹爪 IO + 节拍 + 4 品牌出码")
-    print("GUI 一键入口：rw.py 菜单 File → 抓取工作站演示（一键）")
+    print("GUI 一键入口：app.py 菜单 File → 抓取工作站演示（一键）")
     print("=" * 62)
     return 0 if report.ok else 1
 

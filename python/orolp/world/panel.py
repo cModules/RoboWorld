@@ -17,6 +17,7 @@ from PySide6 import QtCore, QtWidgets
 
 from .components import COMPONENTS
 from .scene import Scene, ROBOT_NAME
+from ..i18n import tr
 
 __all__ = ["ScenePanel"]
 
@@ -91,56 +92,56 @@ class ScenePanel(QtWidgets.QWidget):
         root.setSpacing(5)
 
         # ---- 场景树 ----
-        tree_group = QtWidgets.QGroupBox("场景对象")
+        tree_group = QtWidgets.QGroupBox(tr("场景对象"))
         tree_layout = QtWidgets.QVBoxLayout(tree_group)
 
         self.tree = QtWidgets.QTreeWidget()
-        self.tree.setHeaderLabels(["对象", "类型"])
+        self.tree.setHeaderLabels([tr("对象"), tr("类型")])
         self.tree.setRootIsDecorated(True)
         self.tree.setMaximumHeight(160)
         self.tree.currentItemChanged.connect(self._on_tree_selected)
         tree_layout.addWidget(self.tree)
 
         btn_row = QtWidgets.QHBoxLayout()
-        self.remove_btn = QtWidgets.QPushButton("删除")
+        self.remove_btn = QtWidgets.QPushButton(tr("删除"))
         self.remove_btn.clicked.connect(self._remove_selected)
         btn_row.addWidget(self.remove_btn)
-        self.clear_btn = QtWidgets.QPushButton("清空")
+        self.clear_btn = QtWidgets.QPushButton(tr("清空"))
         self.clear_btn.clicked.connect(self._clear_scene)
         btn_row.addWidget(self.clear_btn)
         tree_layout.addLayout(btn_row)
         root.addWidget(tree_group)
 
         # ---- 碰撞检查 ----
-        check_group = QtWidgets.QGroupBox("干涉检查")
+        check_group = QtWidgets.QGroupBox(tr("干涉检查"))
         check_layout = QtWidgets.QVBoxLayout(check_group)
-        self.check_btn = QtWidgets.QPushButton("检查干涉 (F6)")
+        self.check_btn = QtWidgets.QPushButton(tr("检查干涉 (F6)"))
         self.check_btn.clicked.connect(self.run_collision_check)
         check_layout.addWidget(self.check_btn)
-        self.collision_label = QtWidgets.QLabel("未检查")
+        self.collision_label = QtWidgets.QLabel(tr("未检查"))
         self.collision_label.setWordWrap(True)
         check_layout.addWidget(self.collision_label)
         root.addWidget(check_group)
 
         # ---- 场景文件 ----
         file_row = QtWidgets.QHBoxLayout()
-        self.save_btn = QtWidgets.QPushButton("保存场景…")
+        self.save_btn = QtWidgets.QPushButton(tr("保存场景…"))
         self.save_btn.clicked.connect(self.save_scene)
-        self.load_btn = QtWidgets.QPushButton("加载场景…")
+        self.load_btn = QtWidgets.QPushButton(tr("加载场景…"))
         self.load_btn.clicked.connect(self.load_scene)
         file_row.addWidget(self.save_btn)
         file_row.addWidget(self.load_btn)
         root.addLayout(file_row)
 
-        self.stats_label = QtWidgets.QLabel("0 个对象")
+        self.stats_label = QtWidgets.QLabel(tr("0 个对象"))
         self.stats_label.setStyleSheet("color:#7f8192; font-size:11px;")
         root.addWidget(self.stats_label)
 
         # ---- 工艺时序（泳道图占位） ---- #
-        swim_group = QtWidgets.QGroupBox("工艺时序（泳道图）")
+        swim_group = QtWidgets.QGroupBox(tr("工艺时序（泳道图）"))
         swim_layout = QtWidgets.QVBoxLayout(swim_group)
         swim_hint = QtWidgets.QLabel(
-            "拖入对象即可生成泳道，按时间轴编排工艺步骤，后续将驱动“工艺 → 机器动作”的自动映射。"
+            tr("拖入对象即可生成泳道，按时间轴编排工艺步骤，后续将驱动“工艺 → 机器动作”的自动映射。")
         )
         swim_hint.setWordWrap(True)
         swim_hint.setStyleSheet("color:#7f8192; font-size:11px;")
@@ -166,40 +167,56 @@ class ScenePanel(QtWidgets.QWidget):
         try:
             obj = self.scene.add(component_id, params=params)
         except ValueError as exc:
-            self.statusMessage.emit(f"添加失败: {exc}")
+            self.statusMessage.emit(tr("添加失败: {exc}").format(exc=exc))
             return None
         self._refresh_tree()
         self.sceneChanged.emit()
         if select:
             self._select_object(obj.name)
-        self.statusMessage.emit(f"已添加 {obj.name}")
+        self.statusMessage.emit(tr("已添加 {name}").format(name=obj.name))
         return obj
 
     # --------------------------- 场景树 --------------------------- #
 
     def _refresh_tree(self) -> None:
-        self.tree.clear()
-        items: Dict[str, QtWidgets.QTreeWidgetItem] = {}
+        # 编辑参数时 objectChanged 会触发本函数；clear() 会让当前选中项变 None，
+        # 进而误发 objectSelected(None) 把右侧属性面板关掉。先记住选中项并屏蔽信号。
+        selected = self._selected
+        self.tree.blockSignals(True)
+        try:
+            self.tree.clear()
+            items: Dict[str, QtWidgets.QTreeWidgetItem] = {}
 
-        # 先建所有节点
-        for name, obj in self.scene.objects.items():
-            if name == ROBOT_NAME:
-                kind = "机器人"
-            else:
-                kind = COMPONENTS[obj.component_id].name if obj.component_id else "自定义"
-            items[name] = QtWidgets.QTreeWidgetItem([name, kind])
-            items[name].setData(0, QtCore.Qt.UserRole, name)
+            # 先建所有节点
+            for name, obj in self.scene.objects.items():
+                if name == ROBOT_NAME:
+                    kind = tr("机器人")
+                else:
+                    kind = COMPONENTS[obj.component_id].name if obj.component_id else tr("自定义")
+                items[name] = QtWidgets.QTreeWidgetItem([name, kind])
+                items[name].setData(0, QtCore.Qt.UserRole, name)
 
-        # 再按父子关系挂载（父不存在则挂根）
-        for name, obj in self.scene.objects.items():
-            parent_item = items.get(obj.parent) if obj.parent else None
-            if parent_item is not None:
-                parent_item.addChild(items[name])
-            else:
-                self.tree.addTopLevelItem(items[name])
+            # 再按父子关系挂载（父不存在则挂根）
+            for name, obj in self.scene.objects.items():
+                parent_item = items.get(obj.parent) if obj.parent else None
+                if parent_item is not None:
+                    parent_item.addChild(items[name])
+                else:
+                    self.tree.addTopLevelItem(items[name])
 
-        self.tree.expandAll()
-        self.stats_label.setText(f"{len(self.scene)} 个对象")
+            self.tree.expandAll()
+        finally:
+            self.tree.blockSignals(False)
+
+        # 恢复选中项（若对象仍存在）。恢复时也屏蔽信号，避免重复触发当前项变更。
+        if selected and selected in self.scene.objects:
+            self.tree.blockSignals(True)
+            self._select_object(selected)
+            self.tree.blockSignals(False)
+        else:
+            self._selected = None
+
+        self.stats_label.setText(tr("{n} 个对象").format(n=len(self.scene)))
         if hasattr(self, "swimlane_view"):
             self.swimlane_view.set_scene(self.scene)
 
@@ -227,11 +244,11 @@ class ScenePanel(QtWidgets.QWidget):
         self._refresh_tree()
         self.sceneChanged.emit()
         self.objectSelected.emit(None)
-        self.statusMessage.emit("已删除对象")
+        self.statusMessage.emit(tr("已删除对象"))
 
     def _clear_scene(self) -> None:
         ret = QtWidgets.QMessageBox.question(
-            self, "清空场景", "确定要移除所有场景对象吗？（机器人不受影响）"
+            self, tr("清空场景"), tr("确定要移除所有场景对象吗？（机器人不受影响）")
         )
         if ret != QtWidgets.QMessageBox.Yes:
             return
@@ -240,7 +257,7 @@ class ScenePanel(QtWidgets.QWidget):
         self._refresh_tree()
         self.sceneChanged.emit()
         self.objectSelected.emit(None)
-        self.statusMessage.emit("场景已清空")
+        self.statusMessage.emit(tr("场景已清空"))
 
     # --------------------------- 碰撞检查 --------------------------- #
 
@@ -253,28 +270,28 @@ class ScenePanel(QtWidgets.QWidget):
             否则同一帧要把 SAT 算两遍。
         """
         if not self.scene.has_robot and len(self.scene) == 0:
-            self.collision_label.setText("场景为空")
+            self.collision_label.setText(tr("场景为空"))
             self.collision_label.setStyleSheet("color:#9a9bab;")
             self.collisionResult.emit(0)
             return []
         try:
             hits = self.scene.check_collisions(margin=-0.5)
         except Exception as exc:
-            self.collision_label.setText(f"检查失败: {exc}")
+            self.collision_label.setText(tr("检查失败: {exc}").format(exc=exc))
             self.collision_label.setStyleSheet("color:#e0603a;")
             self.collisionResult.emit(0)
             return []
 
         if not hits:
-            self.collision_label.setText("✓ 无干涉")
+            self.collision_label.setText(tr("✓ 无干涉"))
             self.collision_label.setStyleSheet("color:#4ec97a;")
-            self.statusMessage.emit("干涉检查通过：无干涉")
+            self.statusMessage.emit(tr("干涉检查通过：无干涉"))
         else:
-            shown = "、".join(str(h) for h in hits[:6])
-            more = f" …等共 {len(hits)} 处" if len(hits) > 6 else ""
-            self.collision_label.setText(f"✗ {len(hits)} 处干涉：{shown}{more}")
+            shown = tr("、").join(str(h) for h in hits[:6])
+            more = tr(" …等共 {n} 处").format(n=len(hits)) if len(hits) > 6 else ""
+            self.collision_label.setText(tr("✗ {n} 处干涉：{shown}{more}").format(n=len(hits), shown=shown, more=more))
             self.collision_label.setStyleSheet("color:#e0603a;")
-            self.statusMessage.emit(f"发现 {len(hits)} 处干涉")
+            self.statusMessage.emit(tr("发现 {n} 处干涉").format(n=len(hits)))
         self.collisionResult.emit(len(hits))
         return hits
 
@@ -282,32 +299,32 @@ class ScenePanel(QtWidgets.QWidget):
 
     def save_scene(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "保存场景", "workcell.json", "场景文件 (*.json)"
+            self, tr("保存场景"), "workcell.json", tr("场景文件 (*.json)")
         )
         if not path:
             return
         try:
             self.scene.save(path)
         except OSError as exc:
-            QtWidgets.QMessageBox.critical(self, "保存失败", str(exc))
+            QtWidgets.QMessageBox.critical(self, tr("保存失败"), str(exc))
             return
-        self.statusMessage.emit(f"场景已保存: {Path(path).name}")
+        self.statusMessage.emit(tr("场景已保存: {name}").format(name=Path(path).name))
 
     def load_scene(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "加载场景", "", "场景文件 (*.json)"
+            self, tr("加载场景"), "", tr("场景文件 (*.json)")
         )
         if not path:
             return
         try:
             self.scene = Scene.load(path)
         except (OSError, ValueError) as exc:
-            QtWidgets.QMessageBox.critical(self, "加载失败", str(exc))
+            QtWidgets.QMessageBox.critical(self, tr("加载失败"), str(exc))
             return
         self._selected = None
         self._refresh_tree()
         self.sceneChanged.emit()
-        self.statusMessage.emit(f"场景已加载: {Path(path).name}（{len(self.scene)} 个对象）")
+        self.statusMessage.emit(tr("场景已加载: {name}（{n} 个对象）").format(name=Path(path).name, n=len(self.scene)))
 
     # --------------------------- 外部接口 --------------------------- #
 
@@ -331,7 +348,7 @@ class ScenePanel(QtWidgets.QWidget):
             self._refresh_tree()
             self.sceneChanged.emit()
         except Exception as exc:
-            self.statusMessage.emit(f"机器人加载失败: {exc}")
+            self.statusMessage.emit(tr("机器人加载失败: {exc}").format(exc=exc))
 
     def update_robot_joints(self, joints_deg: List[float]) -> None:
         """同步机器人关节角（供视口拖动时调用）。"""
@@ -350,7 +367,7 @@ class _ProcessSwimlane(QtWidgets.QWidget):
         super().__init__(parent)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
-        self.header = QtWidgets.QLabel("时间 →")
+        self.header = QtWidgets.QLabel(tr("时间 →"))
         self.header.setStyleSheet("color:#9a9bab; font-size:10px;")
         layout.addWidget(self.header)
         self.list_widget = QtWidgets.QListWidget()
@@ -361,4 +378,4 @@ class _ProcessSwimlane(QtWidgets.QWidget):
         for name in scene.objects:
             self.list_widget.addItem(f"▢ {name}")
         if getattr(scene, "has_robot", False):
-            self.list_widget.addItem("▢ 机器人")
+            self.list_widget.addItem(tr("▢ 机器人"))

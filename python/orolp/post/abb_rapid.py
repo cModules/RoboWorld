@@ -1,6 +1,7 @@
 from typing import Dict
 
 from .base import BasePostProcessor, PostConfig, PostProcessError
+from ..i18n import tr
 from ..program import Motion
 
 
@@ -38,27 +39,27 @@ class ABBRapidPostProcessor(BasePostProcessor):
             return {
                 "cmd": "MoveJ",
                 "target": f"[{self.fmt_joints(motion.target)}]",
-                "speed": f"v{int(round(motion.speed))}",
+                "speed": f"v{int(round(motion.velocity)) if motion.velocity is not None else int(round(motion.speed))}",
                 "zone": f"z{int(round(motion.blend))}" if motion.blend > 0 else "fine",
             }
         if self.is_linear(motion):
             return {
                 "cmd": "MoveL",
                 "target": f"[{self.fmt_pose(motion.target, order='zyx')}]",
-                "speed": f"v{int(round(motion.speed))}",
+                "speed": f"v{int(round(motion.velocity)) if motion.velocity is not None else int(round(motion.speed))}",
                 "zone": f"z{int(round(motion.blend))}" if motion.blend > 0 else "fine",
             }
         if self.is_circular(motion):
             if motion.via is None:
-                raise PostProcessError("RAPID 圆弧运动需要提供 via 中间点")
+                raise PostProcessError(tr("RAPID 圆弧运动需要提供 via 中间点"))
             return {
                 "cmd": "MoveC",
                 "via": f"[{self.fmt_pose(motion.via, order='zyx')}]",
                 "target": f"[{self.fmt_pose(motion.target, order='zyx')}]",
-                "speed": f"v{int(round(motion.speed))}",
+                "speed": f"v{int(round(motion.velocity)) if motion.velocity is not None else int(round(motion.speed))}",
                 "zone": f"z{int(round(motion.blend))}" if motion.blend > 0 else "fine",
             }
-        raise PostProcessError(f"RAPID 不支持的运动类型: {motion.type}")
+        raise PostProcessError(tr("RAPID 不支持的运动类型: {type}").format(type=motion.type))
 
     # ------------------------- IO 指令（RAPID） ------------------------- #
 
@@ -77,22 +78,60 @@ class ABBRapidPostProcessor(BasePostProcessor):
         value: bool,
         timeout: float,
         io_map: Dict[str, str],
+        trigger: str = "level",
     ) -> str:
         """``WaitDI <符号名>, 1;``
 
         RAPID 的 ``WaitDI`` 有可选 ``\\MaxTime``，超时到点会置 ``ERRNO``；
-        这里照实输出，不做静默丢弃。
+        这里照实输出，不做静默丢弃。边沿触发 RAPID 需 ``WaitUntil`` 配合
+        边沿检测逻辑，降级留 TODO。
         """
         addr = self.resolve_signal(signal, io_map)
         name = self.io_symbol(signal, addr)
         level = "1" if value else "0"
+        text = f"WaitDI {name}, {level}"
         if timeout and timeout > 0:
-            return f"WaitDI {name}, {level} \\MaxTime:={timeout:.3f};      ! {addr}"
-        return f"WaitDI {name}, {level};      ! {addr}"
+            text += f" \\MaxTime:={timeout:.3f}"
+        text += f";      ! {addr}"
+        if trigger != "level":
+            text += f"      ! " + tr("TODO: 原语义为 {trigger} 边沿触发，需 WaitUntil 边沿逻辑实现，当前按电平输出，请人工核对").format(trigger=trigger)
+        return text
+
+    def comment(self, text: str) -> str:
+        """RAPID 注释前缀 ``!``。"""
+        return f"! {text}"
 
     def format_waittime(self, seconds: float) -> str:
         """``WaitTime n;``"""
         return f"WaitTime {seconds:.3f};"
+
+    # ------------------------- 力控指令（RobotWare Force Control） ------------------------- #
+
+    def format_force_mode(self, spec) -> str:
+        """``FCRefForce`` + ``FCAct``（RobotWare 7/8 Force Control 选件）。
+
+        过程名取自《Application manual - Force Control》；实参语法随选件
+        版本有差异，故附显式 TODO 提示下装前对照手册核对，不静默输出。
+        """
+        w = spec.wrench
+        return "\n".join(
+            [
+                self.comment(
+                    tr(
+                        "TODO: ABB Force Control 为 RobotWare 选件，FCRefForce/FCAct 的"
+                        "实参语法请对照《Application manual - Force Control》核对"
+                    )
+                ),
+                f"FCRefForce [{w[0]:.3f}, {w[1]:.3f}, {w[2]:.3f}, "
+                f"{w[3]:.3f}, {w[4]:.3f}, {w[5]:.3f}];",
+                "FCAct;",
+                self.comment(spec.summary()),
+            ]
+        )
+
+    def format_force_mode_end(self) -> str:
+        """``FCDeact``（退出力控）。"""
+        return "FCDeact;"
 
     def _get_template(self) -> str:
         return """MODULE {{ meta.program_name|default('OROLPModule') }}
@@ -101,7 +140,7 @@ class ABBRapidPostProcessor(BasePostProcessor):
 
     PROC main()
         {% for wp in waypoints %}
-        {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+        {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
         {{ wp.text }}
         {% elif wp.cmd == 'MoveC' %}
         {{ wp.cmd }} {{ wp.via }}, {{ wp.target }}, {{ wp.speed }}, {{ wp.zone }}, tool0;

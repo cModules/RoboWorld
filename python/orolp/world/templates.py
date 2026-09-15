@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -41,10 +42,38 @@ __all__ = [
     "list_templates",
     "build_template",
     "load_workcell",
+    "repo_root",
 ]
 
-#: 仓库根目录（python/orolp/world/templates.py 向上三级）
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def repo_root() -> Path:
+    """资源根目录（源码树 = 仓库根；冻结包 = ``sys._MEIPASS``）。
+
+    模板里的 URDF 路径是**仓库相对路径**（如 ``models/ur5e/ur5e.urdf``），
+    需要挂到资源根上；两种运行方式下这个根并不相同：
+
+    * 源码运行：``python/orolp/world/templates.py`` 向上三级即仓库根；
+    * PyInstaller 冻结：``app.spec`` 的 datas 把 ``models/`` ``examples/``
+      铺在 ``sys._MEIPASS`` 根，而 ``__file__`` 也在 ``_MEIPASS`` 内，
+      上三级会跑到包外——必须显式用 ``_MEIPASS``，否则打包后的应用
+      「一键抓取工作站」找不到 UR5e（2026-09-14 里程碑打包时发现）。
+    """
+    here = Path(__file__).resolve()
+    candidates: List[Path] = []
+    if len(here.parents) > 3:
+        candidates.append(here.parents[3])
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass))
+    candidates.append(Path.cwd())
+    for cand in candidates:
+        if (cand / "models").is_dir():
+            return cand
+    return candidates[0]
+
+
+#: 资源根目录（见 :func:`repo_root`；保留同名常量以兼容既有引用）
+REPO_ROOT = repo_root()
 
 #: 抓取工作站模板 id
 GRASPING_WORKSTATION_ID = "grasping_workstation"

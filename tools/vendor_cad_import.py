@@ -78,6 +78,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: 抓取产物根目录。体量大且可重新生成，不进版本库。
 VENDOR_DIR = REPO_ROOT / "assets" / "vendor"
 
+# 复用库侧的 OCP 版本兼容层（TopoDS.Face_s → Face 这类改名只在那里改一次），
+# 见 python/orolp/ocpcompat.py 的模块说明。
+if str(REPO_ROOT / "python") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "python"))
+
+from orolp.ocpcompat import bbox_of, face_of, triangulation_of  # noqa: E402
+
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
 
@@ -312,14 +319,11 @@ def convert(
     from OCP.TopAbs import TopAbs_FACE
     from OCP.TopExp import TopExp_Explorer
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
-    from OCP.TopoDS import TopoDS, TopoDS_Iterator
+    from OCP.TopoDS import TopoDS_Iterator
     from OCP.StlAPI import StlAPI_Writer
-    from OCP.BRep import BRep_Tool
     from OCP.TopLoc import TopLoc_Location
     from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
     from OCP.gp import gp_Trsf, gp_Pnt, gp_Dir, gp_Ax3
-    from OCP.Bnd import Bnd_Box
-    from OCP.BRepBndLib import BRepBndLib
 
     reader = STEPControl_Reader()
     if reader.ReadFile(str(step_path)) != IFSelect_RetDone:
@@ -331,7 +335,8 @@ def convert(
     # gp_Ax3(原点, 主方向/Z, X 方向)，Y 由右手系导出（Y = Z × X）。
     #   src: 主方向取原 Y（竖直轴），X 不变
     #   dst: 主方向取新 Z（竖直轴），X 不变
-    # 于是原 (x,y,z) → 新 (x,-z,y)：竖直 Y 变 Z，原 Z 变 -Y，右手系保持。
+    # 实际点映射为 (x,y,z) → (x,z,-y)：源的竖直轴 Y 落到目标的竖直轴 Z 上、方向相反，
+    # 右手系保持（det > 0，不是镜像）；轴符号由已验证的渲染结果决定。
     trsf = gp_Trsf()
     if swap_yz:
         src_ax = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0))
@@ -355,18 +360,17 @@ def convert(
         n = 0
         fx = TopExp_Explorer(comp, TopAbs_FACE)
         while fx.More():
-            face = TopoDS.Face_s(fx.Current())
+            face = face_of(fx.Current())
             loc = TopLoc_Location()
-            tri = BRep_Tool.Triangulation_s(face, loc)
+            tri = triangulation_of(face, loc)
             if tri is not None:
                 n += tri.NbTriangles()
             fx.Next()
 
-        box = Bnd_Box()
-        BRepBndLib.Add_s(comp, box)
-        if box.IsVoid():
+        bb = bbox_of(comp)
+        if bb is None:
             continue
-        lo, hi = box.CornerMin(), box.CornerMax()
+        lo, hi = bb
 
         out = outdir / f"grp_{i:02d}.stl"
         writer = StlAPI_Writer()
@@ -375,8 +379,8 @@ def convert(
         total += n
         print(
             f"    grp_{i:02d}  tris={n:<7} {out.stat().st_size/1024:>7.0f}KB  "
-            f"x[{lo.X():+.3f},{hi.X():+.3f}] y[{lo.Y():+.3f},{hi.Y():+.3f}] "
-            f"z[{lo.Z():+.3f},{hi.Z():+.3f}]"
+            f"x[{lo[0]:+.3f},{hi[0]:+.3f}] y[{lo[1]:+.3f},{hi[1]:+.3f}] "
+            f"z[{lo[2]:+.3f},{hi[2]:+.3f}]"
         )
     return len(comps), total
 

@@ -8,7 +8,10 @@ FROM python:3.11-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/python
+    PYTHONPATH=/app/python \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_TIMEOUT=120 \
+    PIP_RETRIES=10
 
 WORKDIR /app
 
@@ -17,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-        "numpy>=1.21" "scipy>=1.7" "jinja2>=3.0" "pyyaml>=6.0" "pydantic>=2.0" \
-        "pytest>=7.0"
+        "numpy==1.26.4" "scipy==1.13.1" "jinja2==3.1.4" "pyyaml==6.0.2" \
+        "pydantic==2.10.6" "pytest==8.3.4"
 
 # .dockerignore 已排除 .git 等；models/ 会一并拷入（URDF 测试需要）
 COPY . .

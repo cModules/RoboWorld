@@ -1,6 +1,7 @@
 from typing import Dict
 
 from .base import BasePostProcessor, PostConfig, PostProcessError
+from ..i18n import tr
 from ..program import Motion
 
 
@@ -49,7 +50,7 @@ class FANUCTPPostProcessor(BasePostProcessor):
         idx = self.io_index(addr)
         level = "ON" if value else "OFF"
         if idx is None:
-            return f"! TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 DO[n]={level}"
+            return tr("! TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 DO[n]={level}").format(signal=signal, addr=addr, level=level)
         return f"DO[{idx}]={level}"
 
     def format_waitdi(
@@ -58,20 +59,49 @@ class FANUCTPPostProcessor(BasePostProcessor):
         value: bool,
         timeout: float,
         io_map: Dict[str, str],
+        trigger: str = "level",
     ) -> str:
         """``WAIT DI[n]=ON/OFF``。
 
         TP 的 ``WAIT`` 不带超时参数，给了超时补注释提示需用 SKIP 条件或
-        后台逻辑实现，不能静默丢弃。
+        后台逻辑实现，不能静默丢弃。边沿触发（rising/falling）TP 主流程
+        没有直接等价指令，降级为电平等待并留 TODO（需条件监控实现）。
         """
         addr = self.resolve_signal(signal, io_map)
         idx = self.io_index(addr)
         if idx is None:
-            return f"! TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 WAIT DI[n]"
+            text = tr("! TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 WAIT DI[n]").format(signal=signal, addr=addr)
+            if trigger != "level":
+                text += f"      ! " + tr("TODO: 原语义为 {trigger} 边沿触发，请人工核对").format(trigger=trigger)
+            return text
         level = "ON" if value else "OFF"
+        text = f"WAIT DI[{idx}]={level}"
         if timeout and timeout > 0:
-            return f"WAIT DI[{idx}]={level} ! TODO: 超时 {timeout:.2f}s 需用 SKIP 条件实现"
-        return f"WAIT DI[{idx}]={level}"
+            text += f" ! " + tr("TODO: 超时 {seconds:.2f}s 需用 SKIP 条件实现").format(seconds=timeout)
+        if trigger != "level":
+            text += f" ! " + tr("TODO: 原语义为 {trigger} 边沿触发，需条件监控实现，当前按电平输出，请人工核对").format(trigger=trigger)
+        return text
+
+    def format_arc_start(self, process, io_map: Dict[str, str]) -> str:
+        """``ARCON AC=220 V=24.0``（ArcMate 原生焊接指令）+ 工艺注释。"""
+        text = (
+            f"ARCON AC={process.current:.0f} V={process.voltage:.1f}"
+            f"      ! " + tr("送丝 {wire:.1f}m/min").format(wire=process.wire_feed)
+        )
+        if process.gas_preflow > 0:
+            text += f"\n! {process.summary()}（" + tr("起弧前预流 {seconds:.1f}s").format(seconds=process.gas_preflow) + "）"
+        return text
+
+    def format_arc_end(self, process, io_map: Dict[str, str]) -> str:
+        """``ARCOFF`` + 收弧/保护气后流注释。"""
+        text = "ARCOFF"
+        if process is not None and process.gas_postflow > 0:
+            text += f"      ! " + tr("熄弧后保护气滞流 {seconds:.1f}s").format(seconds=process.gas_postflow)
+        return text
+
+    def comment(self, text: str) -> str:
+        """TP 注释前缀 ``!``。"""
+        return f"! {text}"
 
     def format_waittime(self, seconds: float) -> str:
         """``WAIT 0.50(sec)``。"""
@@ -89,20 +119,20 @@ class FANUCTPPostProcessor(BasePostProcessor):
             return {
                 "cmd": "L",
                 "target": self.fmt_pose(motion.target, order="zyx"),
-                "speed": f"{motion.speed:.0f}mm/sec",
+                "speed": f"{motion.velocity if motion.velocity is not None else motion.speed:.0f}mm/sec",
                 "zone": f"CNT{int(round(motion.blend))}" if motion.blend > 0 else "FINE",
             }
         if self.is_circular(motion):
             if motion.via is None:
-                raise PostProcessError("FANUC TP 圆弧运动需要提供 via 中间点")
+                raise PostProcessError(tr("FANUC TP 圆弧运动需要提供 via 中间点"))
             return {
                 "cmd": "C",
                 "via": self.fmt_pose(motion.via, order="zyx"),
                 "target": self.fmt_pose(motion.target, order="zyx"),
-                "speed": f"{motion.speed:.0f}mm/sec",
+                "speed": f"{motion.velocity if motion.velocity is not None else motion.speed:.0f}mm/sec",
                 "zone": f"CNT{int(round(motion.blend))}" if motion.blend > 0 else "FINE",
             }
-        raise PostProcessError(f"FANUC TP 不支持的运动类型: {motion.type}")
+        raise PostProcessError(tr("FANUC TP 不支持的运动类型: {type}").format(type=motion.type))
 
     def _get_template(self) -> str:
         return """/PROG  {{ meta.program_name|default('OROLP_PROG') }}
@@ -110,7 +140,7 @@ class FANUCTPPostProcessor(BasePostProcessor):
 COMMENT = "RobotWorld v{{ meta.version|default('0.1.0') }}";
 /MN
     {% for wp in waypoints %}
-    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
     {{ wp.text }}
     {% elif wp.cmd == 'C' %}
     {{ wp.cmd }} {{ wp.via }} {{ wp.target }} {{ wp.speed }} {{ wp.zone }} ;

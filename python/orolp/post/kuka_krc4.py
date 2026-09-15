@@ -1,6 +1,7 @@
 from typing import Dict
 
 from .base import BasePostProcessor, PostConfig, PostProcessError
+from ..i18n import tr
 from ..program import Motion
 
 
@@ -47,19 +48,35 @@ class KUKAKRC4PostProcessor(BasePostProcessor):
                 "target": self.fmt_pose(motion.target, order="zyx"),
                 "speed": self.fmt_speed(motion.speed, motion.type),
                 "blend": "C_DIS" if motion.blend > 0 else "",
+                "velcp": self._fmt_vel_cp(motion),
+                "acccp": self._fmt_acc_cp(motion),
             }
         if self.is_circular(motion):
             # KUKA 圆弧需要中间点（辅助点）+ 终点
             if motion.via is None:
-                raise PostProcessError("KRL 圆弧运动需要提供 via 中间点")
+                raise PostProcessError(tr("KRL 圆弧运动需要提供 via 中间点"))
             return {
                 "cmd": "CIRC",
                 "target": self.fmt_pose(motion.via, order="zyx"),
                 "end": self.fmt_pose(motion.target, order="zyx"),
                 "speed": self.fmt_speed(motion.speed, motion.type),
                 "blend": "C_DIS" if motion.blend > 0 else "",
+                "velcp": self._fmt_vel_cp(motion),
+                "acccp": self._fmt_acc_cp(motion),
             }
-        raise PostProcessError(f"KRL 不支持的运动类型: {motion.type}")
+        raise PostProcessError(tr("KRL 不支持的运动类型: {type}").format(type=motion.type))
+
+    def _fmt_vel_cp(self, motion: Motion) -> str:
+        """``$VEL.CP`` 覆盖行（m/s）；未给速度覆盖时返回空串。"""
+        if motion.velocity is None:
+            return ""
+        return f"$VEL.CP = {motion.velocity / 1000.0:.3f}"
+
+    def _fmt_acc_cp(self, motion: Motion) -> str:
+        """``$ACC.CP`` 覆盖行（m/s²）；未给加速度覆盖时返回空串。"""
+        if motion.acceleration is None:
+            return ""
+        return f"$ACC.CP = {motion.acceleration / 1000.0:.3f}"
 
     # ------------------------- IO 指令（KRL） ------------------------- #
 
@@ -73,7 +90,7 @@ class KUKAKRC4PostProcessor(BasePostProcessor):
         idx = self.io_index(addr)
         level = "TRUE" if value else "FALSE"
         if idx is None:
-            return f"; TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 $OUT[n] = {level}"
+            return tr("; TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 $OUT[n] = {level}").format(signal=signal, addr=addr, level=level)
         return f"$OUT[{idx}] = {level}"
 
     def format_waitdi(
@@ -82,20 +99,32 @@ class KUKAKRC4PostProcessor(BasePostProcessor):
         value: bool,
         timeout: float,
         io_map: Dict[str, str],
+        trigger: str = "level",
     ) -> str:
         """``WAIT FOR $IN[n]``。
 
         KRL 的 ``WAIT FOR`` **没有超时参数**。给了超时就补一条注释说明需要用
         ``$TIMER`` 自行实现——静默丢弃超时会让程序在信号丢失时永久挂起。
+        边沿触发 KRL 需 ``WAIT FOR ... + 循环`` 或中断程序实现，降级留 TODO。
         """
         addr = self.resolve_signal(signal, io_map)
         idx = self.io_index(addr)
         if idx is None:
-            return f"; TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 WAIT FOR $IN[n]"
+            text = tr("; TODO: 信号 {signal} 地址 {addr} 无法解析为数字量序号，需人工改为 WAIT FOR $IN[n]").format(signal=signal, addr=addr)
+            if trigger != "level":
+                text += f"      ; " + tr("TODO: 原语义为 {trigger} 边沿触发，请人工核对").format(trigger=trigger)
+            return text
         cond = f"$IN[{idx}]" if value else f"NOT $IN[{idx}]"
+        text = f"WAIT FOR {cond}"
         if timeout and timeout > 0:
-            return f"WAIT FOR {cond}      ; TODO: 超时 {timeout:.2f}s 需用 $TIMER 自行实现"
-        return f"WAIT FOR {cond}"
+            text += f"      ; " + tr("TODO: 超时 {seconds:.2f}s 需用 $TIMER 自行实现").format(seconds=timeout)
+        if trigger != "level":
+            text += f"      ; " + tr("TODO: 原语义为 {trigger} 边沿触发，需条件监控实现，当前按电平输出，请人工核对").format(trigger=trigger)
+        return text
+
+    def comment(self, text: str) -> str:
+        """KRL 注释前缀 ``;``。"""
+        return f"; {text}"
 
     def format_waittime(self, seconds: float) -> str:
         """``WAIT SEC n``。"""
@@ -110,12 +139,16 @@ DEF {{ meta.program_name|default('OROLP_PROG') }}()
     BAS(#INITMOV, 0)
 
     {% for wp in waypoints %}
-    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME'] %}
+    {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
     {{ wp.text }}
     {% elif wp.cmd == 'CIRC' %}
-    {{ wp.cmd }} {{ wp.target }}, {{ wp.end }} {{ wp.blend }}
+    {% if wp.velcp %}{{ wp.velcp }}
+    {% endif %}{% if wp.acccp %}{{ wp.acccp }}
+    {% endif %}{{ wp.cmd }} {{ wp.target }}, {{ wp.end }} {{ wp.blend }}
     {% else %}
-    {{ wp.cmd }} {{ wp.target }} {{ wp.blend }}
+    {% if wp.velcp %}{{ wp.velcp }}
+    {% endif %}{% if wp.acccp %}{{ wp.acccp }}
+    {% endif %}{{ wp.cmd }} {{ wp.target }} {{ wp.blend }}
     {% endif %}
     {% endfor %}
 

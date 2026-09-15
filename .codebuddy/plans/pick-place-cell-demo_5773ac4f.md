@@ -62,7 +62,7 @@ todos:
 
 - 语言：Python 3.11（`/opt/miniconda3/envs/robotworld/bin/python`）
 - GUI：**PySide6**（务必注意，非 PyQt5）；无头验证需 `QT_QPA_PLATFORM=offscreen`
-- 渲染：PyOpenGL 立即模式（`rw.py` 的 `GLWidget._draw_scene`）
+- 渲染：PyOpenGL 立即模式（`app.py` 的 `GLWidget._draw_scene`）
 - 后处理：Jinja2 模板 + `BasePostProcessor` 抽象基类
 - 后处理目标：kuka / abb / ur / fanuc / yaskawa / estun / jaka（7 品牌）
 
@@ -172,7 +172,7 @@ RobotWorld/
 │   └── pick_place_kuka.json  # [NEW] 预置抓取工作站场景（Scene.from_dict 格式）：
 │                             #           KR16 机器人 + 底座 + 工作台 + 两指夹爪（挂法兰）
 │                             #           + 码垛料垛工件 + 皮带输送线 + 围栏 + 控制柜
-└── rw.py                     # [MODIFY] 1) 预置场景一键载入菜单项；
+└── app.py                     # [MODIFY] 1) 预置场景一键载入菜单项；
                               #           2) 示教点位类型标记（接近/抓取/提升/放置/撤离）；
                               #           3) 控制条加暂停/单步按钮；
                               #           4) 状态栏加常驻区（节拍/干涉/IO/报错）；
