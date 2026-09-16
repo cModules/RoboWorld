@@ -1,0 +1,71 @@
+{
+  "schema": "orolp.sequence/1",
+  "steps": [
+    {
+      "kind": "wait",
+      "name": "等待启动循环",
+      "device": "PLC",
+      "signal": "robot_start",
+      "trigger": "rising",
+      "value": true,
+      "timeout": 0.0
+    },
+    {
+      "kind": "wait",
+      "name": "等待安全就绪",
+      "device": "PLC",
+      "signal": "safety_ok",
+      "trigger": "level",
+      "value": true,
+      "timeout": 5.0
+    },
+    {
+      "kind": "wait",
+      "name": "等待工件到位",
+      "device": "传感器",
+      "signal": "part_present",
+      "trigger": "rising",
+      "value": true,
+      "timeout": 10.0
+    },
+    {
+      "kind": "call",
+      "name": "调用抓取子程序",
+      "device": "机器人",
+      "subprogram": "PickPart"
+    },
+    {
+      "kind": "signal",
+      "name": "夹爪闭合",
+      "device": "机器人",
+      "signal": "gripper_close",
+      "value": true
+    },
+    {
+      "kind": "dwell",
+      "name": "夹紧保压",
+      "device": "机器人",
+      "seconds": 0.5
+    },
+    {
+      "kind": "signal",
+      "name": "夹爪松开",
+      "device": "机器人",
+      "signal": "gripper_open",
+      "value": true
+    },
+    {
+      "kind": "dwell",
+      "name": "开爪确认",
+      "device": "机器人",
+      "seconds": 0.2
+    },
+    {
+      "kind": "signal",
+      "name": "上报循环完成",
+      "device": "机器人",
+      "signal": "robot_done",
+      "value": true
+    }
+  ]
+}

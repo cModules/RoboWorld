@@ -506,6 +506,9 @@ class CollisionChecker:
                 # 与它必然接触，豁免；挂在别的机器人下不豁免
                 if robot is not None and self.scene.mounted_robot(name) == robot:
                     continue
+                # 机器人自己装在谁身上（底座/台面）：基座与它必然接触，同样豁免
+                if robot is not None and name in self.scene.robot_mount_chain(robot):
+                    continue
                 parts = self.scene.object_parts(name)
                 box = parts_aabb(parts)
                 if parts and box is not None:

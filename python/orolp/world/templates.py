@@ -41,6 +41,10 @@ __all__ = [
     "build_grasping_workstation",
     "list_templates",
     "build_template",
+    "THREE_C_ASSEMBLY_ID",
+    "build_3c_assembly",
+    "AUTO_WELDING_ID",
+    "build_auto_welding",
     "load_workcell",
     "repo_root",
 ]
@@ -361,8 +365,393 @@ def build_grasping_workstation() -> WorkcellTemplate:
 # 模板注册表（在所有 builder 定义之后）
 # --------------------------------------------------------------------------- #
 
+#: 分拣工位模板 id
+SORTING_STATION_ID = "sorting_station"
+
+#: 机床上下料模板 id
+MACHINE_TENDING_ID = "machine_tending"
+
+#: 3C 装配工位模板 id（v1.3.7）
+THREE_C_ASSEMBLY_ID = "3c_assembly"
+
+#: 汽车焊装工位模板 id（v1.3.7）
+AUTO_WELDING_ID = "auto_welding"
+
+_SORTING_HOME = [0.0, -90.0, 90.0, -90.0, 90.0, 0.0]
+
+
+def build_sorting_station() -> WorkcellTemplate:
+    """构建分拣工位（PRD §4.1 预置场景库点名的行业模板）。
+
+    布局（俯视，机器人基座在原点）::
+
+        +---------------+
+        |  围栏（后方）  |
+        +==输送带（3 工件）==+
+         [UR5e 基座]
+        料箱(合格)      料箱(不合格)
+
+    输送带来料 → 机器人分拣到两个料箱（合格/不合格）。工件位置为
+    工程示意（与抓取工作站同一可达量级），现场按实际布局微调。
+
+    Returns:
+        :class:`WorkcellTemplate`——每次调用返回全新实例
+    """
+    scene = Scene()
+
+    urdf = _UR5E_URDF
+    if not Path(urdf).exists():
+        urdf = str(REPO_ROOT / _UR5E_URDF)
+    scene.set_robot(urdf, _SORTING_HOME)
+
+    # 吸盘工具挂法兰（与抓取工作站同一挂装口径）
+    scene.add(
+        "tool_suction",
+        pose=_tool_mount_pose(),
+        name="吸盘工具",
+        parent=ROBOT_NAME,
+    )
+
+    # 来料输送带（机器人正前方）
+    scene.add(
+        "conveyor",
+        params={"length": 2000.0, "width": 500.0, "height": _CONVEYOR_HEIGHT},
+        pose=Pose.from_xyz_rpy(0.0, _CONVEYOR_Y, 0.0, 0, 0, 0),
+        name="来料输送带",
+    )
+
+    # 3 个来料工件（落在皮带面上方 2mm）
+    workpieces: List[str] = []
+    for i, x in enumerate((-300.0, 0.0, 300.0), start=1):
+        scene.add(
+            "workpiece_box",
+            params={"length": 80.0, "width": 80.0, "height": 50.0},
+            pose=Pose.from_xyz_rpy(x, _CONVEYOR_Y, _BELT_TOP_Z + _WORKPIECE_GAP_Z, 0, 0, 0),
+            name=f"来料_{i}",
+        )
+        workpieces.append(f"来料_{i}")
+
+    # 合格/不合格两个料箱（左右两侧，与输送带等距）
+    scene.add(
+        "material_bin",
+        params={"length": 500.0, "width": 400.0, "height": 250.0},
+        pose=Pose.from_xyz_rpy(-520.0, 250.0, 0.0, 0, 0, 0),
+        name="料箱_合格",
+    )
+    scene.add(
+        "material_bin",
+        params={"length": 500.0, "width": 400.0, "height": 250.0},
+        pose=Pose.from_xyz_rpy(520.0, 250.0, 0.0, 0, 0, 0),
+        name="料箱_不合格",
+    )
+
+    # 后方安全围栏
+    scene.add(
+        "fence",
+        params={"length": 2400.0, "height": 1800.0},
+        pose=Pose.from_xyz_rpy(0.0, 900.0, 0.0, 0, 0, 0),
+        name="安全围栏",
+    )
+
+    return WorkcellTemplate(
+        id=SORTING_STATION_ID,
+        name="分拣工位",
+        description="UR5e + 吸盘：来料输送带 → 合格/不合格双料箱分拣，含安全围栏（几何为工程示意）",
+        scene=scene,
+        tool="吸盘工具",
+        tcp_flange=Pose.from_xyz_rpy(0.0, 0.0, _TCP_FLANGE_Z, 0, 0, 0),
+        home_joints=list(_SORTING_HOME),
+        grasp_objects=workpieces,
+        place_target="料箱_合格",
+    )
+
+
+def build_machine_tending() -> WorkcellTemplate:
+    """构建机床上下料工位（数控车/加工中心上下料的简化布局）。
+
+    布局（俯视，机器人基座在原点）::
+
+         [UR5e 基座]
+        +==上料输送带==+      +-------------+
+        料箱(成品)      |     | 数控机床(柜) |
+        台钳工作台（本地加工位）
+
+    毛坯经输送带来料 →（本地台钳工位加工，示意）→ 成品落料箱。
+    机床用控制柜几何**简化示意**——真机床走厂商 CAD（v0.2.3 通路），
+    两条通道不混装，页面上如实标注。
+
+    Returns:
+        :class:`WorkcellTemplate`——每次调用返回全新实例
+    """
+    scene = Scene()
+
+    urdf = _UR5E_URDF
+    if not Path(urdf).exists():
+        urdf = str(REPO_ROOT / _UR5E_URDF)
+    scene.set_robot(urdf, _SORTING_HOME)
+
+    # 夹爪工具挂法兰
+    scene.add(
+        "tool_gripper",
+        pose=_tool_mount_pose(),
+        name="夹爪工具",
+        parent=ROBOT_NAME,
+    )
+
+    # 上料输送带（左前方）
+    scene.add(
+        "conveyor",
+        params={"length": 1400.0, "width": 400.0, "height": _CONVEYOR_HEIGHT},
+        pose=Pose.from_xyz_rpy(-600.0, _CONVEYOR_Y, 0.0, 0, 0, 0),
+        name="上料输送带",
+    )
+
+    # 2 个毛坯
+    workpieces: List[str] = []
+    for i, x in enumerate((-900.0, -600.0), start=1):
+        scene.add(
+            "workpiece_cylinder",
+            params={"radius": 40.0, "height": 90.0},
+            pose=Pose.from_xyz_rpy(x, _CONVEYOR_Y, _BELT_TOP_Z + _WORKPIECE_GAP_Z, 0, 0, 0),
+            name=f"毛坯_{i}",
+        )
+        workpieces.append(f"毛坯_{i}")
+
+    # 本地加工位：工作台 + 台钳（右前方；台钳以局部坐标挂台面顶）
+    scene.add(
+        "worktable",
+        params={"length": 900.0, "width": 700.0, "height": 780.0},
+        pose=Pose.from_xyz_rpy(750.0, -150.0, 0.0, 0, 0, 0),
+        name="加工工作台",
+    )
+    scene.add(
+        "vise",
+        pose=Pose.from_xyz_rpy(0.0, 0.0, 780.0, 0, 0, 0),
+        name="台钳",
+        parent="加工工作台",
+    )
+
+    # 数控机床（控制柜几何简化示意）
+    scene.add(
+        "cabinet",
+        params={"width": 1600.0, "depth": 1200.0, "height": 1900.0},
+        pose=Pose.from_xyz_rpy(0.0, 900.0, 0.0, 0, 0, 0),
+        name="数控机床（示意）",
+    )
+
+    # 成品料箱（左后方，避开输送带与机床）
+    scene.add(
+        "material_bin",
+        params={"length": 500.0, "width": 400.0, "height": 250.0},
+        pose=Pose.from_xyz_rpy(-700.0, 100.0, 0.0, 0, 0, 0),
+        name="成品料箱",
+    )
+
+    return WorkcellTemplate(
+        id=MACHINE_TENDING_ID,
+        name="机床上下料",
+        description="UR5e + 夹爪：上料输送带 → 台钳工位 → 成品料箱；机床为柜体几何简化示意（真机 CAD 走厂商包通路）",
+        scene=scene,
+        tool="夹爪工具",
+        tcp_flange=Pose.from_xyz_rpy(0.0, 0.0, _TCP_FLANGE_Z, 0, 0, 0),
+        home_joints=list(_SORTING_HOME),
+        grasp_objects=workpieces,
+        place_target="成品料箱",
+    )
+
+
+def build_3c_assembly() -> WorkcellTemplate:
+    """构建 3C 装配工位（消费电子小件装配的简化布局，PRD §4.1 点名行业）。
+
+    布局（俯视，机器人基座在原点）::
+
+         [UR5e 基座]
+        上料托盘(3 块板件)    装配工作台(治具)
+                              成品托盘
+        安全围栏（后方）
+
+    电路板类板件从上料托盘 → 装配治具压装 → 成品托盘流转。板件尺寸
+    按 3C 小件缩小（120×80mm 量级），几何为工程示意，现场按实际
+    产品与治具微调。
+
+    Returns:
+        :class:`WorkcellTemplate`——每次调用返回全新实例
+    """
+    scene = Scene()
+
+    urdf = _UR5E_URDF
+    if not Path(urdf).exists():
+        urdf = str(REPO_ROOT / _UR5E_URDF)
+    scene.set_robot(urdf, _SORTING_HOME)
+
+    # 夹爪工具挂法兰
+    scene.add(
+        "tool_gripper",
+        pose=_tool_mount_pose(),
+        name="夹爪工具",
+        parent=ROBOT_NAME,
+    )
+
+    # 上料托盘（左前方）+ 3 块板件（托盘面上方 2mm）
+    scene.add(
+        "pallet_base",
+        params={"length": 900.0, "width": 600.0, "height": 144.0},
+        pose=Pose.from_xyz_rpy(-600.0, -450.0, 0.0, 0, 0, 0),
+        name="上料托盘",
+    )
+    workpieces: List[str] = []
+    for i, dx in enumerate((-250.0, 0.0, 250.0), start=1):
+        scene.add(
+            "workpiece_plate",
+            params={"length": 120.0, "width": 80.0, "thickness": 2.0},
+            pose=Pose.from_xyz_rpy(-600.0 + dx, -450.0, 144.0 + _WORKPIECE_GAP_Z, 0, 0, 0),
+            name=f"板件_{i}",
+        )
+        workpieces.append(f"板件_{i}")
+
+    # 装配工作台 + 治具（右前方；治具以局部坐标挂台面顶）
+    scene.add(
+        "worktable",
+        params={"length": 900.0, "width": 700.0, "height": 780.0},
+        pose=Pose.from_xyz_rpy(750.0, -200.0, 0.0, 0, 0, 0),
+        name="装配工作台",
+    )
+    scene.add(
+        "clamp",
+        pose=Pose.from_xyz_rpy(0.0, 0.0, 780.0, 0, 0, 0),
+        name="装配治具",
+        parent="装配工作台",
+    )
+
+    # 成品托盘（右后方）
+    scene.add(
+        "pallet_base",
+        params={"length": 700.0, "width": 500.0, "height": 144.0},
+        pose=Pose.from_xyz_rpy(600.0, 450.0, 0.0, 0, 0, 0),
+        name="成品托盘",
+    )
+
+    # 后方安全围栏
+    scene.add(
+        "fence",
+        params={"length": 2400.0, "height": 1800.0},
+        pose=Pose.from_xyz_rpy(0.0, 900.0, 0.0, 0, 0, 0),
+        name="安全围栏",
+    )
+
+    return WorkcellTemplate(
+        id=THREE_C_ASSEMBLY_ID,
+        name="3C 装配工位",
+        description="UR5e + 夹爪：上料托盘（3 块板件）→ 装配治具压装 → 成品托盘；板件与治具为工程示意（按实际产品微调）",
+        scene=scene,
+        tool="夹爪工具",
+        tcp_flange=Pose.from_xyz_rpy(0.0, 0.0, _TCP_FLANGE_Z, 0, 0, 0),
+        home_joints=list(_SORTING_HOME),
+        grasp_objects=workpieces,
+        place_target="装配治具",
+    )
+
+
+def build_auto_welding() -> WorkcellTemplate:
+    """构建汽车焊装工位（白车身钣金弧焊的简化布局，PRD §4.1 点名行业）。
+
+    布局（俯视，机器人基座在原点）::
+
+         [UR5e 基座]
+        焊接变位机(侧围钣金)   输送辊道(待焊钣金 ×2)
+        控制柜        安全围栏（后方）
+
+    待焊钣金经辊道来料 → 上料到变位机 → 弧焊（焊枪工具已挂法兰）。
+    机器人本体按 UR5e 程序生成模型配置——真汽车焊装多用更大负载的
+    机器人，模型随 URDF 通路替换即可；变位机画成单轴回转示意，
+    不假装做了变位机联动（那需要外部轴配置，见 Roadmap）。
+
+    Returns:
+        :class:`WorkcellTemplate`——每次调用返回全新实例
+    """
+    scene = Scene()
+
+    urdf = _UR5E_URDF
+    if not Path(urdf).exists():
+        urdf = str(REPO_ROOT / _UR5E_URDF)
+    scene.set_robot(urdf, _SORTING_HOME)
+
+    # 焊枪工具挂法兰
+    scene.add(
+        "tool_weldgun",
+        pose=_tool_mount_pose(),
+        name="焊枪工具",
+        parent=ROBOT_NAME,
+    )
+
+    # 焊接变位机（正前方；单轴回转示意）
+    scene.add(
+        "positioner_1axis",
+        params={"table_diameter": 600.0, "table_height": 600.0, "rot_deg": 0.0},
+        pose=Pose.from_xyz_rpy(0.0, -500.0, 0.0, 0, 0, 0),
+        name="焊接变位机",
+    )
+    # 焊接工件（侧围钣金，落在变位机台面上方 2mm）
+    scene.add(
+        "workpiece_plate",
+        params={"length": 400.0, "width": 260.0, "thickness": 3.0},
+        pose=Pose.from_xyz_rpy(0.0, -500.0, 600.0 + _WORKPIECE_GAP_Z, 0, 0, 0),
+        name="焊接工件",
+    )
+
+    # 输送辊道（右前方）+ 2 块待焊钣金
+    # 端辊几何会伸进皮带区（辊长=带宽）：钣金只放在自由中段（L-540 内）
+    scene.add(
+        "conveyor",
+        params={"length": 1300.0, "width": 500.0, "height": _CONVEYOR_HEIGHT},
+        pose=Pose.from_xyz_rpy(1200.0, -400.0, 0.0, 0, 0, 0),
+        name="输送辊道",
+    )
+    workpieces: List[str] = []
+    for i, x in enumerate((1020.0, 1380.0), start=1):
+        scene.add(
+            "workpiece_plate",
+            params={"length": 300.0, "width": 200.0, "thickness": 3.0},
+            pose=Pose.from_xyz_rpy(x, -400.0, _BELT_TOP_Z + _WORKPIECE_GAP_Z, 0, 0, 0),
+            name=f"待焊钣金_{i}",
+        )
+        workpieces.append(f"待焊钣金_{i}")
+
+    # 控制柜（左后方）
+    scene.add(
+        "cabinet",
+        params={"width": 600.0, "depth": 500.0, "height": 1800.0},
+        pose=Pose.from_xyz_rpy(-800.0, 400.0, 0.0, 0, 0, 0),
+        name="焊接控制柜",
+    )
+
+    # 后方安全围栏（焊弧遮挡）
+    scene.add(
+        "fence",
+        params={"length": 2600.0, "height": 2000.0},
+        pose=Pose.from_xyz_rpy(0.0, 900.0, 0.0, 0, 0, 0),
+        name="安全围栏",
+    )
+
+    return WorkcellTemplate(
+        id=AUTO_WELDING_ID,
+        name="汽车焊装工位",
+        description="UR5e + 焊枪：变位机弧焊 + 输送辊道来料 + 控制柜与弧光围栏；变位机为单轴示意（不做联动）、机器人本体随 URDF 通路替换",
+        scene=scene,
+        tool="焊枪工具",
+        tcp_flange=None,  # 焊枪 TCP 依焊嘴型号而定，不猜——现场标定（v0.3.4 通路）
+        home_joints=list(_SORTING_HOME),
+        grasp_objects=workpieces,
+        place_target="焊接变位机",
+    )
+
+
 _TEMPLATES = {
     GRASPING_WORKSTATION_ID: build_grasping_workstation,
+    SORTING_STATION_ID: build_sorting_station,
+    MACHINE_TENDING_ID: build_machine_tending,
+    THREE_C_ASSEMBLY_ID: build_3c_assembly,
+    AUTO_WELDING_ID: build_auto_welding,
 }
 
 

@@ -220,6 +220,81 @@ def test_unmounted_object_still_checked_against_robot(scene):
     )
 
 
+def test_robot_mounted_on_base_is_exempt_from_collision(scene):
+    """把机器人装到底座上：基座与底座必然接触，不能报成干涉。
+
+    否则"给机器人配个基座"这一常规布局动作会被恒定报成撞机。
+    """
+    base = scene.add(
+        "worktable", name="底座",
+        params={"length": 400.0, "width": 400.0, "height": 200.0},
+    )
+    scene.attach(ROBOT_NAME, base.name, keep_world=True)
+    assert scene.objects[ROBOT_NAME].parent == base.name
+
+    hits = scene.check_collisions()
+    assert not any({h.obj_a, h.obj_b} == {ROBOT_NAME, base.name} for h in hits), (
+        f"装在底座上的机器人被误报为干涉: {hits}"
+    )
+
+
+def test_robot_follows_its_base(scene):
+    """底座挪走，装在上面的机器人（基座）要跟着走。"""
+    base = scene.add("worktable", name="底座")
+    scene.attach(ROBOT_NAME, base.name, keep_world=True)
+    before = scene.world_transform(ROBOT_NAME)[:3, 3].copy()
+
+    base.pose = Pose.from_xyz_rpy(500.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    after = scene.world_transform(ROBOT_NAME)[:3, 3]
+    assert np.allclose(after - before, [500.0, 0.0, 0.0], atol=1e-6)
+
+
+def test_robot_mounted_on_base_sits_on_top_center(scene):
+    """机器人挂到底座上，应坐在底座**上表面正中央**，安装面贴合顶面。
+
+    回归：world_aabb 曾按 visual 取数，机器人只剩一个 TCP 标记球，
+    ground_offset 算出约 -1000mm，会把机器人塞到地底下。
+    """
+    from orolp.world.placement import (
+        ground_offset,
+        mount_on_top_of,
+        world_aabb,
+    )
+
+    base = scene.add(
+        "worktable", name="底座",
+        params={"length": 400.0, "width": 400.0, "height": 200.0},
+        pose=Pose.from_xyz_rpy(1000.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    )
+    scene.attach(ROBOT_NAME, base.name, keep_world=True)
+    assert mount_on_top_of(scene, ROBOT_NAME, base.name) is True
+
+    box = world_aabb(scene, base.name)
+    p = scene.world_transform(ROBOT_NAME)[:3, 3]
+    assert p[0] == pytest.approx(0.5 * (box.lo[0] + box.hi[0]), abs=1e-6)
+    assert p[1] == pytest.approx(0.5 * (box.lo[1] + box.hi[1]), abs=1e-6)
+    assert p[2] == pytest.approx(
+        float(box.hi[2]) - ground_offset(scene, ROBOT_NAME), abs=1e-6
+    )
+    # 机器人基座原点就在安装面，落点应正好等于顶面高度
+    assert ground_offset(scene, ROBOT_NAME) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_serialization_preserves_robot_mounted_on_base(scene):
+    """机器人挂在底座上必须能存进场景文件——否则重开就散架。"""
+    base = scene.add("worktable", name="底座")
+    scene.attach(ROBOT_NAME, base.name, keep_world=True)
+    expected = scene.world_transform(ROBOT_NAME)[:3, 3].copy()
+
+    restored = Scene.from_dict(scene.to_dict())
+
+    assert restored.objects[ROBOT_NAME].parent == base.name
+    assert np.allclose(
+        restored.world_transform(ROBOT_NAME)[:3, 3], expected, atol=1e-6
+    )
+
+
 def test_serialization_preserves_mount(scene):
     """挂载关系必须能存进场景文件——否则预置工作站存不住夹爪。"""
     g = scene.add("tool_gripper", parent=ROBOT_NAME)

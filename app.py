@@ -65,7 +65,7 @@ MIME_TYPE = "application/x-machine-item"
 # 环境建模（工作单元场景 + 参数化组件库 + 干涉检查）
 try:
     from orolp.world.panel import ScenePanel
-    from orolp.world.scene import Scene, ROBOT_NAME
+    from orolp.world.scene import Scene, ROBOT_NAME, GEOMETRY_COLLISION
     from orolp.world.geometry import prim_aabb
     from orolp.world.components import COMPONENTS, ParamSpec
     from orolp.world import placement as _placement
@@ -83,7 +83,7 @@ except Exception as _exc:  # pragma: no cover
 
 # 工作单元模型 + PLC（西门子 SCL）代码生成
 try:
-    from orolp.cell import CellConfig, Device, DEVICE_TYPES
+    from orolp.cell import HANDSHAKE_SIGNALS, CellConfig, Device, DEVICE_TYPES
     from orolp.plc_scl import generate_scl, steps_from_program
     from orolp.iomap import DIRECTION_LABELS, SignalMap
 
@@ -127,6 +127,14 @@ except Exception as _exc:  # pragma: no cover
     _HAS_TEMPLATES = False
     build_grasping_workstation = None
     demo_taught_points = None
+
+# 版本号：窗口标题**从库版本派生**，不再手写。历史上标题、pyproject、app.spec
+# 与 orolp.__version__ 四处各写一份，改版本时漏掉一处就只能靠肉眼比对
+# （v1.0.1 里程碑就漏过 pyproject）。标题这一份从此不可能漂移。
+try:
+    from orolp import __version__ as _OROLP_VERSION
+except Exception:  # pragma: no cover - 仅用于包不可用的降级
+    _OROLP_VERSION = "0.0.0-dev"
 
 # 离线编程（轨迹展开 + 节拍估算 + 程序校验面板）
 try:
@@ -198,6 +206,71 @@ except Exception as _exc:  # pragma: no cover
     cache_overview = None
     clear_all_caches = None
     reset_all_cache_stats = None
+
+# 工程文件（v1.3.4）：把场景/示教程序/工艺时序/设备点表/零件来源收进单一 .orolp
+try:
+    from orolp.project import (
+        PROJECT_EXTENSION,
+        PROJECT_FILTER,
+        Project,
+        ProjectError,
+        cell_from_snapshot,
+        cell_snapshot,
+    )
+
+    _HAS_PROJECT = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] project file support unavailable: {_exc}")
+    _HAS_PROJECT = False
+    Project = None
+    ProjectError = ValueError
+    PROJECT_FILTER = ""
+    PROJECT_EXTENSION = ".orolp"
+    cell_snapshot = None
+    cell_from_snapshot = None
+
+# 工艺时序（v1.3.1）：工程文件载入时需要把段还原成 ProcessSequence
+try:
+    from orolp.sequence import ProcessSequence
+
+    _HAS_SEQUENCE = True
+except Exception as _exc:  # pragma: no cover
+    print(f"[warning] process sequence unavailable: {_exc}")
+    _HAS_SEQUENCE = False
+    ProcessSequence = None
+
+# 会话支撑（v1.3.5）：最近打开列表 + 崩溃自动恢复（依赖工程文件层）
+if _HAS_PROJECT:
+    try:
+        from orolp.session import (
+            RecentProjects,
+            clear_autosave,
+            has_autosave,
+            read_autosave,
+            write_autosave,
+        )
+
+        _HAS_SESSION_SUPPORT = True
+    except Exception as _exc:  # pragma: no cover
+        print(f"[warning] session support unavailable: {_exc}")
+        _HAS_SESSION_SUPPORT = False
+else:
+    _HAS_SESSION_SUPPORT = False
+
+# 工程模板（v1.3.6）：「从模板新建工程」——新活不从空白开始
+if _HAS_PROJECT:
+    try:
+        from orolp.project_templates import (
+            build_project_template,
+            list_project_templates,
+        )
+
+        _HAS_PROJECT_TEMPLATES = True
+    except Exception as _exc:  # pragma: no cover
+        print(f"[warning] project templates unavailable: {_exc}")
+        _HAS_PROJECT_TEMPLATES = False
+else:
+    _HAS_PROJECT_TEMPLATES = False
 
 
 GL_COLOR_BUFFER_BIT = 0x00004000
@@ -545,10 +618,18 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
     robotDropped = QtCore.Signal(str)  # 机器库拖入视口的 catalog key
     #: 左键拖拽摆放完成（松手落到支承面），携带状态栏一行小结（已翻译）
     objectPlaced = QtCore.Signal(str)
+    #: 视口侧改动了挂载关系（起拖自动解除 / 松手吸附装夹），携带对象名
+    sceneChanged = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.renderer = RobotRenderer()
+        #: 多机器人：每台一个渲染器，键为场景里的机器人名。
+        #: ``self.renderer`` 仍是"当前那台"（关节滑杆、记录点位等既有单机器人
+        #: 调用面都走它），绘制时按名字从本字典取，互不覆盖。
+        self.renderers: dict = {}
+        #: 当前机器人：关节滑杆与关节同步都作用到它（多机必需）
+        self.current_robot: str = ROBOT_NAME
         self.camera_dist = 1.2
         self.camera_az = 45.0
         self.camera_el = 30.0
@@ -576,6 +657,8 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         #: 按在空白处拖 = 旋转视角（与既有行为一致）。
         #: ``snap_step_mm > 0`` 时落点 XY 按步长吸附（毫米）。
         self.snap_step_mm = 0.0
+        #: 松手时落在机器人法兰此半径内（毫米）即自动装夹到法兰
+        self.snap_radius_mm = 60.0
         self._grab_active = False
         self._grab_anchor = None
 
@@ -585,14 +668,69 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.plugin_overlays = None
         self.plugin_overlay_errors = []
 
+        # 选中机器人即切换"当前机器人"：关节滑杆与关节同步随之改指向。
+        # 挂在内部信号上，左/右键拾取、拖拽起手等所有入口一次覆盖。
+        self.objectSelected.connect(self._on_selected_changed)
+
         self.setAcceptDrops(True)
 
-    def load_robot(self, path):
-        success = self.renderer.load_urdf(path)
+    def _on_selected_changed(self, name) -> None:
+        """选中的是机器人时，把它设为"当前机器人"（多机下的关节归属）。"""
+        if name and self.scene is not None and self.scene.is_robot(name):
+            self.set_current_robot(name)
+
+    def load_robot(self, path, name: str = ROBOT_NAME):
+        """装载渲染模型；``name`` 指定登记在哪台机器人名下（多机）。"""
+        renderer = self.renderers.get(name)
+        if renderer is None:
+            renderer = RobotRenderer()
+            self.renderers[name] = renderer
+        success = renderer.load_urdf(path)
         if success:
-            self.frame_robot()
+            # 当前机器人切换为新装载这台：关节滑杆、记录点位、关节同步都跟它走
+            self.current_robot = name
+            self.renderer = renderer
+            self.frame_robot(name)
         self.update()
         return success
+
+    def renderer_of(self, name: str = ROBOT_NAME):
+        """取某台机器人的渲染器。
+
+        未登记时**按该机器人在场景里的 URDF 懒加载一个**，并把它的关节对齐到
+        该机器人的**场景关节**。两条都不能省：
+
+        * 直接回退到"当前渲染器"会让它借用**别的机器人**的模型——于是拖关节
+          时两台一起动（共用同一份 joint_values）；
+        * 新建的渲染器默认是 HOME 待机位，而场景里那台有自己的关节值——不对齐
+          就会"画出来的手臂"与"场景法兰"错位，挂在上面的工具离开显示的法兰。
+        """
+        renderer = self.renderers.get(name)
+        if renderer is not None:
+            return renderer
+        urdf = None
+        if self.scene is not None and name in self.scene.robots:
+            urdf = self.scene.robots[name].urdf
+        if urdf and Path(urdf).exists():
+            renderer = RobotRenderer()
+            if renderer.load_urdf(urdf):
+                self.renderers[name] = renderer
+                state = self.scene.robots.get(name)
+                if state is not None:
+                    for i, joint_name in enumerate(renderer.actuated_names()):
+                        if i < len(state.joints_deg):
+                            renderer.joint_values[joint_name] = math.radians(
+                                float(state.joints_deg[i])
+                            )
+                return renderer
+        return self.renderer
+
+    def set_current_robot(self, name) -> None:
+        """切换"当前机器人"：关节滑杆与关节同步都作用到它（多机必需）。"""
+        if not name or self.scene is None or name not in self.scene.robots:
+            return
+        self.current_robot = name
+        self.renderer = self.renderer_of(name)
 
     # ---------------- 拖拽：从机器组件库接收对象 ---------------- #
     def dragEnterEvent(self, event):
@@ -618,7 +756,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             self.componentDropped.emit(data["id"])
         event.acceptProposedAction()
 
-    def frame_robot(self) -> None:
+    def frame_robot(self, robot: str = ROBOT_NAME) -> None:
         """按当前位姿的包围球自动取景（相机距离 + 注视点）。
 
         机器人尺寸跨度很大：UR3e 臂展 500 mm，IRB 6700 臂展 3200 mm。
@@ -627,7 +765,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         包围球按**每个 visual 的实际几何**算，而不是只取连杆原点——后者会
         低估尺寸（连杆原点只是几个点，几何体本身还有体积），导致大臂贴边出画。
         """
-        bounds = self._robot_bounds()
+        bounds = self._robot_bounds(robot)
         if bounds is None:
             return
         lo, hi = bounds
@@ -646,14 +784,30 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.camera_dist = max(0.3, radius / math.sin(math.radians(22.5)) * 1.10)
         self.view_center = (float(center[0]), float(center[1]), float(center[2]))
 
-    def _robot_bounds(self):
-        """返回当前位姿下机器人所有 visual 的世界包围盒 ``(lo, hi)``。
+    def _robot_base_pose_m(self, robot: str = ROBOT_NAME):
+        """机器人在场景中的**世界**基座位姿（视口米制）；无机器人时 ``None``。
+
+        必须用 :meth:`Scene.world_transform` 而不是 ``SceneObject.pose``：机器人
+        挂到底座/台面上时世界位姿 = 底座 × 局部位姿，只取局部会让渲染与场景
+        数据分家——表现为"画的机器人不跟着底座走、装夹件与手臂对不上"。
+
+        坐标系语义：机器人始终使用**自身坐标系**，基座只是一个把它整体搬到
+        某处的父级变换（后续若要支持自定义基座坐标系，改这里即可）。
+        """
+        if self.scene is None or robot not in self.scene.objects:
+            return None
+        T = np.asarray(self.scene.world_transform(robot), dtype=np.float64).copy()
+        T[:3, 3] *= self.MM_TO_M
+        return T
+
+    def _robot_bounds(self, robot: str = ROBOT_NAME):
+        """返回**指定机器人**当前位姿下所有 visual 的世界包围盒 ``(lo, hi)``。
 
         Returns:
             ``(lo, hi)`` 两个长度 3 的数组；无模型时返回 ``None``。
         """
-        model = self.renderer.model
-        poses = self.renderer.link_poses()
+        model = self.renderer_of(robot).model
+        poses = self.renderer_of(robot).link_poses()
         if model is None or not poses:
             return None
 
@@ -673,7 +827,22 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                 hi = np.maximum(hi, origin + radius)
                 found = True
 
-        return (lo, hi) if found else None
+        if not found:
+            return None
+        # 基座位姿也要吃进去：否则"重置视图"会把镜头对准原点，而不是对准
+        # 挂在底座/台面上的那台机器人
+        base = self._robot_base_pose_m(robot)
+        if base is not None and not np.allclose(base, np.eye(4)):
+            corners = np.array(
+                [[x, y, z, 1.0]
+                 for x in (lo[0], hi[0])
+                 for y in (lo[1], hi[1])
+                 for z in (lo[2], hi[2])],
+                dtype=np.float64,
+            )
+            world = (corners @ base.T)[:, :3]
+            lo, hi = world.min(axis=0), world.max(axis=0)
+        return lo, hi
 
     @staticmethod
     def _primitive_radius(primitive: object) -> float:
@@ -927,8 +1096,8 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             return
         try:
             for name in list(self.scene.objects):
-                if name == ROBOT_NAME:
-                    continue  # 机器人由 _draw_robot 负责，避免重复绘制
+                if self.scene.is_robot(name):
+                    continue  # 机器人统一由 _draw_robot 负责，避免重复绘制
                 obj = self.scene.objects.get(name)
                 if obj is None or not obj.visible:
                     continue
@@ -972,13 +1141,51 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         gl.glColor3f(*color)
         gl.glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
         gl.glLineWidth(2.5)
-        for part in self.scene.object_parts(name):
-            self._draw_part(part, force_color=color)
+        # 机器人走**渲染几何**描边：_picking_parts 给的是碰撞包络（为了点得中），
+        # 拿它描边会让选中瞬间轮廓变成简化体，看着像换了一台机器人
+        if self.scene.is_robot(name):
+            self._draw_robot_wireframe(name)
+        else:
+            for part in self.scene.object_parts(name):
+                self._draw_part(part, force_color=color)
         gl.glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         gl.glLineWidth(1.0)
         gl.glEnable(gl.GL_DEPTH_TEST)
         gl.glEnable(gl.GL_LIGHTING)
         gl.glPopMatrix()
+
+    def _draw_robot_wireframe(self, name):
+        """把某台机器人**按当前渲染几何**再画一遍（线框，沿用当前颜色）。
+
+        与 :meth:`_draw_one_robot` 同一套几何与基座位姿，只是**不设材质色**——
+        描边必须与实体完全重合，否则会出现"描边飘在机身外/形状对不上"。
+        """
+        renderer = self.renderer_of(name)
+        model = renderer.model
+        base_tf = self._robot_base_pose_m(name)
+        if base_tf is not None:
+            gl.glPushMatrix()
+            gl.glMultMatrixd(np.ascontiguousarray(base_tf.T))
+        try:
+            if model is None or model.root is None:
+                if renderer.root_link is not None:
+                    self._draw_link_recursive(renderer.root_link, renderer=renderer)
+                return
+            poses = renderer.link_poses()
+            for link_name in model.link_chain():
+                link = model.links.get(link_name)
+                base_pose = poses.get(link_name)
+                if link is None or base_pose is None:
+                    continue
+                for visual in link.visuals:
+                    gl.glPushMatrix()
+                    combined = np.asarray(base_pose @ visual.matrix, dtype=np.float64)
+                    gl.glMultMatrixd(np.ascontiguousarray(combined.T))
+                    self._draw_primitive(visual.primitive)
+                    gl.glPopMatrix()
+        finally:
+            if base_tf is not None:
+                gl.glPopMatrix()
 
     def _highlight_link(self, link_name: str, color=None) -> None:
         """用线框高亮机器人的一个连杆（碰撞定位："撞在哪一段"）。
@@ -1072,18 +1279,22 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         """
         if self.scene is not None and not self.scene.has_robot:
             return  # 场景已移除机器人，视口不再绘制
+        # 多机器人：按场景里的机器人名逐个绘制，各自取渲染器与基座位姿
+        names = (
+            self.scene.robot_names
+            if self.scene is not None and self.scene.robot_names
+            else [ROBOT_NAME]
+        )
+        for name in names:
+            self._draw_one_robot(name)
 
-        model = self.renderer.model
+    def _draw_one_robot(self, name):
+        """绘制单台机器人：按名字取渲染器，按**世界**基座位姿整体平移/旋转。"""
+        renderer = self.renderer_of(name)
+        model = renderer.model
 
-        # 机器人基座位姿（场景对象），从毫米换算到视口米制
-        base_tf = None
-        if self.scene is not None and ROBOT_NAME in self.scene.objects:
-            T_mm = np.asarray(
-                self.scene.objects[ROBOT_NAME].pose.matrix, dtype=np.float64
-            )
-            T_m = T_mm.copy()
-            T_m[:3, 3] *= self.MM_TO_M
-            base_tf = T_m
+        # 机器人基座位姿 → 视口米制（必须是世界位姿：见 _robot_base_pose_m）
+        base_tf = self._robot_base_pose_m(name)
 
         if base_tf is not None:
             gl.glPushMatrix()
@@ -1092,11 +1303,11 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         try:
             if model is None or model.root is None:
                 # 渲染模型模块不可用：回退到旧的单几何递归绘制
-                if self.renderer.root_link is not None:
-                    self._draw_link_recursive(self.renderer.root_link)
+                if renderer.root_link is not None:
+                    self._draw_link_recursive(renderer.root_link, renderer=renderer)
                 return
 
-            poses = self.renderer.link_poses()
+            poses = renderer.link_poses()
             for link_name in model.link_chain():
                 link = model.links.get(link_name)
                 base_pose = poses.get(link_name)
@@ -1197,7 +1408,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                 gl.glRotatef(math.degrees(jry), 0, 1, 0)
                 gl.glRotatef(math.degrees(jrx), 1, 0, 0)
 
-            q = self.renderer.joint_values.get(parent_joint["name"], 0.0)
+            q = renderer.joint_values.get(parent_joint["name"], 0.0)
             if parent_joint["type"] == "revolute" and q != 0:
                 ax, ay, az = parent_joint["axis"]
                 gl.glRotatef(math.degrees(q), ax, ay, az)
@@ -1224,7 +1435,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
         for jname, joint in self.renderer.joints.items():
             if joint["parent"] == link_name:
-                self._draw_link_recursive(joint["child"], joint)
+                self._draw_link_recursive(joint["child"], joint, renderer=renderer)
 
         gl.glPopMatrix()
 
@@ -1561,6 +1772,24 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         sy = (1.0 - (ndc_y + 1.0) / 2.0) * h
         return float(sx), float(sy)
 
+    def _picking_parts(self, name):
+        """对象参与**拾取与选中描边**的几何（世界系）。
+
+        机器人必须改用**碰撞包络**：真实 URDF 的 ``<visual>`` 几乎全是
+        ``<mesh>``（场景解析器不解析），用 visual 会让整台机器人只剩一个 TCP
+        标记球 —— 射线打空、描边也只有一个小球，表现为"看得见却选不中"。
+        干涉检查早就这么处理了，拾取与描边与此保持一致。
+        """
+        if self.scene.is_robot(name):
+            return [
+                p
+                for group in self.scene.robot_world_link_parts(
+                    name, source=GEOMETRY_COLLISION
+                ).values()
+                for p in group
+            ]
+        return self.scene.object_parts(name)
+
     def _pick_object(self, x, y):
         """射线-AABB 求交，返回最近场景对象名；无命中返回 None。"""
         if not _HAS_WORLD or self.scene is None:
@@ -1575,7 +1804,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                     continue
                 lo = np.array([np.inf, np.inf, np.inf])
                 hi = np.array([-np.inf, -np.inf, -np.inf])
-                for part in self.scene.object_parts(name):
+                for part in self._picking_parts(name):
                     try:
                         aabb = prim_aabb(part.prim, part.transform)
                         plo, phi = aabb.lo, aabb.hi
@@ -1664,6 +1893,9 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         """左键按在工件上：进入拖拽摆放，锁定"按住时的世界高度平面"。"""
         self.selected_object = name
         self.drag_mode = None
+        # 已装夹到法兰的工具/工件：先摘下来再拖（detach 保持世界位姿，不跳变）
+        if self._detach_mounted(name):
+            self.sceneChanged.emit(name)
         self._grab_active = True
         self._grab_anchor = self._make_anchor("xy", x, y)
         self.objectSelected.emit(name)
@@ -1679,6 +1911,16 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         if not _HAS_WORLD or self.scene is None or self.selected_object is None:
             return
         name = self.selected_object
+        # 装夹优先于落面：把夹爪拖到臂末端松手，期望是"装上"而不是"掉地上"
+        robot = self._try_snap_mount(name)
+        if robot:
+            self.update()
+            self.objectSelected.emit(name)
+            self.sceneChanged.emit(name)
+            self.objectPlaced.emit(
+                tr("已将 {name} 装夹到 {host} 末端").format(name=name, host=robot)
+            )
+            return
         tf = self.scene.world_transform(name)
         result = _placement.place_on_support(
             self.scene, name, float(tf[0, 3]), float(tf[1, 3]),
@@ -1689,6 +1931,51 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.update()
         self.objectSelected.emit(name)
         self.objectPlaced.emit(_placement.placement_summary(result))
+
+    def _detach_mounted(self, name):
+        """起拖前解除法兰挂载（保持世界位姿）。
+
+        不解除的话，写回的局部位姿会变成"工具偏移"：名义上还挂在法兰下、
+        位置却被挪开了，用户难以理解。只对**挂在机器人法兰下**的对象生效——
+        挂在普通对象下的子对象仍由 placement 层按原规则拒绝拖动。
+
+        Returns:
+            是否真的解除过
+        """
+        if not name or self.scene is None or _placement is None:
+            return False
+        if not _placement.mounted_on_robot(self.scene, name):
+            return False
+        try:
+            self.scene.detach(name)
+        except Exception as exc:  # 只有对象不存在时才会失败
+            print(f"[warning] 自动解除挂载失败: {exc}")
+            return False
+        return True
+
+    def _try_snap_mount(self, name):
+        """松手时若停在机器人法兰附近，就装夹到该机器人末端。
+
+        装夹＝局部位姿归零：工具坐标系自动与法兰对齐，而不是保留当前世界位置。
+
+        Returns:
+            命中的机器人名；未装夹返回 ``None``
+        """
+        if not name or self.scene is None or _placement is None:
+            return None
+        if self.scene.is_robot(name):
+            return None  # 机器人本体不能被装夹到别的机器人法兰上
+        robot = _placement.flange_snap_target(
+            self.scene, name, getattr(self, "snap_radius_mm", 60.0)
+        )
+        if robot is None or name == robot:
+            return None
+        try:
+            _placement.mount_to_flange(self.scene, name, robot)
+        except (KeyError, ValueError) as exc:
+            print(f"[warning] 自动装夹失败: {exc}")
+            return None
+        return robot
 
     def _make_anchor(self, mode, x, y):
         """记录拖动起始参考量（对象世界位姿 + 模式相关的局部参考）。"""
@@ -1751,6 +2038,9 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             mode = self._gizmo_hit_mode(x, y)
             if mode is None:
                 return
+            # 右键 gizmo 与左键一致：拖已装夹件前先摘下来
+            if self._detach_mounted(self.selected_object):
+                self.sceneChanged.emit(self.selected_object)
             self._drag_anchor = self._make_anchor(mode, x, y)
             self.drag_mode = mode
             self.update()
@@ -2642,6 +2932,17 @@ class PathCodeEditor(QtWidgets.QWidget):
         self._scene = scene
         self.refresh_workpiece_combo()
 
+    def set_cell(self, cell) -> None:
+        """整体换掉工作单元模型（工程文件载入用 v1.3.4）。
+
+        只换数据 + 刷设备表：点表是**用户填过的内容**，工程载入必须原样恢复，
+        所以这里不做"按场景补齐设备"那套推导（那是 :meth:`sync_devices` 的活）。
+        """
+        if cell is None or not _HAS_CELL:
+            return
+        self.cell = cell
+        self._refresh_device_table()
+
     def refresh_workpiece_combo(self) -> None:
         """重建「工件」下拉：场景里除机器人外的全部对象。"""
         if not _HAS_PICKPLACE:
@@ -2791,6 +3092,22 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         )
         self.obj_parent_combo.currentIndexChanged.connect(self._on_obj_parent_edited)
         mount_layout.addRow(tr("挂载到:"), self.obj_parent_combo)
+
+        # 装夹 / 解除装夹：与下拉等价，但不用去翻选项——法兰装夹是高频操作
+        self.mount_btn_row = QtWidgets.QWidget()
+        btn_layout = QtWidgets.QHBoxLayout(self.mount_btn_row)
+        btn_layout.setContentsMargins(0, 2, 0, 0)
+        self.btn_mount_to_robot = QtWidgets.QPushButton(tr("装夹到末端"))
+        self.btn_unmount = QtWidgets.QPushButton(tr("解除装夹"))
+        self.btn_mount_to_robot.setToolTip(
+            tr("吸附到机器人法兰原点，工具坐标系与法兰对齐并随机器人运动")
+        )
+        self.btn_unmount.setToolTip(tr("解除挂载并保持当前世界位姿"))
+        self.btn_mount_to_robot.clicked.connect(self._on_mount_to_robot)
+        self.btn_unmount.clicked.connect(self._on_unmount)
+        btn_layout.addWidget(self.btn_mount_to_robot)
+        btn_layout.addWidget(self.btn_unmount)
+        mount_layout.addRow(self.mount_btn_row)
         info_layout.addRow(self.obj_mount_widget)
 
         # 机器人规格（仅机器人对象可见）
@@ -2966,13 +3283,17 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.obj_type_label.setText(tr("机器人"))
             self.robot_spec_widget.setVisible(True)
             self.note_label.setVisible(bool(self.note_label.text()))
-            # 机器人是场景根级设备，不能被挂到别的对象下
-            self.obj_mount_widget.setVisible(False)
+            # 机器人可以挂到底座/台面上（基座随之随动）。但「装夹到末端」对
+            # 机器人自身没有意义——那是"把工具装到它的法兰上"，故只留下拉。
+            self.obj_mount_widget.setVisible(True)
+            self.mount_btn_row.setVisible(False)
+            self._refresh_parent_combo(name)
         else:
             self.obj_type_label.setText(spec.name if spec else tr("自定义"))
             self.robot_spec_widget.setVisible(False)
             self.note_label.setVisible(False)
             self.obj_mount_widget.setVisible(True)
+            self.mount_btn_row.setVisible(True)
             self._refresh_parent_combo(name)
 
         # 位姿回填（blockSignals 避免触发写回）
@@ -3232,6 +3553,31 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         combo.setCurrentIndex(idx if idx >= 0 else 0)
         combo.blockSignals(False)
 
+    def _on_mount_to_robot(self) -> None:
+        """把当前对象装夹到机器人末端（主机器人法兰，坐标系自动对齐）。"""
+        name = self.current_object
+        if not name or self.scene is None or not getattr(self.scene, "robots", None):
+            return
+        robot = self.scene.robot_names[0]
+        if name == robot:
+            return
+        try:
+            self.scene.attach(name, robot, keep_world=False)
+        except (KeyError, ValueError) as exc:
+            print(f"[warning] 装夹失败: {exc}")
+            return
+        self.set_object(name)
+        self.objectChanged.emit()
+
+    def _on_unmount(self) -> None:
+        """解除挂载并保持当前世界位姿（停在原地，不再随机器人动）。"""
+        name = self.current_object
+        if not name or self.scene is None:
+            return
+        self.scene.detach(name)
+        self.set_object(name)
+        self.objectChanged.emit()
+
     def _on_obj_parent_edited(self) -> None:
         """切换挂载父对象。
 
@@ -3244,6 +3590,11 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         target = self.obj_parent_combo.currentData()
         try:
             self.scene.attach(name, target, keep_world=(target != ROBOT_NAME))
+            # 机器人挂到底座/台面：要"坐上去"（上表面正中央），而不是停在
+            # 原地只建立随动关系——后者看着像根本没挂上
+            if (self.scene.is_robot(name) and target
+                    and not self.scene.is_robot(target)):
+                _placement.mount_on_top_of(self.scene, name, target)
         except (KeyError, ValueError) as exc:
             self._refresh_parent_combo(name)
             print(f"[warning] 挂载失败: {exc}")
@@ -3263,9 +3614,17 @@ class DevicePropertyPanel(QtWidgets.QWidget):
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    #: 自动保存间隔（毫秒）。有未保存改动时每 60s 落一份快照——崩溃最多
+    #: 丢一个间隔内的活，且不影响手动保存（快照写到独立目录，不碰工程）。
+    AUTOSAVE_INTERVAL_MS = 60_000
+
     def __init__(self, urdf_path=None):
         super().__init__()
-        self.setWindowTitle("RobotWorld Terminal v1.2.4")
+        #: 当前工程（v1.3.4）：`.orolp` 工程文件的内存形态，窗口标题显示它
+        self.project = Project() if _HAS_PROJECT else None
+        #: 有未保存改动（标题里的"•未保存"）
+        self._project_dirty = False
+        self.setWindowTitle(f"RobotWorld Terminal v{_OROLP_VERSION}")
         self.resize(1400, 900)
         self._set_window_icon()
         self.setup_menu()
@@ -3276,6 +3635,15 @@ class MainWindow(QtWidgets.QMainWindow):
         #: 「真机连接」模式对话框（v1.1.1）：首次打开时创建，之后复用
         self._controller_dialog = None
         self._controller_panel = None
+        # 会话支撑（v1.3.5）：自动保存定时器 + 恢复询问的一次性闸门
+        self._recovery_prompted = False
+        self._autosave_timer = None
+        if _HAS_SESSION_SUPPORT:
+            self._autosave_timer = QtCore.QTimer(self)
+            self._autosave_timer.setInterval(self.AUTOSAVE_INTERVAL_MS)
+            self._autosave_timer.timeout.connect(self._autosave_tick)
+            self._autosave_timer.start()
+        self._update_window_title()
     
     def showEvent(self, event):
         super().showEvent(event)
@@ -3284,6 +3652,15 @@ class MainWindow(QtWidgets.QMainWindow):
         elif _HAS_ROBOT_LIBRARY and hasattr(self, "library_panel"):
             self._load_default_robot()
         self.gl_widget.update()
+        self.maybe_prompt_recovery()
+
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        # 干净退出（没有未保存改动）→ 自动保存快照已无意义，清掉，
+        # 免得下次启动被一个过时的"崩溃恢复"误导；有未保存改动则留着——
+        # 正常关闭路径之外（被杀/崩溃）这正是要恢复的东西。
+        if _HAS_SESSION_SUPPORT and not self._project_dirty:
+            clear_autosave()
 
     def _load_default_robot(self):
         """未通过命令行指定模型时，载入一个示例机器人，避免首屏空白。"""
@@ -3310,8 +3687,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             return
         self.scene_panel.add_component(component_id)
-        if hasattr(self, "right_tabs"):
-            self.right_tabs.setCurrentWidget(self.scene_panel)
+        if hasattr(self, "left_tabs"):
+            self.left_tabs.setCurrentWidget(self.scene_panel)
 
     def _on_robot_dropped(self, key: str) -> None:
         """机器组件库拖拽机器人型号到视口时，按目录 key 解析 URDF 并载入。"""
@@ -3706,6 +4083,538 @@ class MainWindow(QtWidgets.QMainWindow):
             ).format(n=len(positions), cycle_txt=cycle_txt)
         )
 
+    # ------------------------------------------------------------------ #
+    # 工程文件（.orolp，v1.3.4）
+    # ------------------------------------------------------------------ #
+
+    def _project_name(self) -> str:
+        """当前工程名（工程名 → 文件名 → 空串；显示时才用「未命名工程」兜底）。"""
+        if _HAS_PROJECT and self.project is not None:
+            if self.project.name:
+                return self.project.name
+            if self.project.path is not None:
+                return self.project.path.stem
+        return ""
+
+    def _update_window_title(self) -> None:
+        """标题带工程名与未保存标记——"这个界面里装的是哪个工程"一眼可见。"""
+        mark = tr(" •未保存") if self._project_dirty else ""
+        name = self._project_name() or tr("未命名工程")
+        self.setWindowTitle(
+            f"RobotWorld Terminal v{_OROLP_VERSION} — {name}{mark}"
+        )
+
+    def _set_project_dirty(self, dirty: bool = True) -> None:
+        if not _HAS_PROJECT:
+            return
+        self._project_dirty = bool(dirty)
+        self._update_window_title()
+
+    def _collect_into(self, project) -> None:
+        """把当前会话的各部分写进工程对象。
+
+        **只收界面里真的有的东西**：没有场景就不写场景段，而不是写一段空的
+        ——工程摘要里"工程里没有：场景"比"场景：0 个对象"诚实。
+        """
+        if _HAS_WORLD and hasattr(self, "scene_panel"):
+            scene = getattr(self.scene_panel, "scene", None)
+            if scene is not None and (len(scene) or getattr(scene, "has_robot", False)):
+                project.set("scene", scene.to_dict())
+
+        if hasattr(self, "code_editor"):
+            types = [
+                getattr(t, "value", str(t))
+                for t in (self.code_editor.get_point_types() or [])
+            ]
+            project.set("program", {
+                "code": self.code_editor.toPlainText(),
+                "point_types": types,
+                "joint_names": list(self.code_editor.joint_names or []),
+            })
+
+        if (
+            _HAS_WORLD
+            and hasattr(self, "scene_panel")
+            and hasattr(self.scene_panel, "sequence_editor")
+        ):
+            project.set(
+                "sequence", self.scene_panel.sequence_editor.sequence.to_dict()
+            )
+
+        cell = getattr(getattr(self, "code_editor", None), "cell", None)
+        if _HAS_CELL and cell is not None:
+            project.set("cell", cell_snapshot(cell))
+
+        panel = getattr(self, "library_panel", None)
+        sources = list(getattr(panel, "parts_sources", []) or [])
+        project.set("parts", {"sources": sources})
+
+    @staticmethod
+    def _resolve_project_path(raw: str, base) -> "Path | None":
+        """把工程里记的路径解析成真实文件（原样 → 工程目录 → 仓库根）。"""
+        candidate = Path(raw)
+        if candidate.exists():
+            return candidate
+        for root in (base, _REPO_ROOT):
+            if root is None:
+                continue
+            alt = Path(root) / raw
+            if alt.exists():
+                return alt
+        return None
+
+    def _apply_project(self, project) -> list:
+        """把工程内容应用到界面，返回**应用时发现的问题**（人话字符串）。"""
+        issues: list = []
+
+        # ---- 场景 ---- #
+        payload = project.get("scene")
+        if payload is not None:
+            if not (_HAS_WORLD and hasattr(self, "scene_panel")):
+                issues.append(tr("场景段已跳过：环境建模不可用"))
+            else:
+                scene = None
+                try:
+                    scene = Scene.from_dict(payload)
+                except Exception as exc:
+                    issues.append(tr("场景段载入失败：{msg}").format(msg=exc))
+                if scene is not None:
+                    urdf = scene.robot_urdf
+                    if urdf and not Path(urdf).exists():
+                        alt = _REPO_ROOT / urdf
+                        if alt.exists():
+                            urdf = str(alt)
+                    if urdf and Path(urdf).exists():
+                        self.load_robot(urdf)
+                        names = self.gl_widget.renderer.actuated_names()
+                        joints = getattr(scene, "_robot_joints_deg", []) or []
+                        if getattr(scene, "has_robot", False) and len(joints) == len(names):
+                            self.gl_widget.set_joint_values(
+                                {n: math.radians(v) for n, v in zip(names, joints)}
+                            )
+                    elif urdf:
+                        issues.append(
+                            tr("场景里的机器人模型找不到：{urdf}（场景仍已载入）").format(urdf=urdf)
+                        )
+                    self._adopt_scene(scene)
+                    if _HAS_PROGRAM and hasattr(self, "program_panel"):
+                        self.program_panel.set_scene(scene)
+
+        # ---- 示教程序（含代码文本里没有的工艺语义） ---- #
+        payload = project.get("program")
+        if payload is not None:
+            if not hasattr(self, "code_editor"):
+                issues.append(tr("示教程序段已跳过：路径编辑器不可用"))
+            else:
+                self.code_editor.setPlainText(payload.get("code") or "")
+                self.code_editor._parse_code_to_positions()
+                n_pts = len(self.code_editor.get_recorded_positions())
+                types_raw = [str(t) for t in (payload.get("point_types") or [])]
+                if types_raw and _HAS_PICKPLACE:
+                    if len(types_raw) != n_pts:
+                        issues.append(
+                            tr(
+                                "示教点语义 {a} 个与解析出的 {b} 个点不一致，"
+                                "已按默认语义重建（不猜哪个是抓取点）"
+                            ).format(a=len(types_raw), b=n_pts)
+                        )
+                        self.code_editor.sync_point_types()
+                    else:
+                        try:
+                            self.code_editor.point_types = [PointType(t) for t in types_raw]
+                        except ValueError as exc:
+                            issues.append(
+                                tr("示教点语义含未知值（{msg}），已按默认语义重建").format(msg=exc)
+                            )
+                            self.code_editor.sync_point_types()
+                positions = self.code_editor.get_recorded_positions()
+                self.gl_widget.set_recorded_positions(positions)
+                self._sync_program_points()
+
+        # ---- 工艺时序 ---- #
+        payload = project.get("sequence")
+        if payload is not None:
+            editor = getattr(getattr(self, "scene_panel", None), "sequence_editor", None)
+            if editor is None or not _HAS_SEQUENCE:
+                issues.append(tr("工艺时序段已跳过：时序编辑器不可用"))
+            else:
+                try:
+                    editor.set_sequence(ProcessSequence.from_dict(payload))
+                except Exception as exc:
+                    issues.append(tr("工艺时序段载入失败：{msg}").format(msg=exc))
+
+        # ---- 设备点表 ---- #
+        payload = project.get("cell")
+        if payload is not None:
+            if not (_HAS_CELL and hasattr(self, "code_editor")):
+                issues.append(tr("设备点表段已跳过：工作单元模块不可用"))
+            else:
+                try:
+                    cell = cell_from_snapshot(payload)
+                except ValueError as exc:
+                    issues.append(tr("设备点表段载入失败：{msg}").format(msg=exc))
+                else:
+                    self.code_editor.set_cell(cell)
+                    editor = getattr(getattr(self, "scene_panel", None), "sequence_editor", None)
+                    if editor is not None:
+                        editor.set_available_signals(
+                            sorted(
+                                {sig for d in cell.devices for sig in d.io_map}
+                                | set(HANDSHAKE_SIGNALS)
+                            )
+                        )
+
+        # ---- 零件库来源 ---- #
+        payload = project.get("parts")
+        if payload is not None:
+            sources = [str(s) for s in (payload.get("sources") or [])]
+            panel = getattr(self, "library_panel", None)
+            if not (_HAS_ROBOT_LIBRARY and panel is not None):
+                if sources:
+                    issues.append(tr("零件库来源已跳过：机器组件库不可用"))
+            else:
+                base = project.path.parent if getattr(project, "path", None) else None
+                for raw in sources:
+                    resolved = self._resolve_project_path(raw, base)
+                    if resolved is None:
+                        issues.append(
+                            tr("零件库文件找不到：{src}（未导入；工程里仍记录着它）").format(src=raw)
+                        )
+                        continue
+                    try:
+                        n = panel.import_parts_file(resolved)
+                    except Exception as exc:
+                        issues.append(
+                            tr("零件库导入失败：{src}（{msg}）").format(src=raw, msg=exc)
+                        )
+                    else:
+                        self.statusBar().showMessage(
+                            tr("已从工程恢复零件库：{n} 个自定义零件").format(n=n)
+                        )
+        return issues
+
+    def save_project(self) -> None:
+        """「保存工程…」——把场景/示教程序/时序/点表/零件来源收进一个 .orolp。"""
+        if not _HAS_PROJECT:
+            QtWidgets.QMessageBox.information(
+                self, tr("保存工程"), tr("工程文件模块不可用。")
+            )
+            return
+        # 已在某工程上工作时不新建对象：**未知段与未知顶层键要跟着走**
+        # （否则"打开—保存"一趟就把别家工具写的字段抹掉了）
+        project = self.project if self.project is not None else Project()
+        suggested = (
+            str(project.path)
+            if project.path is not None
+            else str(_REPO_ROOT / f"{self._project_name() or 'workcell'}{PROJECT_EXTENSION}")
+        )
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, tr("保存工程"), suggested, PROJECT_FILTER
+        )
+        if not path:
+            return
+        self._collect_into(project)
+        try:
+            target = project.save(path)
+        except ProjectError as exc:
+            QtWidgets.QMessageBox.critical(self, tr("保存工程失败"), str(exc))
+            return
+        self.project = project
+        self._set_project_dirty(False)
+        self._record_recent(target)
+        self._clear_autosave_snapshot()
+        summary = project.summary()
+        self.statusBar().showMessage(
+            tr("工程已保存：{name}（{n} 段）").format(name=target.name, n=len(summary))
+        )
+
+    def open_project(self) -> None:
+        """「打开工程…」——选文件后走 :meth:`open_project_path` 同一条路。"""
+        if not _HAS_PROJECT:
+            QtWidgets.QMessageBox.information(
+                self, tr("打开工程"), tr("工程文件模块不可用。")
+            )
+            return
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, tr("打开工程"), "", PROJECT_FILTER
+        )
+        if not path:
+            return
+        self.open_project_path(path)
+
+    def open_project_path(
+        self, path: str, record_recent: bool = True, clear_autosave: bool = True
+    ) -> bool:
+        """载入 .orolp，逐段应用，并把跳过/缺失如实报出来。
+
+        「打开工程…」对话框与「最近打开」菜单条目走的是**同一条路**，
+        返回是否载入成功（最近打开菜单用它判断要不要记这条记录）。
+        崩溃恢复也走这条路，但 `record_recent=False`（快照是内部槽位，
+        不进最近打开）、`clear_autosave=False`（快照正是刚恢复的内容，
+        在用户把它存到真实位置前还得留着）。
+        """
+        if not _HAS_PROJECT:
+            return False
+        try:
+            project = Project.load(path)
+        except ProjectError as exc:
+            QtWidgets.QMessageBox.critical(self, tr("打开工程失败"), str(exc))
+            return False
+
+        issues = self._apply_project(project)
+        self.project = project
+        self._set_project_dirty(False)
+        if record_recent:
+            self._record_recent(project.path or Path(path))
+        # 磁盘上已有一份工程了，旧的自动保存快照过时且有误导性 → 清掉
+        if clear_autosave:
+            self._clear_autosave_snapshot()
+
+        report = project.load_report
+        lines = [tr("已打开 {name}").format(name=Path(path).name)]
+        if report is not None:
+            lines.append(report.describe())
+        if issues:
+            lines.append(tr("应用时的问题："))
+            lines.extend("  · " + s for s in issues)
+        text = "\n".join(lines)
+        if issues or (report is not None and not report.ok()):
+            box = QtWidgets.QMessageBox(self)
+            box.setWindowTitle(tr("打开工程"))
+            box.setText(text)
+            box.exec()
+        self.statusBar().showMessage(
+            tr("工程已打开：{name}").format(name=Path(path).name)
+        )
+        return True
+
+    # ---------------- 最近打开（v1.3.5） ---------------- #
+
+    def _record_recent(self, path) -> None:
+        """记一条最近打开（打开成功 / 保存成功后调用；尽力而为）。"""
+        if not _HAS_SESSION_SUPPORT or path is None:
+            return
+        recents = RecentProjects.load()
+        recents.add(str(path))
+        recents.save()
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self) -> None:
+        """按最近打开记录重建子菜单；失效条目置灰（不悄悄藏）。"""
+        if not _HAS_SESSION_SUPPORT:
+            return
+        menu = getattr(self, "_recent_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        recents = RecentProjects.load()
+        entries = recents.paths or []
+        if not entries:
+            empty = menu.addAction(tr("（暂无记录）"))
+            empty.setEnabled(False)
+            return
+        for index, path in enumerate(entries, start=1):
+            action = menu.addAction(f"&{index}  {path}")
+            action.setEnabled(Path(path).exists())
+            if action.isEnabled():
+                action.triggered.connect(
+                    lambda _checked=False, p=path: self.open_project_path(p)
+                )
+        menu.addSeparator()
+        clear_action = menu.addAction(tr("清除最近打开记录"))
+        clear_action.triggered.connect(self._clear_recent_menu_records)
+
+    def _clear_recent_menu_records(self) -> None:
+        if not _HAS_SESSION_SUPPORT:
+            return
+        RecentProjects().save()
+        self._rebuild_recent_menu()
+        self.statusBar().showMessage(tr("已清除最近打开记录"))
+
+    # ---------------- 崩溃自动恢复（v1.3.5） ---------------- #
+
+    def _write_autosave_snapshot(self) -> bool:
+        """把当前会话快照写进自动保存目录（不动正在编辑的工程对象）。
+
+        快照走一份**新建的** Project：收集会话内容 + 带上原工程的
+        未知段/未知顶层键/元信息——原工程对象的 ``path`` 不能被快照
+        覆盖，否则下次手动保存的建议路径会错。
+        """
+        if not (_HAS_SESSION_SUPPORT and self.project is not None):
+            return False
+        snapshot = Project(
+            name=self.project.name,
+            note=self.project.note,
+            created=self.project.created,
+            modified=self.project.modified,
+            orolp_version=self.project.orolp_version,
+        )
+        snapshot.raw_sections = dict(self.project.raw_sections)
+        snapshot.extra = dict(self.project.extra)
+        self._collect_into(snapshot)
+        source_path = (
+            str(self.project.path) if self.project.path is not None else None
+        )
+        return write_autosave(snapshot, source_path=source_path) is not None
+
+    def _autosave_tick(self) -> None:
+        """定时器心跳：只在有未保存改动时落快照（干净的会话没什么可救）。"""
+        if not _HAS_SESSION_SUPPORT or not self._project_dirty:
+            return
+        self._write_autosave_snapshot()
+
+    def _clear_autosave_snapshot(self) -> None:
+        if _HAS_SESSION_SUPPORT:
+            clear_autosave()
+
+    def maybe_prompt_recovery(self) -> bool:
+        """启动时若存在自动保存快照，询问是否恢复；恢复成功返回 True。
+
+        只问一次（``showEvent`` 可能触发多次）；没有任何可靠元数据的
+        快照不弹询问——快照文件本身仍是合法 .orolp，用户可以手动打开。
+        """
+        if not _HAS_SESSION_SUPPORT or self._recovery_prompted:
+            return False
+        self._recovery_prompted = True
+        info = read_autosave()
+        if info is None:
+            return False
+        source = info.source_path or tr("（未命名工程）")
+        saved_at = info.saved_at or tr("（未知时间）")
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            tr("恢复上次会话"),
+            tr(
+                "检测到上次会话的自动保存。\n\n"
+                "工程：{source}\n保存时间：{saved}\n\n"
+                "是否恢复？（不恢复也可以稍后用「打开工程」手动打开快照：\n{snapshot}）"
+            ).format(source=source, saved=saved_at, snapshot=info.snapshot),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.Yes,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return False
+        if not self.open_project_path(
+            str(info.snapshot), record_recent=False, clear_autosave=False
+        ):
+            return False
+        # 恢复的内容在快照里、不在盘上的"工程位置"——按未保存改动对待，
+        # 让标题的"•未保存"和自动保存继续守护它；手动保存的建议路径
+        # 指回原工程位置（快照路径只是内部槽位，不该被当成保存目标）
+        if self.project is not None:
+            self.project.path = Path(info.source_path) if info.source_path else None
+            if not info.source_path:
+                self.project.name = ""
+        self._set_project_dirty(True)
+        self.statusBar().showMessage(
+            tr("已从自动保存恢复：{saved}").format(saved=saved_at)
+        )
+        return True
+
+    # ---------------- 从模板新建工程（v1.3.6） ---------------- #
+
+    def new_project_from_template(self, template_id: str | None = None) -> bool:
+        """「从模板新建工程」；传入 ``template_id`` 时跳过选择对话框。
+
+        模板产物走 :meth:`_apply_project` 同一条应用通路（与打开工程
+        一致）；新建的工程尚未落盘，按未保存改动对待（标题「•未保存」
+        + 自动保存继续守护）。
+        """
+        if not (_HAS_PROJECT_TEMPLATES and _HAS_PROJECT):
+            QtWidgets.QMessageBox.information(
+                self, tr("从模板新建工程"), tr("工程模板模块不可用。")
+            )
+            return False
+        if template_id is None:
+            template_id = self._choose_project_template()
+            if not template_id:
+                return False
+        if self._project_dirty:
+            answer = QtWidgets.QMessageBox.question(
+                self,
+                tr("从模板新建工程"),
+                tr("当前工程有未保存改动，新建模板工程会丢弃这些改动。\n\n是否继续？"),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No,
+            )
+            if answer != QtWidgets.QMessageBox.Yes:
+                return False
+        try:
+            project = build_project_template(template_id)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self,
+                tr("从模板新建工程"),
+                tr("模板构建失败：{kind}: {msg}").format(
+                    kind=type(exc).__name__, msg=exc
+                ),
+            )
+            return False
+
+        issues = self._apply_project(project)
+        self.project = project
+        self._set_project_dirty(True)
+        if issues:
+            box = QtWidgets.QMessageBox(self)
+            box.setWindowTitle(tr("从模板新建工程"))
+            box.setText(
+                tr("已从模板新建：{name}").format(name=project.name or template_id)
+                + "\n"
+                + tr("应用时的问题：")
+                + "\n"
+                + "\n".join("  · " + s for s in issues)
+            )
+            box.exec()
+        self.statusBar().showMessage(
+            tr("已从模板新建：{name}（尚未保存，可直接修改后「保存工程」）").format(
+                name=project.name or template_id
+            )
+        )
+        return True
+
+    def _choose_project_template(self) -> "str | None":
+        """模板选择对话框；返回选中的模板 id，取消返回 ``None``。"""
+        templates = list_project_templates()
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(tr("从模板新建工程"))
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(
+            QtWidgets.QLabel(tr("选择一个模板作为新工程的起点："))
+        )
+        listw = QtWidgets.QListWidget(dialog)
+        for tpl in templates:
+            item = QtWidgets.QListWidgetItem(tpl["name"])
+            item.setData(Qt.UserRole, tpl["id"])
+            item.setToolTip(tpl["description"])
+            listw.addItem(item)
+        desc = QtWidgets.QLabel("")
+        desc.setWordWrap(True)
+        layout.addWidget(listw)
+        layout.addWidget(desc)
+
+        def _sync_desc() -> None:
+            item = listw.currentItem()
+            tid = item.data(Qt.UserRole) if item is not None else None
+            desc.setText(
+                next((t["description"] for t in templates if t["id"] == tid), "")
+            )
+
+        listw.currentItemChanged.connect(lambda *_: _sync_desc())
+        listw.itemDoubleClicked.connect(lambda *_: dialog.accept())
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        listw.setMinimumWidth(420)
+        listw.setCurrentRow(0)
+        _sync_desc()
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return None
+        item = listw.currentItem()
+        return item.data(Qt.UserRole) if item is not None else None
+
     def setup_menu(self):
         menubar = self.menuBar()
         
@@ -3724,6 +4633,58 @@ class MainWindow(QtWidgets.QMainWindow):
         load_action.setShortcut("Ctrl+O")
         load_action.triggered.connect(self.load_path_code)
         file_menu.addAction(load_action)
+
+        if _HAS_PROJECT:
+            file_menu.addSeparator()
+            open_project_action = QAction(tr("打开工程(&O)…"), self)
+            open_project_action.setShortcut("Ctrl+Shift+O")
+            open_project_action.setToolTip(
+                tr(
+                    "打开 .orolp 工程文件：一次载入场景、示教程序（含抓取/放置语义）、"
+                    "工艺时序、设备点表与零件库来源。\n"
+                    "缺段/坏段只跳过那一段并在报告里说明——不会因为一段格式问题打不开整个工程。"
+                )
+            )
+            open_project_action.triggered.connect(self.open_project)
+            file_menu.addAction(open_project_action)
+
+            save_project_action = QAction(tr("保存工程(&S)…"), self)
+            save_project_action.setShortcut("Ctrl+Shift+S")
+            save_project_action.setToolTip(
+                tr(
+                    "把当前工作会话存成一个 .orolp 工程文件（原子写入）。\n"
+                    "本库不认识的段与字段会原样保留，往返一趟不丢内容。"
+                )
+            )
+            save_project_action.triggered.connect(self.save_project)
+            file_menu.addAction(save_project_action)
+
+            if _HAS_PROJECT_TEMPLATES:
+                new_tpl_action = QAction(tr("从模板新建工程(&N)…"), self)
+                new_tpl_action.setToolTip(
+                    tr(
+                        "从内置模板（抓取工作站 / 分拣工位 / 机床上下料 / 3C 装配 / 汽车焊装）新建工程：\n"
+                        "场景与起步程序一步到位，不必从空白开始。\n"
+                        "当前工程有未保存改动时会先询问。"
+                    )
+                )
+                new_tpl_action.triggered.connect(
+                    lambda: self.new_project_from_template()
+                )
+                file_menu.addAction(new_tpl_action)
+
+            if _HAS_SESSION_SUPPORT:
+                file_menu.addSeparator()
+                self._recent_menu = file_menu.addMenu(tr("最近打开(&R)"))
+                self._recent_menu.setToolTip(
+                    tr(
+                        "最近打开过的 .orolp 工程文件（最新在前，最多 10 条）。\n"
+                        "文件已不存在的条目会置灰，不会被悄悄藏掉。"
+                    )
+                )
+                # 展开时重建：文件被移走/改名后，失效条目立即置灰
+                self._recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
+                self._rebuild_recent_menu()
 
         if _HAS_WORLD:
             file_menu.addSeparator()
@@ -3922,24 +4883,25 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.on_taught_points_changed
                 )
 
-            # ---- 左：资源库（建模区）----
-            # 按设计方案，左侧只负责选设备/工件/场景；代码预览、导出打包、
-            # 动作与从属一律移到右侧，不再在左侧堆叠多个标签页。
-            res_box = QtWidgets.QGroupBox(tr("资源库"))
-            res_layout = QtWidgets.QVBoxLayout(res_box)
-            res_layout.setContentsMargins(2, 6, 2, 4)
-            res_layout.setSpacing(2)
-            res_layout.addWidget(self.library_panel, 1)
-            res_box.setMaximumWidth(360)
-            res_box.setMinimumWidth(250)
-            main_layout.addWidget(res_box)
+            # ---- 左：双 Tab（① 场景设备库 ② 设备树）----
+            # 左侧只负责"挑设备 + 编排层级"：Tab1 从库里选设备，Tab2 把设备摆成
+            # 层级（含挂法兰自动吸合）。代码预览、导出打包仍留在右侧输出区。
+            self.left_tabs = QtWidgets.QTabWidget()
+            self.left_tabs.setMaximumWidth(360)
+            self.left_tabs.setMinimumWidth(250)
+            self.left_tabs.addTab(self.library_panel, tr("场景设备库"))
+            if _HAS_WORLD and hasattr(self, "scene_panel"):
+                self.left_tabs.addTab(self.scene_panel, tr("设备树"))
+            main_layout.addWidget(self.left_tabs)
         else:
-            # 无机器人库时左侧留空占位；代码编辑器已归入右侧「代码预览」标签，
-            # 这里不能再挂一次，否则会被重复 reparent。
-            left_panel = QtWidgets.QWidget()
-            left_panel.setMaximumWidth(350)
-            left_panel.setMinimumWidth(250)
-            main_layout.addWidget(left_panel)
+            # 无机器人库时左侧只保留设备树；代码编辑器已归入右侧「代码预览」
+            # 标签，这里不能再挂一次，否则会被重复 reparent。
+            self.left_tabs = QtWidgets.QTabWidget()
+            self.left_tabs.setMaximumWidth(360)
+            self.left_tabs.setMinimumWidth(250)
+            if _HAS_WORLD and hasattr(self, "scene_panel"):
+                self.left_tabs.addTab(self.scene_panel, tr("设备树"))
+            main_layout.addWidget(self.left_tabs)
         
         self.gl_widget = GLWidget(self)
         self.gl_widget.setMinimumSize(400, 300)
@@ -3955,8 +4917,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_tabs.setMaximumWidth(330)
         self.right_tabs.setMinimumWidth(260)
         self.right_tabs.addTab(self.property_panel, tr("属性"))
-        if _HAS_WORLD and hasattr(self, "scene_panel"):
-            self.right_tabs.addTab(self.scene_panel, tr("动作与从属"))
         self.right_tabs.addTab(self.code_editor, tr("代码预览"))
         if _HAS_PROGRAM and hasattr(self, "program_panel"):
             self.right_tabs.addTab(self.program_panel, tr("导出打包"))
@@ -3969,13 +4929,24 @@ class MainWindow(QtWidgets.QMainWindow):
             self.gl_widget.objectSelected.connect(self.scene_panel._select_object)
             # 左键拖拽摆放完成（v1.1.7）：把"落在谁上面"说给状态栏听
             self.gl_widget.objectPlaced.connect(self.statusBar().showMessage)
+            # 视口侧改动挂载关系（拖到法兰自动装夹 / 拖已装夹件自动解除）：
+            # 属性面板回填 + 设备树层级跟着变 + 视口重绘
+            self.gl_widget.sceneChanged.connect(self.property_panel.set_object)
+            self.gl_widget.sceneChanged.connect(
+                lambda _n: self.scene_panel._refresh_tree()
+            )
+            self.gl_widget.sceneChanged.connect(lambda _n: self.gl_widget.update())
             # 选中对象（视口 / 场景树两条来源）同步到右侧属性面板
             self.property_panel.set_scene(self.scene_panel.scene)
             self.gl_widget.objectSelected.connect(self.property_panel.set_object)
             self.scene_panel.objectSelected.connect(self.property_panel.set_object)
             # 场景树选中也要让视口画黄色高亮（同步 gl_widget.selected_object）
             self.scene_panel.objectSelected.connect(
-                lambda n: (setattr(self.gl_widget, "selected_object", n), self.gl_widget.update())
+                lambda n: (
+                    setattr(self.gl_widget, "selected_object", n),
+                    self.gl_widget.set_current_robot(n),
+                    self.gl_widget.update(),
+                )
             )
             # 右面板编辑对象属性后重绘视口
             self.property_panel.objectChanged.connect(self.gl_widget.update)
@@ -3988,6 +4959,23 @@ class MainWindow(QtWidgets.QMainWindow):
             # 机器组件库拖入视口：组件加入场景、机器人按 catalog key 载入
             self.gl_widget.componentDropped.connect(self._add_component_from_library)
             self.gl_widget.robotDropped.connect(self._on_robot_dropped)
+            # 工艺时序（v1.3.1）：把点表里真实存在的信号名注入时序编辑器，
+            # 校验才能查出"序列用了但点表里没有"的信号
+            self.scene_panel.sequence_editor.set_available_signals(
+                sorted({sig for d in self.code_editor.cell.devices for sig in d.io_map}
+                       | set(HANDSHAKE_SIGNALS))
+            )
+            # 工程未保存标记（v1.3.4）：会话里任何"值得存下来"的改动都置脏。
+            # 刻意只挂这四条粗粒度信号——细粒度（每个对象位姿变化）噪声太大，
+            # 会把标记变成常亮的装饰。
+            self.scene_panel.sceneChanged.connect(self._set_project_dirty)
+            self.scene_panel.sequence_editor.sequenceChanged.connect(self._set_project_dirty)
+            self.code_editor.code_edit.textChanged.connect(self._set_project_dirty)
+
+        if _HAS_PROGRAM and hasattr(self, "program_panel"):
+            self.program_panel.taughtPointsChanged.connect(
+                lambda *_args: self._set_project_dirty()
+            )
 
         self._setup_status_bar()
         if _HAS_PROGRAM and hasattr(self, "program_panel"):
@@ -4002,12 +4990,40 @@ class MainWindow(QtWidgets.QMainWindow):
         if file_path:
             self.load_robot(file_path)
     
+    def _register_robot_in_scene(self, path) -> str:
+        """把机器人登记进工作单元场景：**已有机器人时追加**，返回其名字。
+
+        回归：此前一律走 ``Scene.set_robot``，名字固定为 ``ROBOT_NAME``，于是
+        "再增加一台机器人"实际是把已有的那台顶掉。
+
+        Returns:
+            场景中的机器人名
+        """
+        scene = self.scene_panel.scene
+        if scene.robot_names:
+            # 追加并沿 X 错开基座，避免两台叠在一起（随后可自行拖放到位）
+            idx = len(scene.robot_names)
+            name = self.scene_panel.add_robot(
+                str(path),
+                pose=Pose.from_xyz_rpy(1500.0 * idx, 0.0, 0.0, 0.0, 0.0, 0.0),
+            )
+            return name or scene.robot_names[-1]
+        self.scene_panel.set_robot(str(path))
+        return scene.robot_names[0] if scene.robot_names else ROBOT_NAME
+
     def load_robot(self, path):
         """加载 URDF 到 3D 视口，并同步属性面板。
 
         若该文件属于机器人库中的某个型号，属性面板会回显负载、臂展等完整规格。
         """
-        if not self.gl_widget.load_robot(path):
+        # 先决定"追加还是替换"：场景已有机器人时必须用 add_robot（唯一名），
+        # 否则 set_robot 的固定名 ROBOT_NAME 会把已有那台顶掉——"再加一台"
+        # 就变成了"替换"。名字要先定，渲染器才能登记到对应名下。
+        robot_name = ROBOT_NAME
+        if _HAS_WORLD and hasattr(self, "scene_panel"):
+            robot_name = self._register_robot_in_scene(path)
+
+        if not self.gl_widget.load_robot(path, robot_name):
             QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load URDF: {path}")
             return
 
@@ -4033,16 +5049,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 同步机器人到工作单元场景，使其参与干涉检查
         if _HAS_WORLD and hasattr(self, "scene_panel"):
-            self.scene_panel.set_robot(str(path))
             self.gl_widget.scene = self.scene_panel.scene
+            # 必须同步：渲染器加载时会摆到 HOME 待机位（_apply_home_pose），
+            # 而 Scene 里刚建的机器人是**零位**。不同步就出现"画出来的手臂是
+            # 弯的、场景法兰却竖直朝天"——挂到法兰上的夹爪跑到手臂外，看着像
+            # 装夹失败（位置面板却显示 0/0/0，因为挂载本身成功了）。
+            self._sync_scene_joints()
             # 让「代码生成 → 硬件列表」能按场景补齐设备清单
             self.code_editor._scene = self.scene_panel.scene
             self.code_editor.sync_devices(self.scene_panel.scene)
             # 载入后即把机器人作为当前对象：右面板显示关节滑块，视口画黄色高亮
-            if ROBOT_NAME in self.scene_panel.scene.objects:
-                self.gl_widget.selected_object = ROBOT_NAME
+            if robot_name in self.scene_panel.scene.objects:
+                self.gl_widget.selected_object = robot_name
                 self.gl_widget.update()
-                self.property_panel.set_object(ROBOT_NAME)
+                self.property_panel.set_object(robot_name)
 
         # 离线编程面板需要真正的 orolp.Robot（含运动学），而不是只用于
         # 绘制的 renderer——校验与节拍估算都建立在 FK/IK 之上
@@ -4187,16 +5207,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gl_widget.update()
 
     def _sync_scene_joints(self) -> None:
-        """把当前关节角同步给场景，让干涉检查反映实时位形。"""
+        """把**当前机器人**的渲染关节同步给场景，让干涉检查/法兰反映实时位形。
+
+        必须指名道姓：``set_robot_joints`` 默认只作用于主机器人，多机时会把
+        "拖 A 的关节"写到 B 身上——表现为两台一起动、或挂在 A 上的工具离开法兰。
+        """
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             return
-        if not self.scene_panel.scene.has_robot:
+        scene = self.scene_panel.scene
+        if not scene.has_robot:
             return
+        robot = getattr(self.gl_widget, "current_robot", None) or ROBOT_NAME
+        if robot not in scene.robots:
+            robot = scene.robot_names[0]
+        renderer = self.gl_widget.renderer_of(robot)
         # 必须用 actuated_names() 而非 joints.keys()：后者含 fixed 关节
         # （KR16 是 7 个 joints / 6 个可动），多传一个会让 FK 直接抛错
-        names = list(self.gl_widget.renderer.actuated_names())
+        names = list(renderer.actuated_names())
         self.scene_panel.update_robot_joints(
-            [math.degrees(self.gl_widget.renderer.joint_values.get(n, 0.0)) for n in names]
+            [math.degrees(renderer.joint_values.get(n, 0.0)) for n in names],
+            name=robot,
         )
 
     def check_collisions(self) -> None:
@@ -4204,8 +5234,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             QtWidgets.QMessageBox.information(self, tr("干涉检查"), tr("环境建模模块不可用。"))
             return
-        if hasattr(self, "right_tabs"):
-            self.right_tabs.setCurrentWidget(self.scene_panel)
+        if hasattr(self, "left_tabs"):
+            self.left_tabs.setCurrentWidget(self.scene_panel)
         hits = self.scene_panel.run_collision_check()
         self.gl_widget.set_collision_results(hits)
 

@@ -488,3 +488,154 @@
 - 记账：BUILD_QUEUE 想法区 (d) 划掉 + 新增体检结论段；线上核验演示站 200 / 安装包 206
 - 通知：lark-cli bot --markdown ok:true（om_x100b65a09fb3b0a8deb1f518402780f），含「需要用户提供的四类输入」清单
 - 下轮：**保持待命**——队列已无可做的代码工作，无新输入不空转不造题
+
+## 2026-09-15（第三十九轮·待命检查）
+- 任务：队列复核——状态与第三十八轮完全一致，无新任务可取
+- 检查：①BUILD_QUEUE 唯一未勾项仍为 v0.2.3（阻塞：等用户投官方 STEP 到 `assets/vendor/<brand>/step/`，`assets/` 下仍只有 cells）；②S1–S6 / Must / Should / Could / 想法区全部完成；③`orolp.__version__` = 1.2.4 与记账一致；未改任何代码，无需跑全量测试（基线 1473 passed + 6 skipped 维持）
+- 处置：按既定待命协议，同状态不重复发通知，仅记档
+- 解除待命条件不变：①STEP 投放（解锁 v0.2.3）；②MinIO/OSS 端点（真云 SigV4 冒烟）；③真机可连（Socket/SSH 实测）；④用户新指令/新方向
+
+## 2026-09-16（第四十轮·待命检查）
+- 任务：队列复核——状态与第三十八/三十九轮完全一致，无新任务可取
+- 检查：①`assets/vendor` 仍不存在（v0.2.3 阻塞原因不变）；②S1–S6 / Must / Should / Could / 想法区全部完成，BUILD_QUEUE 唯一未勾项仍为 v0.2.3；③`orolp.__version__` = 1.2.4 与记账一致；④git 工作区的未提交改动（README/app.py/i18n/panel/placement/test_scene_drag 等）均属 v1.1.7 及以后已完成轮次的正常残留（最后一次 commit 是快照点早于后续工作），非崩溃半成品；⑤未改任何代码，无需跑全量测试（基线 1473 passed + 6 skipped 维持）
+- 处置：按既定待命协议，同状态不重复发通知，仅记档
+- 解除待命条件不变：①STEP 投放（解锁 v0.2.3，代码侧已零前置）；②MinIO/OSS 端点（真云 SigV4 冒烟）；③真机可连（Socket/SSH 实测）；④用户新指令/新方向
+
+## 2026-09-16（第四十三轮·待命检查）
+- 任务：队列复核——状态与第三十八至四十二轮完全一致，无新任务可取
+- 检查：①`assets/vendor` 仍不存在（v0.2.3 阻塞原因不变）；②S1–S6 / Must / Should / Could / 想法区全部完成，BUILD_QUEUE 唯一未勾项仍为 v0.2.3；③`orolp.__version__` = 1.2.4 与记账一致；④未改任何代码，无需跑全量测试（基线 1473 passed + 6 skipped 维持）
+- 处置：按既定待命协议，同状态不重复发通知，仅记档
+- 解除待命条件不变：①STEP 投放（解锁 v0.2.3，代码侧已零前置）；②MinIO/OSS 端点（真云 SigV4 冒烟）；③真机可连（Socket/SSH 实测）；④用户新指令/新方向
+
+## 2026-09-16（第四十二轮·待命检查）
+- 任务：队列复核——状态与第三十八至四十一轮完全一致，无新任务可取
+- 检查：①`assets/vendor` 仍不存在（v0.2.3 阻塞原因不变）；②S1–S6 / Must / Should / Could / 想法区全部完成，BUILD_QUEUE 唯一未勾项仍为 v0.2.3；③`orolp.__version__` = 1.2.4 与记账一致；④git 工作区未提交改动均属已完成轮次的正常残留（与第四十/四十一轮记录一致），无新半成品；⑤未改任何代码，无需跑全量测试（基线 1473 passed + 6 skipped 维持）
+- 处置：按既定待命协议，同状态不重复发通知，仅记档
+- 解除待命条件不变：①STEP 投放（解锁 v0.2.3）；②MinIO/OSS 端点（真云 SigV4 冒烟）；③真机可连（Socket/SSH 实测）；④用户新指令/新方向
+
+## 2026-09-16（第四十一轮·待命检查）
+- 任务：队列复核——状态与第三十八至四十轮完全一致，无新任务可取
+- 检查：①`assets/vendor` 仍不存在（v0.2.3 阻塞原因不变）；②S1–S6 / Must / Should / Could / 想法区全部完成，BUILD_QUEUE 唯一未勾项仍为 v0.2.3；③`orolp.__version__` = 1.2.4 与记账一致；④git 工作区未提交改动均属已完成轮次的正常残留（与第四十轮记录一致），无新半成品；⑤未改任何代码，无需跑全量测试（基线 1473 passed + 6 skipped 维持）
+- 处置：按既定待命协议，同状态不重复发通知，仅记档
+- 解除待命条件不变：①STEP 投放（解锁 v0.2.3）；②MinIO/OSS 端点（真云 SigV4 冒烟）；③真机可连（Socket/SSH 实测）；④用户新指令/新方向
+
+## 2026-09-16（第四十四轮 · v1.3.0 界面架构改版收口）
+- 任务：队列/候选用尽（v0.2.3 仍阻塞）→ 开局盘点发现**上会话崩溃前遗留的界面改版产物从未记账**（第 40–43 轮 standby 误判为"已完成轮次正常残留"）→ 接手收口为 **v1.3.0**
+- 甄别方法：BUILD_QUEUE 无条目 + ROADMAP §3 无行 + 网页无小节 + 版本未 bump 的成块改动 = 未记账产物，别信上轮记忆的"正常残留"结论
+- 上会话产物（核实可用）：左侧双 Tab「场景设备库/设备树」+ 右侧三标签；`_DeviceTree` 拖拽只发信号、由场景数据重建树；`placement.py` 的 `mounted_on_robot`/`flange_snap_target`（多机取最近）/`mount_to_flange`；视口拖到法兰自动装夹 + 起拖自动解除；属性面板装夹按钮；i18n 11 条；test_scene_drag +7
+- 本轮补的缺口：①`RobotLibraryPanel` 缺滚动容器（内容 286px > 最小窗口可视 267px，底部被裁 → 套 QScrollArea + 列表 160px 下限，面板最小高 88px）；②**「一键导出…」被错误置灰**（文档写"不要求先点生成代码"，`set_robot` 只开了 generate → 补开 export）；③窗口标题改从 `orolp.__version__` 派生（版本口径四份 → 三份）
+- 新增 `tests/test_ui_layout.py` 12 测试：左右标签名序 / 旧标签不得复活 / 四子标签在 / **缩到窗口最小高度逐页断言内容不被裁切**（摘掉滚动容器即红）/ 三面板有滚动容器 / 一键演示后关键按钮全亮 / en 译文 / 标题含版本
+- 测试：**1492 passed + 6 skipped**（基线 1473 → 1492 无回归）；i18n 审计 649/569/591/0；版本 1.3.0（哨兵 test_version_is_1_3_0）
+- 发布：演示站新增「界面架构改版（v1.3.0）」小节（真起主窗口逐页量 + 真跑法兰装夹随动 140.3mm + ui_left_tabs/ui_right_tabs 离屏截图，左侧切到设备树页抓到装夹层级），TOTAL_TESTS=1492，同链接重发布 verified=true，线上核验 200
+- 记账：BUILD_QUEUE（条目+想法区新增"动态时序/零件库待拍板"+基线两处+尾行）、ROADMAP（§0+§3+关键缺口）、README（badge+行+pytest 行）、`docs/prd/ui-architecture.md`（状态已实施，§6 验收 1–5 勾选、第 6 条拆两半：按钮过/泳道图空壳未过）
+- 通知：lark-cli bot --markdown ok:true（om_x100b65abf1243ca0dee04ede6c46025），一次 grep 无重发
+- 未打包：界面收口非里程碑，dist/ 仍为 v1.0.4 包（v1.2.4 的包）
+- 坑：①"接手补齐"轮基线数字纪律更严——按遗留工作跑出的 1480 落账后又加 12 测试变 1492，三处返工（测试没写完前一个数字都别落）；②列表不设 minHeight 小窗口下筛选行先被压扁、滚动条不出现；③offscreen 全窗口截图 GL 视口全黑，抓 left_tabs/right_tabs 容器可靠；④"模拟旧版"的守卫有效性演示会假阴性（layout 摘挂后 minHint=0），直接引用修复前实测值并标注
+- 下轮：等用户方向；无输入默认做**设备树「动态时序」**（泳道数据模型 + 拖拽步骤 + 与 Program IO 双向绑定）；老三项外部输入依赖不变
+
+## 2026-09-16（第四十五轮 · v1.3.1 设备树「动态时序」收口）
+- 任务：接手第四十四轮预告的默认方向（PRD §4.3 P1 动态时序），把上会话半成品收口
+- 起点：tests/test_sequence.py 5 failed / 25 passed / 1 skipped（sequence.py + SequenceEditor 已写好但测试没对齐）
+- 修复内容：①_sample() 改成真干净（WaitStep 用 level，rising 告警有专测）；②出口测试的 UR5e 路径写错（models/ur5e/ → 真实 models/ur/ur5e/）导致静默 skip——改成真缺失才 skip；③ProgramBuilder 指令列表在 build().items 不是 .items；④PLC 等价测试改为与 steps_from_program 逐字段对拍（两处刻意差异写进 docstring）；⑤面板信号是 sceneChanged；⑥i18n 补 74 条（审计 0 缺失）；⑦新增 SCL 端到端测试
+- 环境大坑：仓库 .venv 缺 paramiko/OCP/setuptools → 三模块整块不收集 → 1431 passed 假账（少 57 条）；真基线用 workbuddy default env = 1525 passed + 6 skipped（1492 + 33 新测试，无回归）
+- 版本 1.3.1（哨兵改 test_version_is_1_3_1）；记账四件套（BUILD_QUEUE/ROADMAP/README/PRD §6 全勾）齐
+- 演示站新增「工艺时序 · 动态时序」小节（真跑数据 + ui_sequence_editor.png），TOTAL_TESTS=1525，同链接重发布 verified=true、线上 200
+- 通知 lark-cli ok:true（om_x100b659447e64cacc00529e34c6f169）；坑：响应是 pretty-print JSON，"ok":[a-z]* grep 静默失配，别用它判断送达（本次为确认多补发了一次，以后直接重定向看文件）
+- skill 1.7.0 → 1.8.0；工作区日志已记
+- 下轮：无用户输入则做动态时序使用体验（示例工程 + docs）；唯一待拍板＝零件库/预置场景库行业模板；外部输入依赖三项不变（STEP/真机/云端点）
+
+## 2026-09-16（第四十六轮）
+- 任务：**v1.3.2 动态时序使用体验（示例工程 + docs）** ✅（队列/候选用尽、v0.2.3 仍阻塞——assets/vendor 无 STEP；按第四十五轮预告的默认方向实施，通知已标注请拍板）
+- 产出：`examples/sequence_demo.py`（点表 → 9 工步编排 → 校验含未知信号自证 → 机器人侧 metadata io_map → UR 出码真实数字量序号（`set_digital_out(0, True)`，边沿/超时显式 TODO）→ PLC 侧真出 SCL → JSON 往返 `examples/assets/pick_sequence.json`）；使用文档 `docs/sequence.md`；`tests/test_sequence_demo.py` 8 测试
+- 测试：**1533 passed + 6 skipped**（基线 1525 → 1533 无回归）；版本四口径 1.3.2（哨兵 test_version_is_1_3_2）
+- 发布：演示站新增「动态时序使用体验」小节（构建时子进程真跑示例脚本），TOTAL_TESTS=1533，同链接重发布 verified=true，线上 200 核验含新小节 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host
+- 记账：BUILD_QUEUE（v1.3.2 条目 + 基线两处 + 想法区补充 + 尾行；顺带纠正 v1.3.1 条目「dist 仍为 v1.0.4 包」→ v1.2.4）、ROADMAP（§0 + §3 + 关键缺口）、README（badge 1533 + 进展行 + pytest 行 + 覆盖清单）
+- 未打包：使用体验层非里程碑，dist/ 仍为 v1.2.4 包
+- 通知：lark-cli bot --markdown ok:true（om_x100b65964c054464c15c59dc0f3310f），一次 grep 无重发
+- 坑：①**build_web_site.py 的 main() 是显式链式 replace 不是通用循环**——新占位符只进 data 字典不会被替换，必须在 replace 链上补调用；②README 覆盖清单分隔「）/」无空格，锚点先 repr 核实；③锚点替换统一用「上一条目末尾」并回读条数
+- 下轮：等用户方向；无输入则候选只剩零件库/预置场景库（待拍板）与外部输入项（STEP/真机/云端点），保持待命不造题
+
+## 2026-09-16（第四十七轮，用户 "Please continue" 触发）
+- 任务：**v1.3.3 零件库与预置场景库 ✅（界面 PRD 收官）**（剩余唯一不依赖外部输入的候选；行业模板默认 PRD 点名的分拣工位 + 机床上下料，通知已标注更多行业待拍板）
+- 产出：新模块 `python/orolp/world/parts_library.py`（零件库 JSON `orolp.parts/1`：参数化基本体自定义零件 + register/unregister 进组件目录，幂等）；templates.py +2 行业模板（分拣工位/机床上下料，**布局经碰撞 oracle 校准零干涉**）；cells JSON 随存，「载入预置工作站」零改动列三场景；panel「导入零件…」幂等导入按钮；examples/assets/custom_parts.json
+- 测试：**1562 passed + 6 skipped**（基线 1533 → 1562 无回归）；test_parts_library.py 26 + test_preset_cells.py 6；i18n 757/0 缺失；版本 1.3.3（哨兵 test_version_is_1_3_3）
+- 发布：演示站新增「零件库与预置场景库」小节（构建期真跑），TOTAL_TESTS=1562，同链接重发布 verified=true，线上 200 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host
+- 记账：BUILD_QUEUE / ROADMAP / README / PRD 四处齐；**顺带修掉上轮遗留的三处文档重复**（ROADMAP §0 行、§3 条目、关键缺口句均为上轮锚点重复命中所致）
+- 未打包：非里程碑，dist/ 仍为 v1.2.4 包
+- 通知：lark-cli bot --markdown ok:true（om_x100b6596130fe0a4ddae6f8db49a4a3），一次 grep 无重发
+- 坑：①**锚点在文档中出现两次时 replace 会重复插入**（上轮 v1.3.2 行/条目/句子三处重复即此因）——插入后必须 grep 计数回读；②README 覆盖清单「）/」无空格坑二次生效；③parts_library rpy 语义：offset 平移、rpy 转几何方向；④Scene 查对象几何用 object_parts(name)，objects[name].parts 不存在；⑤patch 脚本要幂等或分段确认，regex 元改写脚本易翻车——直接最小脚本+精确锚点最稳
+- 下轮：等用户方向；界面 PRD 收官，剩余＝STEP/真机/云端点/行业模板点名；无输入保持待命不造题
+
+## 2026-09-16（第四十八轮·待命检查）
+- 任务：队列复核——第四十七轮（v1.3.3）后无新任务可取，状态一致
+- 检查：①`assets/vendor` 仍不存在（v0.2.3 阻塞不变）；②`orolp.__version__` = 1.3.3 与记账一致；③git 工作区未提交改动均属 v1.3.0–v1.3.3 已完成轮次的正常残留（新增 assets/cells 两个 JSON、parts/panel/i18n/网页构建等，无新半成品）；④演示站线上 200 / 439843B，含「零件库与预置场景库」小节；⑤未改任何代码，无需跑全量测试（基线 1562 passed + 6 skipped 维持）
+- 处置：按第四十七轮承诺「无输入保持待命不造题」，本轮待命仅记档，未发通知（同状态不重复刷屏）
+- 解除待命条件（任一）：①STEP 投放 `assets/vendor/<brand>/step/`（解锁 v0.2.3）；②MinIO/OSS 端点（真云 SigV4 冒烟）；③真机可连（Socket/SSH 实测）；④用户给方向：更多行业预置模板（3C 装配/汽车焊装等）、其他新需求
+
+## 2026-09-16（v1.3.4 工程文件落地 · 队列清空后自行选题）
+- 取任务：BUILD_QUEUE 短期目标 S1–S6 与主队列 Must/Should/Could 全部完成，唯一未完成项 v0.2.3 仍等官方 STEP ⇒ 按 skill §1「不空转」口径自行选题，并在通知里明确标注请用户拍板
+- 选题：v1.3.0–v1.3.3 之间没收口的缝——每件界面能力各带一份 JSON、「存一个活要存四个文件」⇒ 做 `.orolp` 工程文件（六段信封 + 逐段容错 + 未知段/顶层键保真 + schema 拒收不猜版本 + 原子写入；GUI 打开/保存工程 + 标题未保存标记 + `point_types` 随工程落盘）
+- 结果：新模块 `python/orolp/project.py` + 75 条新测试（test_project 63 / test_project_gui 12）；**1637 passed + 6 skipped**（基线 1562 → 1637 无回归）；i18n +91 条（859/778/0 缺失）；版本 1.3.4
+- 发布：deploy/web 同链接重发布 verified=true，线上 200 / 447808B，新小节「工程文件（.orolp · v1.3.4）」已在线上
+- 记账：BUILD_QUEUE / ROADMAP / README 三处齐全（含基线数字、尾行、想法区划账）
+- 通知：lark-cli ok:true（om_x100b6590b02684b8c3750347f89745f），含「队列已空，本轮为自行选题，请拍板」与 (a)–(d) 四个方向
+- 下轮：等用户拍板；无输入按 (a) 继续收缝（工程文件模板 / 最近打开 / 崩溃自动恢复）。**注意：不要再以"待命不造题"处理——队列确已清空，skill §1 允许自选题但必须每轮在通知中标注并给出候选方向**
+
+## 2026-09-16（第四十九轮）
+- 任务：**v1.3.5 会话支撑：最近打开 + 崩溃自动恢复** ✅（队列/候选用尽、v0.2.3 仍阻塞——assets/vendor 不存在；按 v1.3.4 通知的方向 (a)「未收口的缝」自行选题，通知已再次标注请拍板）
+- 产出：新模块 `python/orolp/session.py`——`RecentProjects`（绝对路径/最新在前/去重/上限 10/`existing()`/`prune_missing()`，持久化 `<配置目录>/recent_projects.json`，`OROLP_CONFIG_DIR` 每次调用重新解析，坏文件当空）+ 自动恢复（`write_autosave` 快照工程 + sidecar 元数据 `orolp.autosave/1`，**快照本身就是合法 .orolp**；`read_autosave` 对坏元数据/schema 不符一律 None；`clear_autosave` 尽力而为）；GUI：`文件 → 最近打开(&R)` 子菜单（**aboutToShow 时重建**——失效条目置灰不隐藏，与对话框同一 `open_project_path(path, record_recent=, clear_autosave=)` 通路）+ 60s QTimer **只在脏时**落快照（新建 Project 收集+未知段跟着走，**不动正在编辑的工程对象**——快照不能覆盖原工程 path 否则手动保存建议路径错）+ `showEvent` 一次性恢复询问（恢复按未保存对待、保存建议指回原工程、快照不进最近打开也不清）+ `closeEvent` 干净退出清快照脏退出保留 + 保存/打开成功清快照；CLI `python -m orolp.session`
+- 测试：**1663 passed + 6 skipped**（基线 1637 → 1663 无回归，96s）；`tests/test_project_session.py` 12 + `tests/test_project_session_gui.py` 14；i18n 877/768/793/**0 缺失**；版本 1.3.5（哨兵 test_version_is_1_3_5）
+- 发布：演示站新增「会话支撑」小节（构建期真跑：重定向 OROLP_CONFIG_DIR 到临时目录，真存真读最近打开 + 真写真读自动保存 + 子进程真跑 CLI），TOTAL_TESTS=1663，同链接重发布 verified=true，线上 curl 200/452796B 含新小节
+- 记账：BUILD_QUEUE（v1.3.5 条目 + 基线两处 + 想法区 (a) 划掉留"工程文件模板" + 尾行）、ROADMAP（§0 表 + §3 条目 + 关键缺口）、README（badge 1663 + 进展行 + pytest 行；v1.3.4 历史行 1637 合法保留）
+- 通知：lark-cli bot --markdown ok:true（om_x100b659376299cacc10c24c93adc697），一次 grep 无重发
+- 未打包：Could 区延伸非里程碑，dist/ 仍为 v1.2.4 包（已第五次在通知里请用户拍板版本对齐打包）
+- 坑：①**Edit 用"去掉行尾换行"当 old/new 差异会把下一行吞上来**（`_HAS_SEQUENCE = Trueexcept ...`）——替换块时 new_string 别丢换行，改完 ast.parse；②测试里别硬编码 `/tmp/...` 再跟 `resolve()` 比——macOS 解析成 `/private/tmp`，用 `str(Path(tmp_path/...).resolve())` 或 `endswith`；③最近打开菜单必须 `aboutToShow.connect(rebuild)`，否则文件被移走后置灰不生效（测试要 `menu.aboutToShow.emit()` 模拟展开）；④macOS 上占住目录路径的文件会让 `mkdir` 失败——写失败测试要先把 cfg_dir.mkdir 出来
+- 下轮：等用户拍板；无输入则剩余方向＝工程文件模板（方向 a 的遗留半条）；外部输入依赖不变（STEP/真机/云端点/版本对齐打包点头）
+
+## 2026-09-16（第五十轮，用户 "Please continue" 触发）
+- 任务：**v1.3.6 从模板新建工程（工程文件模板）** ✅（按 v1.3.5 通知里方向 (a) 的遗留半条实施；用户 continue 授权续跑——与第二十四/三十五/三十七轮同一触发模式）
+- 产出：新模块 `python/orolp/project_templates.py`——三个内置工程模板：`grasping_workstation`＝场景 + **完整 8 点抓取循环示例程序**（`world/templates.build_template` + `world/demo.demo_pick_place_points` 真实 IK，与一键演示同一数据源）；`sorting_station`/`machine_tending`＝场景 + Home 位起步程序（一条 movej，VIA）。三规矩：产物=普通 Project（全套契约照用）、只收真给的段（「工程里没有」如实展示）、每次全新构建；`list_project_templates`/`build_project_template`/`save_project_template`；GUI：`文件 → 从模板新建工程(&N)…` + 选择对话框（QListWidget+描述跟随+双击确定），`new_project_from_template(template_id=None)` 直传 id 跳对话框，**脏工程先询问（默认 No）**，构建失败如实弹窗，新建未落盘按未保存对待、**不进最近打开**
+- 测试：**1678 passed + 6 skipped**（基线 1663 → 1678 无回归，96s）；`tests/test_project_templates.py` 8 + `tests/test_project_templates_gui.py` 7；i18n 898/783/808/**0 缺失**；版本 1.3.6（哨兵 test_version_is_1_3_6）
+- 发布：演示站新增「从模板新建工程」小节（真构建真存真读 + `python -m orolp.project` CLI 真跑），TOTAL_TESTS=1678，同链接重发布 verified=true，线上 curl 200/457121B 含新小节
+- 记账：BUILD_QUEUE（v1.3.6 条目 + 基线两处 + 想法区 (a) 全部收口 + 尾行）、ROADMAP（§0 + §3 + 关键缺口）、README（badge 1678 + 进展行 + pytest 行 + 覆盖清单；v1.3.5 历史行 1663 合法保留）
+- 通知：lark-cli bot --markdown ok:true（om_x100b65933773f0a4c384a0b7099ea86），一次 grep 无重发
+- 未打包：非里程碑，dist/ 仍为 v1.2.4 包（已第六次请用户拍板版本对齐打包）
+- 坑：①模板的名称/描述直接走 `tr()`（目录补"抓取工作站/分拣工位/机床上下料"等裸词条）；②GUI 对话框测试用 monkeypatch QDialog.exec：取消→Rejected 返回 None，确定→先 setCurrentRow(1) 再返回 Accepted
+- 下轮：**方向 (a) 全部收口**——等用户给方向；无输入时剩余＝按用户点名行业扩预置场景库（3C 装配/汽车焊装，需点名）、版本对齐打包（需点头）；外部输入依赖不变（STEP→v0.2.3 优先 / 真机 / 云端点）
+
+## 2026-09-16（第五十一轮，用户 "Please continue" 触发）
+- 任务：**版本对齐打包 v1.3.6** ✅（用户 continue 授权续跑，按第 5b 条「包版本与代码脱节」执行待拍板遗留项——与第三十七轮 v1.2.4 打包同一先例；本轮无代码改动，基线 1678 passed + 6 skipped 不变）
+- 产物：`dist/RobotWorld.app`（71MB，CFBundleShortVersionString **1.3.6**）+ `dist/RobotWorld-macOS-20260916-v1.3.6.zip`（**73.3MB**）
+- 四项验证全过：①bundle 版本 1.3.6；②冻结包 **66 个 orolp 模块**（v1.2.4 包 61，project_templates/session 均在；CArchiveReader→PYZ 落盘→ZlibArchiveReader 口径）+ paramiko/scipy/numpy/PySide6/jinja2/yaml 在、**OCP 未入包**；③offscreen 冒烟存活 14s 无报错；④版本三口径一致（GUI 标题从库版本派生）
+- 分发：zip 放入 deploy/web 替换 v1.2.4 旧包（rm 旧 zip + cp 新 zip），同链接重发布 verified=true；线上核验新 zip 200 / 73,345,313B。**坑：删掉本地文件后旧包 URL 仍 200（CDN 缓存 eo-cache-status: HIT），过期自然失效——核验新包以 content-length 为准**
+- 记账：BUILD_QUEUE（里程碑打包记录新条目 + 想法区 (c) 划账 + 尾行 prepend）、ROADMAP（关键缺口句更新为「包与代码已对齐 1.3.6」）、README（桌面打包行更新为 ✅ v1.3.6 + 分发链接）
+- 通知：lark-cli bot --markdown ok:true（om_x100b6593de15f4b4c39d77bb4923374），一次 grep 无重发
+- 下轮：等用户方向——①点名行业扩预置场景库（3C 装配/汽车焊装）；②STEP→v0.2.3（代码零前置）；③真机/云端点。**拍板队列已清空**（版本对齐打包已完成）
+
+
+## 2026-09-16（第五十二轮）
+- 任务：v1.3.7 预置场景库扩容：3C 装配 + 汽车焊装 ✅（第三轮 "Please continue" 授权按第五十一轮预告默认方向 ①执行，自选题已标注请拍板）
+- 产出：`python/orolp/world/templates.py` 新增 `build_3c_assembly`（上料托盘 3 板件 → 装配治具压装 → 成品托盘+围栏）与 `build_auto_welding`（单轴变位机弧焊 + 输送辊道来料 + 控制柜 + 弧光围栏；**焊枪 TCP 不猜** tcp_flange=None 走 v0.3.4 标定通路）；`assets/cells/3c_assembly.json`/`auto_welding.json` 随存，「载入预置工作站」零改动列五场景；`tests/test_preset_cells.py` 6→9 测试
+- 测试：**1681 passed + 6 skipped**（基线 1678 → 1681 无回归）；版本 **1.3.7**（`__init__.py`/`pyproject.toml`/`app.spec` 三口径 + 哨兵 `test_version_is_1_3_7`）
+- 发布：演示站同链接重发布 verified=true（PLB 小节表格真跑五模板零干涉）；lark 通知 ok:true（om_x100b6593abb118a4c02753fca9289ef）
+- 记账：BUILD_QUEUE（v1.3.7 条目+基线 1681+(b) 更新+尾行 prepend）、ROADMAP（§0 新行+§3 条目+关键缺口句）、README（badge 1681+进展表新行+pytest 行）
+- 坑：①预置场景（world/templates）的名称/描述是内容字符串、不走 tr()，i18n 只需管 tr() 字面量——本轮 0 新词条；②端辊几何（辊长=带宽）伸进皮带区、皮带顶=height+66 而非常数假定，放工件先 AABB 实测；③多文件并行 Edit 时文件会被 linter 动，报 "modified since read" 重读即可
+- 下轮预告（默认方向）：②「新建工程」模板选择对话框同步五场景（工程模板↔场景模板两套入口对齐）；或继续收口类自选题；v0.2.3 仍等 STEP
+
+## 2026-09-16（第五十三轮）
+- 任务：v1.3.8 工程模板扩容至五个（3C 装配 / 汽车焊装同步进「从模板新建工程」）✅（第四轮 "Please continue" 授权按第五十二轮预告默认方向 ①执行，自选题已标注请拍板）
+- 产出：`python/orolp/project_templates.py` `_BUILDERS`/`list_project_templates` 增补 `3c_assembly`/`auto_welding`（既有 `_build_scene_template` 通路，场景与 v1.3.7 预置场景库同源，零新增几何风险）；i18n +4 词条 + tooltip 更新（app.py）；两套入口（从模板新建工程 / 载入预置工作站）均列五模板；`tests/test_project_templates.py` 清单 3→5 + 参数化四模板 + 同源断言
+- 测试：**1684 passed + 6 skipped**（基线 1681 → 1684 无回归）；版本 **1.3.8**（三口径 + 哨兵 `test_version_is_1_3_8`）
+- 发布：演示站同链接重发布 verified=true（TPL 小节表格真跑五模板）；lark 通知 ok:true（om_x100b659c4d1008a8c19f9cf4d6d4f57）
+- 记账：BUILD_QUEUE（v1.3.8 条目+基线 1684+尾行 prepend）、ROADMAP（§0 新行+§3 条目）、README（badge 1684+进展表新行+pytest 行）
+- 坑：`Scene.to_dict().objects` 是 list[dict]（每项有 name 键），断言场景内容用 `{o["name"] for o in objects}` 不是 set(dict)
+- 下轮预告（默认方向 ②）：变位机外部轴联动前置调研（`positioner_1axis` 静态示意 → 外部轴配置方案，先做方案不写码）；v0.2.3 仍等 STEP；已向用户提出"两套入口是否合并"待拍板
+
+## 2026-09-16（第五十四轮）
+- 任务：v1.3.9 变位机外部轴联动 · 前置调研（纯文档轮）✅（第五轮 "Please continue" 授权按第五十三轮预告默认方向 ②执行，自选题已标注请拍板）
+- 产出：`docs/design/external-axis.md`——分段定位 vs 联动两模式 / 现状盘点（positioner 已参数化静态几何、后处理零外部轴语法）/ 出码形态（KUKA E1·FANUC Group·ABB MechUnit 可做，UR 诚实降级，国产待协议）/ 核心决策「ext_joints 进路点不开新指令」/ P1 不碰 IK + 碰撞免费复用 / P2 另立项 / §8 三问待拍板（品牌优先级·机械参数来源·P2 立项）
+- 测试：无功能代码，全量 **1684 passed + 6 skipped** 回归确认；版本 **1.3.9**（纯文档轮，哨兵 `test_version_is_1_3_9`）
+- 发布：演示站同链接重发布 verified=true（新增「路线图调研 · 变位机外部轴联动」小节）；lark 通知 ok:true（om_x100b659c6fd7b4a8c450ebb5c81fdef）
+- 记账：BUILD_QUEUE（v1.3.9 条目+尾行 prepend）、ROADMAP（§0 调研行 + §3 条目）、README（进展表新行）；docs/design/ 目录首次创建
+- 悬而未决（等用户）：外部轴 §8 三问 + 「两套模板入口是否合并」+ v0.2.3 STEP
+- 下轮预告（默认）：收口类自选题——候选 ①「载入预置工作站」对话框加描述/分组（对齐工程模板对话框体验）；②桌面打包对齐 v1.3.9（包仍 v1.3.6，代码领先三轮，按第 5b 条「包版本与代码脱节」口径，打包更紧迫）

@@ -1,0 +1,111 @@
+{
+  "schema": "orolp.parts/1",
+  "parts": [
+    {
+      "id": "flange_plate",
+      "name": "法兰盘",
+      "category": "自定义",
+      "description": "双孔法兰盘示例（圆柱 + 定位凸台）",
+      "primitives": [
+        {
+          "kind": "cylinder",
+          "radius": 80.0,
+          "height": 16.0,
+          "offset": [
+            0,
+            0,
+            8.0
+          ],
+          "rpy_deg": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "color": [
+            0.42,
+            0.44,
+            0.48
+          ],
+          "name": "盘体"
+        },
+        {
+          "kind": "cylinder",
+          "radius": 30.0,
+          "height": 26.0,
+          "offset": [
+            0,
+            0,
+            21.0
+          ],
+          "rpy_deg": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "color": [
+            0.42,
+            0.44,
+            0.48
+          ],
+          "name": "凸台"
+        }
+      ]
+    },
+    {
+      "id": "l_bracket",
+      "name": "L 型支架",
+      "category": "自定义",
+      "description": "钣金折弯支架示例（两块板正交）",
+      "primitives": [
+        {
+          "kind": "box",
+          "size": [
+            120.0,
+            80.0,
+            8.0
+          ],
+          "offset": [
+            0,
+            0,
+            4.0
+          ],
+          "rpy_deg": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "color": [
+            0.3,
+            0.46,
+            0.62
+          ],
+          "name": "底板"
+        },
+        {
+          "kind": "box",
+          "size": [
+            8.0,
+            80.0,
+            90.0
+          ],
+          "offset": [
+            56.0,
+            0,
+            49.0
+          ],
+          "rpy_deg": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "color": [
+            0.3,
+            0.46,
+            0.62
+          ],
+          "name": "立板"
+        }
+      ]
+    }
+  ]
+}

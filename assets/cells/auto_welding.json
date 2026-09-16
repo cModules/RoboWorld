@@ -1,0 +1,277 @@
+{
+  "format_version": 1,
+  "robot_urdf": "models/ur/ur5e/ur5e.urdf",
+  "robot_joints_deg": [
+    0.0,
+    -90.0,
+    90.0,
+    -90.0,
+    90.0,
+    0.0
+  ],
+  "objects": [
+    {
+      "name": "焊枪工具",
+      "component_id": "tool_weldgun",
+      "params": {},
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        60.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": "机器人",
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "焊接变位机",
+      "component_id": "positioner_1axis",
+      "params": {
+        "table_diameter": 600.0,
+        "table_height": 600.0,
+        "rot_deg": 0.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -500.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "焊接工件",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 400.0,
+        "width": 260.0,
+        "thickness": 3.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -500.0,
+        0.0,
+        0.0,
+        1.0,
+        602.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "输送辊道",
+      "component_id": "conveyor",
+      "params": {
+        "length": 1300.0,
+        "width": 500.0,
+        "height": 200.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        1200.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "待焊钣金_1",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 300.0,
+        "width": 200.0,
+        "thickness": 3.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        1020.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "待焊钣金_2",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 300.0,
+        "width": 200.0,
+        "thickness": 3.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        1380.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "焊接控制柜",
+      "component_id": "cabinet",
+      "params": {
+        "width": 600.0,
+        "depth": 500.0,
+        "height": 1800.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -800.0,
+        0.0,
+        1.0,
+        0.0,
+        400.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "安全围栏",
+      "component_id": "fence",
+      "params": {
+        "length": 2600.0,
+        "height": 2000.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        900.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    }
+  ],
+  "template": {
+    "id": "auto_welding",
+    "name": "汽车焊装工位",
+    "description": "UR5e + 焊枪：变位机弧焊 + 输送辊道来料 + 控制柜与弧光围栏；变位机为单轴示意（不做联动）、机器人本体随 URDF 通路替换",
+    "tool": "焊枪工具",
+    "tcp_flange": null,
+    "home_joints": [
+      0.0,
+      -90.0,
+      90.0,
+      -90.0,
+      90.0,
+      0.0
+    ],
+    "grasp_objects": [
+      "待焊钣金_1",
+      "待焊钣金_2"
+    ],
+    "place_target": "焊接变位机"
+  }
+}

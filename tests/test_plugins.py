@@ -1405,11 +1405,16 @@ def test_reexported_from_package_root():
         assert getattr(orolp, name) is getattr(P, name)
 
 
-def test_version_is_1_2_4():
-    """版本口径哨兵：四口径（orolp/pyproject/app.spec/GUI 标题）升版时这里必须跟上。"""
+def test_version_is_1_3_9():
+    """版本口径哨兵：升版时这里必须跟上。
+
+    GUI 窗口标题自 v1.3.0 起**从 ``orolp.__version__`` 派生**（见 app.py），
+    所以真正需要手工同步的只剩三处：``orolp/__init__.py`` / ``pyproject.toml`` /
+    ``app.spec`` 的 ``CFBundleShortVersionString``。
+    """
     import orolp
 
-    assert orolp.__version__ == "1.2.4"
+    assert orolp.__version__ == "1.3.9"
 
 
 def test_plugin_load_error_is_plain_dataclass():

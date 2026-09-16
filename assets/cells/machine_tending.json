@@ -1,0 +1,289 @@
+{
+  "format_version": 1,
+  "robot_urdf": "models/ur/ur5e/ur5e.urdf",
+  "robot_joints_deg": [
+    0.0,
+    -90.0,
+    90.0,
+    -90.0,
+    90.0,
+    0.0
+  ],
+  "objects": [
+    {
+      "name": "夹爪工具",
+      "component_id": "tool_gripper",
+      "params": {},
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        60.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": "机器人",
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "上料输送带",
+      "component_id": "conveyor",
+      "params": {
+        "length": 1400.0,
+        "width": 400.0,
+        "height": 200.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -600.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "毛坯_1",
+      "component_id": "workpiece_cylinder",
+      "params": {
+        "radius": 40.0,
+        "height": 90.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -900.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "毛坯_2",
+      "component_id": "workpiece_cylinder",
+      "params": {
+        "radius": 40.0,
+        "height": 90.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -600.0,
+        0.0,
+        1.0,
+        0.0,
+        -400.0,
+        0.0,
+        0.0,
+        1.0,
+        268.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "加工工作台",
+      "component_id": "worktable",
+      "params": {
+        "length": 900.0,
+        "width": 700.0,
+        "height": 780.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        750.0,
+        0.0,
+        1.0,
+        0.0,
+        -150.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "台钳",
+      "component_id": "vise",
+      "params": {},
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        780.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": "加工工作台",
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "数控机床（示意）",
+      "component_id": "cabinet",
+      "params": {
+        "width": 1600.0,
+        "depth": 1200.0,
+        "height": 1900.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        900.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "成品料箱",
+      "component_id": "material_bin",
+      "params": {
+        "length": 500.0,
+        "width": 400.0,
+        "height": 250.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -700.0,
+        0.0,
+        1.0,
+        0.0,
+        100.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    }
+  ],
+  "template": {
+    "id": "machine_tending",
+    "name": "机床上下料",
+    "description": "UR5e + 夹爪：上料输送带 → 台钳工位 → 成品料箱；机床为柜体几何简化示意（真机 CAD 走厂商包通路）",
+    "tool": "夹爪工具",
+    "tcp_flange": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      77.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "home_joints": [
+      0.0,
+      -90.0,
+      90.0,
+      -90.0,
+      90.0,
+      0.0
+    ],
+    "grasp_objects": [
+      "毛坯_1",
+      "毛坯_2"
+    ],
+    "place_target": "成品料箱"
+  }
+}

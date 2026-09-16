@@ -1,0 +1,322 @@
+{
+  "format_version": 1,
+  "robot_urdf": "models/ur/ur5e/ur5e.urdf",
+  "robot_joints_deg": [
+    0.0,
+    -90.0,
+    90.0,
+    -90.0,
+    90.0,
+    0.0
+  ],
+  "objects": [
+    {
+      "name": "夹爪工具",
+      "component_id": "tool_gripper",
+      "params": {},
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        60.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": "机器人",
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "上料托盘",
+      "component_id": "pallet_base",
+      "params": {
+        "length": 900.0,
+        "width": 600.0,
+        "height": 144.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -600.0,
+        0.0,
+        1.0,
+        0.0,
+        -450.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "板件_1",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 120.0,
+        "width": 80.0,
+        "thickness": 2.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -850.0,
+        0.0,
+        1.0,
+        0.0,
+        -450.0,
+        0.0,
+        0.0,
+        1.0,
+        146.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "板件_2",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 120.0,
+        "width": 80.0,
+        "thickness": 2.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -600.0,
+        0.0,
+        1.0,
+        0.0,
+        -450.0,
+        0.0,
+        0.0,
+        1.0,
+        146.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "板件_3",
+      "component_id": "workpiece_plate",
+      "params": {
+        "length": 120.0,
+        "width": 80.0,
+        "thickness": 2.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        -350.0,
+        0.0,
+        1.0,
+        0.0,
+        -450.0,
+        0.0,
+        0.0,
+        1.0,
+        146.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "装配工作台",
+      "component_id": "worktable",
+      "params": {
+        "length": 900.0,
+        "width": 700.0,
+        "height": 780.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        750.0,
+        0.0,
+        1.0,
+        0.0,
+        -200.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "装配治具",
+      "component_id": "clamp",
+      "params": {},
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        780.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": "装配工作台",
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "成品托盘",
+      "component_id": "pallet_base",
+      "params": {
+        "length": 700.0,
+        "width": 500.0,
+        "height": 144.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        600.0,
+        0.0,
+        1.0,
+        0.0,
+        450.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    },
+    {
+      "name": "安全围栏",
+      "component_id": "fence",
+      "params": {
+        "length": 2400.0,
+        "height": 1800.0
+      },
+      "pose": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        900.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "parent": null,
+      "visible": true,
+      "locked": false,
+      "color": null
+    }
+  ],
+  "template": {
+    "id": "3c_assembly",
+    "name": "3C 装配工位",
+    "description": "UR5e + 夹爪：上料托盘（3 块板件）→ 装配治具压装 → 成品托盘；板件与治具为工程示意（按实际产品微调）",
+    "tool": "夹爪工具",
+    "tcp_flange": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      77.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "home_joints": [
+      0.0,
+      -90.0,
+      90.0,
+      -90.0,
+      90.0,
+      0.0
+    ],
+    "grasp_objects": [
+      "板件_1",
+      "板件_2",
+      "板件_3"
+    ],
+    "place_target": "装配治具"
+  }
+}

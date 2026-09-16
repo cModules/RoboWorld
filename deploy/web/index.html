@@ -88,7 +88,7 @@
     <li><code>orolp.world.animation</code>：把夹爪 IO 指令映射到轨迹时间轴（<code>GraspAnimator</code>，无头可测，GUI 与脚本共用）</li>
     <li>离线编程面板：插补回放越过抓取/释放事件时自动驱动场景工件挂载/解除</li>
     <li>示教点标记为「抓取点/放置点」后，程序自动插入 <code>gripper()</code> 指令——回放动画与品牌出码共用同一份抓取时序</li>
-    <li>测试基线 1473 passed（含 14 个抓取动画专项测试）</li>
+    <li>测试基线 1684 passed（含 14 个抓取动画专项测试）</li>
   </ul>
 </section>
 
@@ -98,7 +98,7 @@
   <ul style="font-size:13.5px;color:var(--dim);margin:10px 0 0 18px">
     <li>示例示教点带工艺语义（接近/抓取/提升/落件/撤离），回放动画与品牌出码共用同一份抓取时序</li>
     <li>布局经过可达性校准：全部示教位姿对 UR5e 模型留 ≥27mm 距离余量（IK 有解才有演示）</li>
-    <li>测试基线 1473 passed（含 12 个一键演示专项测试）</li>
+    <li>测试基线 1684 passed（含 12 个一键演示专项测试）</li>
   </ul>
 </section>
 
@@ -234,7 +234,7 @@ COMMENT = &quot;RobotWorld v0.1.0&quot;;
     <li><b>真实物理</b>：含重力、离心/科氏项与连杆惯性张量；单摆解析值、负载 Δτ=JᵀF、质量矩阵对称性三重交叉验证</li>
     <li><b>超限三色</b>：峰值超额定 → 错误红（程序校验不通过）；达 85% → 警告橙；缺惯性参数只提示跳过，不阻塞其余校验</li>
     <li><b>力矩/功率报表</b>：逐轴峰值/额定力矩表 + 机械功率峰值/均值，进校验报告 <code>format()</code></li>
-    <li>测试基线 <b>1473 passed</b>（含 19 个动力学专项测试）</li>
+    <li>测试基线 <b>1684 passed</b>（含 19 个动力学专项测试）</li>
   </ul>
   <p style="font-size:13px;color:#9aa5b5;margin-bottom:6px">实测样例：SO101 桌面臂（URDF 自带惯性参数）两段 moveJ 程序，校验输出逐轴力矩（N·m）：</p>
   <table style="font-size:13px;color:#c8d0dc;border-collapse:collapse">
@@ -357,7 +357,7 @@ set_digital_out(4, False)  # 熄弧后保护气滞流 1.0s</code></pre>
     <tr><td style="padding:3px 12px 3px 0">程序与校验</td><td style="padding:3px 12px">8 条指令 / 节拍 9.71 s / 校验错误 <b>0</b> 条</td></tr>
   </table>
   <p style="font-size:13px;color:#9aa5b5;margin:14px 0 6px">标定结果随程序出码写入头部注释（下装前现场核对用，真实输出）：</p>
-  <pre style="font-size:12px;background:#161b22;color:#c8d0dc;padding:12px;border-radius:8px;overflow-x:auto"><code># 标定集 grasping_workstation（2026-09-15T19:32:21）
+  <pre style="font-size:12px;background:#161b22;color:#c8d0dc;padding:12px;border-radius:8px;overflow-x:auto"><code># 标定集 grasping_workstation（2026-09-16T19:46:45）
 # TCP(6point) 偏移 = (2.60, -1.40, 78.90) mm / RPY (-0.00, 0.00, 2.50)°，残差 max 0.000 mm（4 点 + 2 方向点，合格）
 # 用户坐标系[托盘坐标系] = (350.00, 450.00, 144.00) mm / RPY (0.00, 0.00, 15.00)°
 # 手眼标定(eye-to-hand) 相机在基座系 = (0.2, -400.2, 1100.6) mm / RPY (180.00, -0.01, 0.02)°，5 段运动，残差 0.415 mm / 0.0699°
@@ -448,7 +448,7 @@ set_digital_out(4, False)  # 熄弧后保护气滞流 1.0s</code></pre>
     <li><b>程序里是一等指令</b>：<code>prog.force_mode(spec)</code> / <code>prog.force_mode_end()</code> 与运动混排，对规划与节拍<b>完全透明</b>；校验时逐条体检力控参数并检查起止配对（多余的 end 报错、程序结束仍在力控给警告）</li>
     <li><b>出码不臆造语法</b>：UR 原生 <code>force_mode(task_frame, selection_vector, wrench, type, limits)</code>；ABB <code>FCRefForce/FCAct/FCDeact</code>（RobotWare 选件，附人工核对 TODO）；KUKA/FANUC 拿不到权威手册，只输出参数 + TODO——<b>宁可让人补一行，不给一行假代码</b></li>
     <li><b>关节扛不扛得住</b>：<code>check_force_capacity</code> 把接触力经 τ=JᵀF 叠加到重力矩上再比额定力矩——同一个 30N，臂伸直和收拢需要的关节力矩差数倍</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_compliance.py</code> 41 个专项测试（含 JᵀF 交叉验证与 UR 单位逐字段核对），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_compliance.py</code> 41 个专项测试（含 JᵀF 交叉验证与 UR 单位逐字段核对），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -510,7 +510,7 @@ set_digital_out(4, False)  # 熄弧后保护气滞流 1.0s</code></pre>
   </table>
 
   <p style="font-size:13px;color:#9aa5b5;margin:16px 0 6px">孪生轨迹的 JSONL 上报格式（首行元数据 + 每行一个快照，真机跑一段就能 push 一段）：</p>
-  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>{&amp;quot;kind&amp;quot;: &amp;quot;robotworld.twin.trace/1&amp;quot;, &amp;quot;source&amp;quot;: &amp;quot;sim&amp;quot;, &amp;quot;robot_name&amp;quot;: &amp;quot;&amp;quot;, &amp;quot;program_name&amp;quot;: &amp;quot;GRASP_DEMO&amp;quot;, &amp;quot;created_at&amp;quot;: 1789471946.66474, &amp;quot;samples&amp;quot;: 2238, &amp;quot;notes&amp;quot;: &amp;quot;&amp;quot;}
+  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>{&amp;quot;kind&amp;quot;: &amp;quot;robotworld.twin.trace/1&amp;quot;, &amp;quot;source&amp;quot;: &amp;quot;sim&amp;quot;, &amp;quot;robot_name&amp;quot;: &amp;quot;&amp;quot;, &amp;quot;program_name&amp;quot;: &amp;quot;GRASP_DEMO&amp;quot;, &amp;quot;created_at&amp;quot;: 1789559210.0355358, &amp;quot;samples&amp;quot;: 2238, &amp;quot;notes&amp;quot;: &amp;quot;&amp;quot;}
 {&amp;quot;kind&amp;quot;: &amp;quot;sample&amp;quot;, &amp;quot;t&amp;quot;: 0.0, &amp;quot;planned_q&amp;quot;: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &amp;quot;actual_q&amp;quot;: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], &amp;quot;planned_pose&amp;quot;: [0.0, 0.0, 1097.0, 0.0, 0.0, 0.0], &amp;quot;actual_pose&amp;quot;: [0.0, 0.0, 1097.0, 0.0, 0.0, 0.0], &amp;quot;pos_dev_mm&amp;quot;: 0.0, &amp;quot;rot_dev_deg&amp;quot;: 0.0, &amp;quot;joint_dev_deg&amp;quot;: 0.0}
 {&amp;quot;kind&amp;quot;: &amp;quot;sample&amp;quot;, &amp;quot;t&amp;quot;: 0.009722221456487629, &amp;quot;planned_q&amp;quot;: [0.0, -0.02722222093578813, 0.02722222093578813, -0.02722222093578813, 0.02722222093578813, 0.0], &amp;quot;actual_q&amp;quot;: [0.0, -0.02722222093578813, 0.02722222093578813, -0.02722222093578813, 0.02722222093578813, 0.0], &amp;quot;planned_pose&amp;quot;: [-0.10072489143683255, -4.040683575122566e-05, 1096.9999356650906, 0.0, 0.027222220935786523, -0.02722222093578813], &amp;quot;actual_pose&amp;quot;: [-0.10072489143683255, -4.040683575122566e-05, 1096.9999356650906, 0.0, 0.027222220935786523, -0.02722222093578813], &amp;quot;pos_dev_mm&amp;quot;: 0.0, &amp;quot;rot_dev_deg&amp;quot;: 0.0, &amp;quot;joint_dev_deg&amp;quot;: 0.0}</code></pre>
 
@@ -519,7 +519,7 @@ set_digital_out(4, False)  # 熄弧后保护气滞流 1.0s</code></pre>
     <li><b>"实时"要能被质疑</b>：<code>CloudLink.status_age()</code> / <code>is_fresh()</code> 让"云端最后一条上报"有多旧是<b>可查</b>的；超龄就该显示"数据过期"，而不是拿旧姿势当真机现状</li>
     <li><b>对齐是必需的一步</b>：真机与仿真的时间戳不会严格相等（触发时刻、时钟漂移、控制器插补差异），先按最近邻 + 窗口对齐再差分，否则算出来的"偏差"里混的全是时间错位</li>
     <li><b>云端是传输之一，不是特殊路径</b>：<code>CloudLink</code> 与 <code>FileLink</code>／<code>SimLink</code> 同属 <code>ControllerLink</code> 抽象；默认传输是文件式对象存储（离线可用、零依赖），换 HTTP/S3 只需实现 <code>CloudTransport</code> 的四个方法</li>
-    <li><b>一条命令可复现</b>：<code>examples/twin_sync_demo.py</code> 跑通同一闭环；<code>tests/test_twinsync.py</code> 100 个专项测试（含"一阶滞后稳态误差 ≈ τ·ω"的解析核对与严格 JSON 校验），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>examples/twin_sync_demo.py</code> 跑通同一闭环；<code>tests/test_twinsync.py</code> 100 个专项测试（含"一阶滞后稳态误差 ≈ τ·ω"的解析核对与严格 JSON 校验），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -601,7 +601,7 @@ post_processor_spec = PluginSpec(
     <li><b>API 版本显式声明</b>：规则只有一条，<b>主版本号必须相等</b>（<code>1.2</code> 与 <code>1.5</code> 兼容，<code>1.x</code> 与 <code>2.x</code> 不兼容）。刻意选最可解释的规则——宁可偶尔多拒一个其实能跑的插件，也不要让"悄悄按新语义跑出错误轨迹"发生在工业软件里</li>
     <li><b>契约显式校验</b>：运动学插件加载时先查必需成员，缺了就拒；缺可选项只记一条警告（聚合成 1 条，不是每个成员刷 1 条），并且相关功能会明确提示而不是运行到一半崩</li>
     <li><b>演示诚实性</b>：本节所有数字都来自本页生成时真实跑过的注册与调用；<b>没有真的第三方包被安装</b>（入口点扫描结果如实显示"发现 0 个"），所以插件是用 <code>register_*</code> 直接登记的——这正是同一个注册表</li>
-    <li><b>一条命令可复现</b>：<code>examples/plugins_demo.py</code> 跑通三个扩展点；<code>tests/test_plugins.py</code> 127 个专项测试（含"登记阶段绝不 import 插件模块"的标记文件验证、坏插件隔离、入口点加载失败隔离），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>examples/plugins_demo.py</code> 跑通三个扩展点；<code>tests/test_plugins.py</code> 127 个专项测试（含"登记阶段绝不 import 插件模块"的标记文件验证、坏插件隔离、入口点加载失败隔离），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -611,9 +611,9 @@ post_processor_spec = PluginSpec(
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 本页生成时真开了一个回环控制器，客户端走的是真 TCP</h3>
   <p style="font-size:13.5px;color:var(--dim)">下面这行状态不是贴图，是本页构建时 <code>SocketLink.connect()</code> 握手后返回的自省结果（地址里的端口由系统分配，每次构建都不同）：</p>
-  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>SocketLink[127.0.0.1:57585] 已连接 服务端=orolp.ControllerStubServer api=v1 dof=6 能力=feedback,pose,programs 请求=1</code></pre>
+  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>SocketLink[127.0.0.1:63057] 已连接 服务端=orolp.ControllerStubServer api=v1 dof=6 能力=feedback,pose,programs 请求=1</code></pre>
   <div class="metrics" style="margin-top:12px">
-    <div class="metric"><div class="v">127.0.0.1:57585</div><div class="k">打桩控制器监听地址（本机回环，非真机）</div></div>
+    <div class="metric"><div class="v">127.0.0.1:63057</div><div class="k">打桩控制器监听地址（本机回环，非真机）</div></div>
     <div class="metric"><div class="v">v1</div><div class="k">协商出的协议版本（不等就在握手时失败，不带着错语义往下跑）</div></div>
     <div class="metric"><div class="v">6</div><div class="k">服务端声明的关节数</div></div>
     <div class="metric"><div class="v">feedback · pose · programs</div><div class="k">协商出的能力表（没有 <code>feedback</code> 就如实返回 None，绝不伪造"实际位置"）</div></div>
@@ -626,7 +626,7 @@ post_processor_spec = PluginSpec(
     <div class="metric"><div class="v">socket_pick</div><div class="k">控制器侧清单 <code>list_programs()</code></div></div>
     <div class="metric"><div class="v">逐字节一致 ✓</div><div class="k">取回原文与本地出码逐字节比对（1445 字节回读）</div></div>
   </div>
-  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>句柄：sock://127.0.0.1:57585/programs/socket_pick.script
+  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>句柄：sock://127.0.0.1:63057/programs/socket_pick.script
 控制器侧收到的清单 meta：{&quot;post_processor&quot;: &quot;ur_polyscope&quot;, &quot;robot_name&quot;: &quot;UR5e&quot;, &quot;brand&quot;: &quot;ur&quot;, &quot;ext&quot;: &quot;script&quot;}</code></pre>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 逐点下发（时刻也过线）+ 回读实际位置</h3>
@@ -662,14 +662,14 @@ post_processor_spec = PluginSpec(
       <th style="text-align:left;padding:4px 12px">客户端报错</th>
       <th style="text-align:left;padding:4px 12px">连接状态</th>
     </tr>
-    <tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>没人监听（端口空着）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:57587: 连接失败（ConnectionRefusedError: [Errno 61] Connection refused）</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>对端不是本协议（乱码）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:57589: hello 的响应不是合法 JSON：@@not-json@@</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>对端撂断（网线被拔）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:57591: 连接被对端关闭（读到 EOF）</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>对端卡死（不回复）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:57593: 等待响应超时（0.4s）</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>业务性拒绝（上传被 ok:false 拒掉）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>打桩服务端拒绝 upload</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已连接 ✓（会话仍在，list_programs() 可用）</td></tr>
+    <tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>没人监听（端口空着）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:63059: 连接失败（ConnectionRefusedError: [Errno 61] Connection refused）</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>对端不是本协议（乱码）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:63061: hello 的响应不是合法 JSON：@@not-json@@</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>对端撂断（网线被拔）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:63063: 连接被对端关闭（读到 EOF）</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>对端卡死（不回复）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>127.0.0.1:63065: 等待响应超时（0.4s）</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已断开 ✓（承认断了）</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>业务性拒绝（上传被 ok:false 拒掉）</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#e0a0a0'>打桩服务端拒绝 upload</td><td style='padding:3px 12px;font-size:12.5px;color:#8fd3a8'>已连接 ✓（会话仍在，list_programs() 可用）</td></tr>
   </table>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>没有真机就没有真机</b>：本节所有回读值都来自随包附带的<strong>打桩控制器</strong> <code>ControllerStubServer</code>（回读复用 v1.0.3 的 <code>PlantLink</code> 合成传动误差模型：零位偏置 / 传动比误差 / 编码器噪声 / 伺服一阶滞后）。<code>source="real"</code> 只表示"数据经网络从控制器侧回读"，<strong>不代表现场实测，不能当验收依据引用</strong>——<b>Socket 通路本身也未在真机上验证过</b></li>
     <li><b>接真机要做的只有一件事</b>：在控制器侧准备一段同协议转发（UR 可用 URScript 的 <code>socket_open</code>/<code>read</code>/<code>write</code> 写小桩，或由 PC 侧代理进程把厂商 SDK / 原生协议翻译成本协议），然后把 <code>SocketLink</code> 指向它——孪生层、调试会话、后处理全部无需改动</li>
     <li><b>打桩控制器可以自己跑</b>：<code>python -m orolp.linkstub --port 30002 --urdf models/ur/ur5e/ur5e.urdf</code>，再用 <code>SocketLink("127.0.0.1", 30002)</code> 连上去；它还支持注入<strong>乱码 / 掉线 / 拒答 / 静默</strong>四类故障做排障演练（就是上表的来源）</li>
-    <li><b>一条命令可复现</b>：<code>examples/socket_link_demo.py</code> 跑通同一条闭环（含故障演练与线上对话留档）；<code>tests/test_socket_link.py</code> 57 个专项测试（含"服务端谎报关节数"必须报错、乱码/掉线/静默四类故障的连接状态、CLI 真实子进程验收），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>examples/socket_link_demo.py</code> 跑通同一条闭环（含故障演练与线上对话留档）；<code>tests/test_socket_link.py</code> 57 个专项测试（含"服务端谎报关节数"必须报错、乱码/掉线/静默四类故障的连接状态、CLI 真实子进程验收），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -679,14 +679,14 @@ post_processor_spec = PluginSpec(
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 本页生成时真起了一个对象存储服务端，两个工位走真 HTTP 共享程序库</h3>
   <div class="metrics" style="margin-top:12px">
-    <div class="metric"><div class="v">127.0.0.1:57598</div><div class="k">参考服务端监听地址（本机回环，端口系统分配）</div></div>
+    <div class="metric"><div class="v">127.0.0.1:63069</div><div class="k">参考服务端监听地址（本机回环，端口系统分配）</div></div>
     <div class="metric"><div class="v">5 个对象 / 12 次请求</div><div class="k">服务端处理量（落盘布局 &lt;根&gt;/&lt;桶&gt;/&lt;键&gt;，可直接备份迁移）</div></div>
     <div class="metric"><div class="v">空（命名空间隔离生效 ✓）</div><div class="k">先连错命名空间的工位看到的程序清单（隔离必须成立）</div></div>
     <div class="metric"><div class="v">逐字节一致 ✓</div><div class="k">工位 B 取回的程序与 A 部署的逐字节比对（17 行 / 1445 B）</div></div>
   </div>
-  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>工位 A 部署句柄：http://127.0.0.1:57598/robotworld/cellA/programs/PICK_CLOUD.script
+  <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>工位 A 部署句柄：http://127.0.0.1:63069/robotworld/cellA/programs/PICK_CLOUD.script
 工位 B 看到的清单：PICK_CLOUD
-部署清单 manifest：{&quot;name&quot;: &quot;PICK_CLOUD&quot;, &quot;ext&quot;: &quot;script&quot;, &quot;post_processor&quot;: &quot;ur_polyscope&quot;, &quot;brand&quot;: &quot;UR&quot;, &quot;robot_name&quot;: &quot;UR5e&quot;, &quot;lines&quot;: 17, &quot;bytes&quot;: 1445, &quot;uploaded_at&quot;: 1789471949.835999}</code></pre>
+部署清单 manifest：{&quot;name&quot;: &quot;PICK_CLOUD&quot;, &quot;ext&quot;: &quot;script&quot;, &quot;post_processor&quot;: &quot;ur_polyscope&quot;, &quot;brand&quot;: &quot;UR&quot;, &quot;robot_name&quot;: &quot;UR5e&quot;, &quot;lines&quot;: 17, &quot;bytes&quot;: 1445, &quot;uploaded_at&quot;: 1789559213.174884}</code></pre>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 轨迹库：合成"真机"轨迹上云，另一工位取回做跨源差分</h3>
   <p style="font-size:13.5px;color:var(--dim)">孪生层一行没改——把传输换成 <code>HTTPCloudStore</code> 之后，<code>publish_trace</code>/<code>fetch_trace</code> 走的就是真 HTTP（轨迹抽稀 1/16 → 141 快照上云；JSONL 逐行格式支持现场增量上报）。取回轨迹的 <code>source</code> <strong>保持原样</strong>——"经过云端"不改变"数据是不是真机测的"这件事，只追加进附注。</p>
@@ -717,13 +717,13 @@ post_processor_spec = PluginSpec(
       <th style="text-align:left;padding:4px 12px">方法</th>
       <th style="text-align:left;padding:4px 12px">路径</th>
     </tr>
-    <tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:32:29</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>PUT</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/programs/PICK_CLOUD.script</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:32:29</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>PUT</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/programs/PICK_CLOUD.manifest.json</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:32:29</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>GET</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld?prefix=cellB%2Fprograms</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:32:29</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>GET</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/traces/PICK_CLOUD.jsonl</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:32:29</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>PUT</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/status.json</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:32:29</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>GET</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/status.json</td></tr>
+    <tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:46:53</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>PUT</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/programs/PICK_CLOUD.script</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:46:53</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>PUT</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/programs/PICK_CLOUD.manifest.json</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:46:53</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>GET</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld?prefix=cellB%2Fprograms</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:46:53</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>GET</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/traces/PICK_CLOUD.jsonl</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:46:53</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>PUT</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/status.json</td></tr><tr><td style='padding:3px 12px 3px 0;color:#9aa5b5'>19:46:53</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#c8d0dc'>GET</td><td style='padding:3px 12px;font-family:ui-monospace,monospace;font-size:12px;color:#8fd3a8'>/robotworld/cellA/status.json</td></tr>
   </table>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>接真云只改一处</b>：把 <code>base_url / bucket / 凭证</code> 换成真的（S3 兼容存储再加一个 <code>SigV4Signer</code>），<code>CloudLink</code>、孪生层、调试会话、后处理一行不用改</li>
     <li><b>自建自用</b>：<code>python -m orolp.cloudhttp --root /srv/rwcloud --port 8080 --token 顶智令牌</code> 就是一个可用的对象存储端点；REST 契约刻意做窄，自己实现一个兼容服务端只要几十行</li>
-    <li><b>一条命令可复现</b>：<code>examples/cloud_http_demo.py</code> 跑通同一条闭环；<code>tests/test_cloudhttp.py</code> 78 个专项测试（AWS 官方 4 组向量逐字符比对、三种传输契约一致性、真并发、CLI 真实子进程验收），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>examples/cloud_http_demo.py</code> 跑通同一条闭环；<code>tests/test_cloudhttp.py</code> 78 个专项测试（AWS 官方 4 组向量逐字符比对、三种传输契约一致性、真并发、CLI 真实子进程验收），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -760,7 +760,7 @@ post_processor_spec = PluginSpec(
     <li><b>口径诚实</b>：结构对比是精确的（字段级、无启发式）；但节拍与 TCP 路径偏移是<strong>规划器口径</strong>——回答"仿真里会多花多久、路径会偏多少"，<b>不回答"真机上会怎样"</b></li>
     <li><b>读报告注意</b>：起点位姿不同的两版程序会比出"全程大偏移"——那是起点差异不是路径差异；对齐按指令种类序列做，同 <code>setDO</code>/<code>waitDI</code> 按信号名对齐</li>
     <li><b>与 v1.0.3/v1.0.6 的关系</b>：<code>Program.deploy</code> 把代码送到控制器/云端，版本库存的是<b>可 diff 的结构化版本</b>——同一 <code>CloudTransport</code> 抽象，HTTP/本机/内存后端行为一致</li>
-    <li><b>一条命令可复现</b>：<code>examples/prog_diff_demo.py</code> 跑通同一条评审流程；全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>examples/prog_diff_demo.py</code> 跑通同一条评审流程；全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -785,7 +785,7 @@ END</pre>
     <li><b>入口点组</b>：<code>[project.entry-points."orolp.plugins"]</code>，加载结果是"提供函数"（返回 <code>PluginSpec</code> 列表）；工厂写成 <code>"module:attr"</code> 字符串——连插件模块内部都是延迟导入</li>
     <li><b>宿主边界</b>：<code>orolp</code> 本体由宿主环境提供，插件包不写进 <code>dependencies</code>——插件不绑架宿主的 orolp 版本</li>
     <li><b>出码同路</b>：装好后 <code>program.to_post("acme_v2")</code> 与内置 7 品牌走<strong>完全同一套</strong> <code>get_post_processor</code> 通路（含 IO 指令的诚实降级警告）</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_plugin_package.py</code> 4 个专项测试（含真 pip install → 真发现 → 真出码的核心验收；先复制再装，pip 就地构建绝不污染源目录），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_plugin_package.py</code> 4 个专项测试（含真 pip install → 真发现 → 真出码的核心验收；先复制再装，pip 就地构建绝不污染源目录），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -806,7 +806,7 @@ END</pre>
     <li><b>口径诚实</b>：UR5e 估算 5.8mm，而抓取工作站<strong>实测</strong>最深包络穿透 18.6mm（→ 推荐容差 20mm）——穿透发生在 mesh 凹陷处与姿态相关接触位置，纯几何法测不到。所以估算是<strong>下界 + 品牌横向对比工具</strong>（谁最需要大容差、最胖连杆在哪），<b>不能替代实测标定</b>；上机取 <code>max(几何下界, 实测值)</code></li>
     <li><b>SO101 显示"无可比几何"是诚实行为</b>：程序生成 URDF 的 visual 不是 STL mesh，估算器拒绝编数字，调用方应回退全局默认</li>
     <li><b>容差不能为负</b>：<code>Robot(envelope_tolerance_mm=-1)</code> 当场 ValueError——容差是放行量，符号写反会把"放行浅穿透"变成"要求重叠才算撞"</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_envelope.py</code> 13 个专项测试（合成 URDF 确定性验证 + float32 边界切片回归 + 逐机解析三态），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_envelope.py</code> 13 个专项测试（合成 URDF 确定性验证 + float32 边界切片回归 + 逐机解析三态），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -826,10 +826,10 @@ END</pre>
 <tr><td style='padding:3px 12px 3px 0'>搜索型号 / 品牌 / 组件…</td><td style='padding:3px 12px'>Search model / brand / component…</td></tr>
   </table>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
-    <li><b>目录 580 条</b>（含命名占位符模板），GUI 四文件 <b>359 处</b>文案接线（app.py 204 处 · program_panel.py 92 处 · panel.py 41 处 · panel.py 22 处）</li>
+    <li><b>目录 812 条</b>（含命名占位符模板），GUI 四文件 <b>499 处</b>文案接线（app.py 267 处 · program_panel.py 92 处 · panel.py 111 处 · panel.py 29 处）</li>
     <li><b>语义安全的边界</b>：设备类型等"存储类数据"保持中文存储、只在显示处翻译——<code>devices_of()</code> 按词表过滤的逻辑不受界面语言影响</li>
     <li><b>口径诚实</b>：英文模式覆盖 <strong>GUI 层全部文案</strong>；库层消息（校验 Issue / 报告 / 后处理 TODO 注释）自 v1.1 起接入（见下一节）</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_i18n.py</code> 16 个专项测试（tr 语义三态 / 配置优先级 / 持久化往返 / en·zh 双模式 offscreen 面板与语言菜单），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_i18n.py</code> 16 个专项测试（tr 语义三态 / 配置优先级 / 持久化往返 / en·zh 双模式 offscreen 面板与语言菜单），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -881,7 +881,7 @@ COMMENT = &quot;RobotWorld v0.1.0&quot;;
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>接线范围</b>：planner 全部 Issue 文案（越限/逆解失败/奇异/配置跳变/干涉/力矩超限/力控配对）、<code>ProgramReport.format()</code> 全部报告行、7 个品牌后处理器 + post 工厂共 92 处 <code>tr()</code>（planner.py 37 · base.py 16 · fanuc_tp.py 10 · kuka_krc4.py 7 · ur_script.py 7 · abb_rapid.py 4 · estun_er.py 3 · jaka_zu.py 3 · huichuan_inoteach.py 2 · __init__.py 3）</li>
     <li><b>消息在生成时刻定稿</b>：与 GUI 同一契约——切语言后需重跑校验/出码才能刷新已生成的报告与代码</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_i18n_lib.py</code> 16 个专项测试（zh 逐字节恒等 / en 报告与注释零中文残留 / 占位符格式化 / 目录卫生），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_i18n_lib.py</code> 16 个专项测试（zh 逐字节恒等 / en 报告与注释零中文残留 / 占位符格式化 / 目录卫生），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -896,19 +896,19 @@ COMMENT = &quot;RobotWorld v0.1.0&quot;;
       <div style="font-size:13px;color:var(--dim);margin-bottom:4px">握手状态（构建时真连打桩控制器）</div>
       <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">服务端 orolp.ControllerStubServer · 协议 v1 · 关节数 6 · 能力 feedback,pose,programs</pre>
       <div style="font-size:13px;color:var(--dim);margin:8px 0 4px">部署 + 回读后的面板日志（构建时真实操作）</div>
-      <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">[19:32:32] 正在连接 Socket（orolp-socket 行协议） 127.0.0.1:57638 …
-[19:32:32] 已连接：SocketLink[127.0.0.1:57638] 已连接 服务端=orolp.ControllerStubServer api=v1 dof=6 能力=feedback,pose,programs 请求=1
-[19:32:32] 控制器上还没有程序
-[19:32:32] 已部署 program：sock://127.0.0.1:57638/programs/program.script（支持实际位置回读）
-[19:32:32] 控制器程序（1）
-[19:32:32] 回读关节（度）：0.00, 0.00, 0.00, 0.00, 0.00, 0.00</pre>
+      <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">[19:46:55] 正在连接 Socket（orolp-socket 行协议） 127.0.0.1:63111 …
+[19:46:55] 已连接：SocketLink[127.0.0.1:63111] 已连接 服务端=orolp.ControllerStubServer api=v1 dof=6 能力=feedback,pose,programs 请求=1
+[19:46:55] 控制器上还没有程序
+[19:46:55] 已部署 program：sock://127.0.0.1:63111/programs/program.script（支持实际位置回读）
+[19:46:55] 控制器程序（1）
+[19:46:55] 回读关节（度）：0.00, 0.00, 0.00, 0.00, 0.00, 0.00</pre>
     </div>
   </div>
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>能力如实展示</b>：控制器声明 <code>feedback=false</code> 时回读按钮给出"控制器不支持关节回读——不伪造数据"，绝不用本机运动学编一份假"实际位置"</li>
     <li><b>失败语义分层</b>：连不上 / 超时 → 连接置为断开；服务端业务拒绝（如程序名冲突）→ 只记日志不断会话——与 <code>SocketLink</code> 同一套契约</li>
     <li><b>部署同路</b>：走 <code>Program.deploy</code>（代码生成 + 部署 + 清单），后处理器跟随「导出打包」标签的当前选择</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_controller_panel.py</code> 16 个专项测试（真 socket 打桩验收 GUI 全链路：部署到控制器原文取回 / 业务拒绝不断会话 / 回读信号 / en 界面），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_controller_panel.py</code> 16 个专项测试（真 socket 打桩验收 GUI 全链路：部署到控制器原文取回 / 业务拒绝不断会话 / 回读信号 / en 界面），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -918,7 +918,7 @@ COMMENT = &quot;RobotWorld v0.1.0&quot;;
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 本页生成时真跑了一遍 SSH 回环（paramiko 客户端 ↔ paramiko 服务端打桩，SFTP 文件真实落盘）</h3>
   <div class="metrics" style="margin-top:12px">
-    <div class="metric"><div class="v">ssh://operator@127.0.0.1:57640</div><div class="k">打桩控制器监听地址（本机回环，端口系统分配，chroot 式 SFTP 根目录）</div></div>
+    <div class="metric"><div class="v">ssh://operator@127.0.0.1:63115</div><div class="k">打桩控制器监听地址（本机回环，端口系统分配，chroot 式 SFTP 根目录）</div></div>
     <div class="metric"><div class="v">ssh://…/programs/web_ssh_pick.script</div><div class="k">Program.deploy 句柄（7 行 / 351 B，SFTP 落盘 + manifest）</div></div>
     <div class="metric"><div class="v">逐字节一致 ✓</div><div class="k">取回原文与部署代码逐字节比对（清单：web_ssh_pick）</div></div>
     <div class="metric"><div class="v">已断开 ✓</div><div class="k">错密码认证 → 必须报错并断开（打桩端拒绝记录 1 条）</div></div>
@@ -937,7 +937,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 127
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>为什么不只靠 SocketLink</b>：SSH 形态覆盖"不支持开放 socket 但带 SSH"的控制器（KRC 类控制器、控制器 PC 一体机等）；SSH 形态无常驻对端服务，因此没有握手/能力协商——回读能力一律 <code>False</code>，孪生偏差链路仍走 Socket/厂商协议</li>
     <li><b>诚实披露</b>：SSH 通路<strong>未在真机上验证过</strong>（开发环境无机器人）；接真机请先在现场核对主机密钥、路径权限与控制器侧的加载命令</li>
-    <li><b>一条命令可复现</b>：<code>examples/ssh_link_demo.py</code> 跑通同一条闭环（含失败演练）；<code>tests/test_ssh_link.py</code> 30 个专项测试（真 SSH 回环验收：SFTP 字节级一致 / 清单读远端 / 取回核对 / 认证失败断连 / CLI 子进程验收），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>examples/ssh_link_demo.py</code> 跑通同一条闭环（含失败演练）；<code>tests/test_ssh_link.py</code> 30 个专项测试（真 SSH 回环验收：SFTP 字节级一致 / 清单读远端 / 取回核对 / 认证失败断连 / CLI 子进程验收），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -961,7 +961,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 127
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>语义变化的边界</b>：这是<strong>修正</strong>而非回归——所有含 waitTime 的既有程序节拍会变长（变准）；<code>motion_times</code> 节拍明细与 <code>_motion_spans</code> 仍只按 Motion 计数，夹爪事件/示教点着色的时刻映射零漂移（专项测试锁死）</li>
     <li><b>WaitDI 刻意不进时间轴</b>：等待现场信号何时满足规划期不可知，把它估进节拍才是编造</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_dwell.py</code> 11 个专项测试（节拍差值精确 / 驻留路点零速 / 报告行 / 夹爪事件不漂移 / 多机占用窗 / FANUC 出码不受影响），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_dwell.py</code> 11 个专项测试（节拍差值精确 / 驻留路点零速 / 报告行 / 夹爪事件不漂移 / 多机占用窗 / FANUC 出码不受影响），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -971,8 +971,8 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 127
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 本页生成时真跑了一遍「面板 → 真 SSH」链路（paramiko 客户端 ↔ paramiko 服务端，SFTP 真实落盘）</h3>
   <div class="metrics" style="margin-top:12px">
-    <div class="metric"><div class="v">127.0.0.1:57644</div><div class="k">打桩控制器（已连接：是）</div></div>
-    <div class="metric"><div class="v">6 行 / 263 B</div><div class="k">部署到远端的程序（句柄 ssh://tester@127.0.0.1:57644/programs/program.script，清单可见 1 条）</div></div>
+    <div class="metric"><div class="v">127.0.0.1:63123</div><div class="k">打桩控制器（已连接：是）</div></div>
+    <div class="metric"><div class="v">6 行 / 263 B</div><div class="k">部署到远端的程序（句柄 ssh://tester@127.0.0.1:63123/programs/program.script，清单可见 1 条）</div></div>
     <div class="metric"><div class="v">取回核对：一致</div><div class="k">取回原文与本次生成的代码逐字节比对</div></div>
     <div class="metric"><div class="v">远端被改动后：抓到不一致</div><div class="k">构建时手动覆盖了远端文件再核对一次——必须报"不一致"（这是这个按钮存在的理由）</div></div>
   </div>
@@ -987,14 +987,14 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 127
       <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">SSH 无能力协商 · 远端目录 /programs · 不支持关节回读</pre>
       <div style="font-size:13px;color:var(--dim);margin:8px 0 4px">回读关节（SSH 形态）：SSH 形态无回读通道 / 返回空值：是</div>
       <div style="font-size:13px;color:var(--dim);margin:8px 0 4px">面板日志（构建时真实操作，含部署 → 核对 → 改动后再核对 → 回读）</div>
-      <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">[19:32:33] 正在连接 SSH（SFTP 传程序 + exec） 127.0.0.1:57644 …
-[19:32:33] 已连接：SSHLink[ssh://tester@127.0.0.1:57644] 已连接 目录=/programs 已传=0 执行=1
-[19:32:33] 控制器上还没有程序
-[19:32:33] 已部署 program：ssh://tester@127.0.0.1:57644/programs/program.script（ssh 连接，控制器不提供实际位置回读）
-[19:32:33] 控制器程序（1）
-[19:32:33] 核对 program：与本次生成的代码逐字节一致（6 行）
-[19:32:33] 核对 program：**与本次生成的代码不一致**（控制器 1 行 / 本地 6 行）——先别下线
-[19:32:33] SSH 形态没有关节回读通道——回读请用 Socket；不伪造数据</pre>
+      <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">[19:46:57] 正在连接 SSH（SFTP 传程序 + exec） 127.0.0.1:63123 …
+[19:46:57] 已连接：SSHLink[ssh://tester@127.0.0.1:63123] 已连接 目录=/programs 已传=0 执行=1
+[19:46:57] 控制器上还没有程序
+[19:46:57] 已部署 program：ssh://tester@127.0.0.1:63123/programs/program.script（ssh 连接，控制器不提供实际位置回读）
+[19:46:57] 控制器程序（1）
+[19:46:57] 核对 program：与本次生成的代码逐字节一致（6 行）
+[19:46:57] 核对 program：**与本次生成的代码不一致**（控制器 1 行 / 本地 6 行）——先别下线
+[19:46:57] SSH 形态没有关节回读通道——回读请用 Socket；不伪造数据</pre>
     </div>
   </div>
 
@@ -1003,7 +1003,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 127
     <li><b>能力如实</b>：SSH 无常驻对端服务，也就没有握手与能力协商——状态区写"无能力协商 · 远端目录 … · 不支持关节回读"，回读按钮不伪造数据（孪生偏差链路仍走 Socket / 厂商协议）</li>
     <li><b>安全边界不变</b>：仍然<strong>没有运动指令入口</strong>，也<strong>没有 SSH 自由命令输入框</strong>（<code>SSHLink.run_command()</code> 面向脚本化部署流水线）。把任意 exec 做成文本框，等于在产线现场放一个"随意驱动机器人"的入口</li>
     <li><b>诚实披露</b>：SSH 通路<strong>未在真机上验证过</strong>（开发环境无机器人）；本节所有数字来自随包附带的打桩控制器，接真机请先核对主机密钥、路径权限与现场加载命令</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_controller_panel_ssh.py</code> 18 个专项测试（真 SSH 回环验收 GUI 全链路：传输切换与默认值 / 现场参数不被覆盖 / 部署真落盘 / 核对抓到远端被改动 / SSH 无回读通道如实说明 / en 界面），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_controller_panel_ssh.py</code> 18 个专项测试（真 SSH 回环验收 GUI 全链路：传输切换与默认值 / 现场参数不被覆盖 / 部署真落盘 / 核对抓到远端被改动 / SSH 无回读通道如实说明 / en 界面），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -1051,7 +1051,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>不允许的圆弧当场拒绝并说明原因</b>（P1/P2 没有两个前驱点、相邻两行不能同为圆弧、抓取/放置点不能当中间点——中间点不停机，夹爪动作会失去落点）。例如把 P2 设为圆弧：<code>P2 缺少两个前驱点——圆弧需要起点与中间点，P1/P2 不能设为 moveC</code></li>
     <li><b>正解失败时如实记录降级，且不吞掉中间点</b>：构建期圆弧正解失败 → 记一条说明 + 中间点改由关节运动单独经过（示教了 4 个点就得走 4 个点，不能只走 3 个）。本次构建时故意让正解失败一次，编辑器给出：<code>P3 的圆弧正解失败——退化为关节运动（moveJ）；中间点 P2 改为单独经过</code>，降级后运动序列为 <code>moveJ, moveJ, moveJ, moveJ</code></li>
     <li><b>着色落在圆弧终点那一行</b>：<code>Issue.motion_index</code> 是运动指令序号，圆弧把指令数压得比路点数少——反向映射后，问题落在圆弧终点行（问题实际出在圆弧段上，落在被并入的那一行最容易被看见）</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_trajectory_arc.py</code> 24 个专项测试（口径与判据 / 中间点不出指令且后续行节拍不错位 / TCP 真贴中间点且明显偏离弦线 / 三家品牌原生圆弧出码 / 降级不吞中间点 / 着色反向映射 / en 界面），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_trajectory_arc.py</code> 24 个专项测试（口径与判据 / 中间点不出指令且后续行节拍不错位 / TCP 真贴中间点且明显偏离弦线 / 三家品牌原生圆弧出码 / 降级不吞中间点 / 着色反向映射 / en 界面），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -1111,7 +1111,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
         <li><b>JSON 往返三种结果分开报</b>（静默丢点最难查）：应用 8 / 无需改动 1 / 跳过 0</li>
         <li><b>地址解析刻意窄</b>：只认西门子/通用 IEC 写法（<code>DB10.DBX0.0</code> / <code>%I1.3</code> / <code>I/Q/M/E/A</code>），认不出的一律不判断；<code>E</code>/<code>A</code> 归并成 <code>I</code>/<code>Q</code>（德文写法），<code>X</code>/<code>Y</code>（三菱等的位序号）<b>刻意不归并</b>——判重宁可漏报也不误报</li>
         <li><b>校验口径</b>：程序在用的未映射点与地址重复是 <b>error</b>；归属歧义 / 地址格式 / 两侧同时驱动（谁后写谁生效）/ 机器人在等一个没人给的输入是 <b>warning</b>。首跑就抓出本仓库抓取程序的 <code>gripper_close</code> 确实被机器人与 PLC 同时驱动</li>
-        <li><b>一条命令可复现</b>：<code>tests/test_iomap.py</code> 90 个专项测试（地址解析与别名归并 / 用途提取 / 六类问题 severity / 自动编号跳过已占用 / 往返三态计数 / SCL 点表块 / GUI 回写与状态栏通路 / QWidget 无 statusBar 的回归），全量基线 <b>1473 passed</b></li>
+        <li><b>一条命令可复现</b>：<code>tests/test_iomap.py</code> 90 个专项测试（地址解析与别名归并 / 用途提取 / 六类问题 severity / 自动编号跳过已占用 / 往返三态计数 / SCL 点表块 / GUI 回写与状态栏通路 / QWidget 无 statusBar 的回归），全量基线 <b>1684 passed</b></li>
       </ul>
     </div>
   </div>
@@ -1162,7 +1162,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>左键拖拽</b>＝"拿起来放到某个面上"（X/Y 随手放，Z 交给支撑面判定）——本次吸附实测：12 → 0 ｜ 13 → 25 ｜ step=0 → 12（不吸附）</li>
     <li><b>右键 gizmo 沿轴拖拽</b>＝"精确挪 5mm / 转 30°"——原样保留，专项回归测试锁死（改左键语义不许碰它）</li>
     <li><b>拖动中高度不漂</b>：沿用按下时刻的 Z 平面锚点，松手才落到支撑面——避免"越拖越飞"</li>
-    <li><b>一条命令可复现</b>：<code>tests/test_scene_drag.py</code> 30 个专项测试（纯几何：支撑面判定/最高面优先/挂载父系换算/各拒绝原因；GUI：真 <code>QMouseEvent</code> 无头驱动全链路 + 右键 gizmo 回归），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>tests/test_scene_drag.py</code> 30 个专项测试（纯几何：支撑面判定/最高面优先/挂载父系换算/各拒绝原因；GUI：真 <code>QMouseEvent</code> 无头驱动全链路 + 右键 gizmo 回归），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -1174,36 +1174,36 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <p style="font-size:13.5px;color:var(--dim)">基准里带了一份<strong>朴素参考实现</strong>（<code>reference_link_transforms</code>：逐次调用 scipy、逐次组装 4×4），它既是等价性的对照组，也是"关掉缓存会怎样"的实物证据。本页构建时把 240 组关节值（含零位与 ±150° 随机组）同时喂给两份实现：</p>
   <div class="metrics" style="margin-top:12px">
     <div class="metric"><div class="v">0.00e+00</div><div class="k">位姿矩阵最大差异 —— 逐位相同 ✅（缓存只是把同一个结果留下来）</div></div>
-    <div class="metric"><div class="v">7.2 ms</div><div class="k">生产实现（常量缓存）：240 次 FK 的前向耗时</div></div>
-    <div class="metric"><div class="v">30.2 ms</div><div class="k">朴素参考实现 → <b>4.17x</b>（同一台机器、同一次运行内对比）</div></div>
+    <div class="metric"><div class="v">7.3 ms</div><div class="k">生产实现（常量缓存）：240 次 FK 的前向耗时</div></div>
+    <div class="metric"><div class="v">30.0 ms</div><div class="k">朴素参考实现 → <b>4.12x</b>（同一台机器、同一次运行内对比）</div></div>
     <div class="metric"><div class="v">实算 7 / 命中 153</div><div class="k">欧拉角转换实算 vs 命中缓存（缓存 7 条）——优化前这个比值是"每次调用都算"</div></div>
   </div>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 一条 120 条运动的程序（真规划器 + 真抓取工作站场景）</h3>
   <div class="metrics" style="margin-top:12px">
     <div class="metric"><div class="v">120 条运动</div><div class="k">展开成 5632 个路点，仿真节拍 70.0 s</div></div>
-    <div class="metric"><div class="v">281.4 ms</div><div class="k">规划（含每条指令的 FK 与插补）</div></div>
-    <div class="metric"><div class="v">71.2 ms</div><div class="k">沿路径干涉检查（约 300 次采样，8 处包络接触报为错误）</div></div>
-    <div class="metric"><div class="v">71.6 ms</div><div class="k">整轮校验（内部会再规划一次，故不是各阶段之和）</div></div>
+    <div class="metric"><div class="v">272.9 ms</div><div class="k">规划（含每条指令的 FK 与插补）</div></div>
+    <div class="metric"><div class="v">69.3 ms</div><div class="k">沿路径干涉检查（约 300 次采样，8 处包络接触报为错误）</div></div>
+    <div class="metric"><div class="v">71.4 ms</div><div class="k">整轮校验（内部会再规划一次，故不是各阶段之和）</div></div>
   </div>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">规模与性能基准 · UR5e
   指令 184 条（其中运动 120 条）→ 路点 5632 个
   仿真节拍 69.99 s · 路径长 41570.4 mm
   校验问题：8 错误 / 1 警告
   阶段耗时（1 次取最优）
-  规划                             281.4 ms   0.050 ms/路点
-  干涉检查                            71.2 ms   8 处接触 · 采样 314 次（每 17.9 路点 1 次）
-  校验（含内部重新规划）                     71.6 ms   9 条问题
-  单路点规划 0.050 ms · 整轮墙钟 0.42 s
+  规划                             272.9 ms   0.048 ms/路点
+  干涉检查                            69.3 ms   8 处接触 · 采样 314 次（每 17.9 路点 1 次）
+  校验（含内部重新规划）                     71.4 ms   9 条问题
+  单路点规划 0.048 ms · 整轮墙钟 0.41 s
   关节原点旋转：实算 0 次 / 命中缓存 7 次</pre>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 规模表（同一台机器上横向比较，数字用于回归预警而非跑分）</h3>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">规模表 · UR5e（1 次取最优）
 运动条数  路点数  节拍(s)  规划(ms)  校验(ms)  干涉(ms)  ms/路点
-      25     1089    14.34       7.6      81.7      81.9     0.007
-      60     2707    34.56      17.9      68.6      68.5     0.007
-     120     5632    69.99       1.1      71.8      69.1     0.000
-     240    11225   139.56     311.0      71.7      69.8     0.028</pre>
+      25     1089    14.34       7.5      79.8      79.2     0.007
+      60     2707    34.56      17.8      68.4      67.5     0.007
+     120     5632    69.99       1.1      71.2      68.6     0.000
+     240    11225   139.56     309.2      71.6      70.0     0.028</pre>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 口径：这份基准不回答什么</h3>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
@@ -1211,7 +1211,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>每段取 repeat 次里的最小值（best-of）</b>——平均值会把系统抖动算进来；最小值最接近"没有干扰时的代价"</li>
     <li><b>各阶段耗时不构成一次总时长的分解</b>：<code>validate()</code> 内部会自己再规划一次，模块如实给出墙钟值而不是编一个"总计"</li>
     <li><b>干涉数来自 URDF <code>&lt;collision&gt;</code> 包络体</b>，不是真机几何（本仓库一贯显式披露容差放行的接触）</li>
-    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 120 --sizes 25,60,120,240</code> 或 <code>examples/perf_benchmark_demo.py</code>；<code>tests/test_perf.py</code> 47 个专项测试（等价性逐位比对 / 缓存失效与只读 / scipy 调用计数 / <code>motion_at</code> 二分等价 / 基准工具语义 / CLI 与子进程），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 120 --sizes 25,60,120,240</code> 或 <code>examples/perf_benchmark_demo.py</code>；<code>tests/test_perf.py</code> 47 个专项测试（等价性逐位比对 / 缓存失效与只读 / scipy 调用计数 / <code>motion_at</code> 二分等价 / 基准工具语义 / CLI 与子进程），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -1224,26 +1224,26 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <div class="metrics" style="margin-top:12px">
     <div class="metric"><div class="v">0 处</div><div class="k">全部对拍项的差异总数（AABB / 顶点 / SAT 轴 / 碰撞判定 / 穿透深度）——结论：逐位相同 ✅</div></div>
     <div class="metric"><div class="v">300 / 300</div><div class="k">穿透深度数值<strong>完全相同</strong>的对数 · 最大数值差 <code>0.000e+00</code></div></div>
-    <div class="metric"><div class="v">10.5 ms vs 50.7 ms</div><div class="k">同一批判定：生产实现 vs 朴素参考实现 → <b>4.8×</b>（同机、同一次运行内对比）</div></div>
+    <div class="metric"><div class="v">10.3 ms vs 50.6 ms</div><div class="k">同一批判定：生产实现 vs 朴素参考实现 → <b>4.9×</b>（同机、同一次运行内对比）</div></div>
     <div class="metric"><div class="v">0, -0.5, 20, -20 mm</div><div class="k">对拍用的四档裕度：0（相切）/ 负（放行） / 正（膨胀）/ 大负值（全放行）——覆盖"刚好接触"这类最容易出分歧的边界</div></div>
   </div>
-  <p style="font-size:13.5px;color:var(--dim);margin-top:10px">开发期同机记录（端到端、非本页现测）：同一台机器上，5632 路点程序的干涉检查从 <b>149.4 ms 降到 52.0 ms</b>，<strong>检出数不变（2 处）</strong>——内核快了 4.8×，整段只快约 2.9×，差额是采样循环、场景遍历等不归内核管的开销。</p>
+  <p style="font-size:13.5px;color:var(--dim);margin-top:10px">开发期同机记录（端到端、非本页现测）：同一台机器上，5632 路点程序的干涉检查从 <b>149.4 ms 降到 52.0 ms</b>，<strong>检出数不变（2 处）</strong>——内核快了 4.9×，整段只快约 2.9×，差额是采样循环、场景遍历等不归内核管的开销。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 四种采样口径并排：密度、开销、检出（真规划器 + 真抓取工作站）</h3>
   <div class="metrics" style="margin-top:12px">
     <div class="metric"><div class="v">184 条指令 · 5632 个路点</div><div class="k">8 个机器人零件 × 7 个环境对象（24 个零件）· 干涉裕度 -20.0 mm</div></div>
-    <div class="metric"><div class="v">默认 314 次 → 2 处</div><div class="k">默认口径每 <b>17.9 个路点</b>才查一次（0.168 ms/采样）——<strong>程序越长这个数字越大</strong></div></div>
-    <div class="metric"><div class="v">加密 452 次 → 3 处</div><div class="k">关节步长 10° 口径每 12.5 个路点查一次（0.176 ms/采样）——同一程序多查到的那一处，就是默认口径漏掉的</div></div>
+    <div class="metric"><div class="v">默认 314 次 → 2 处</div><div class="k">默认口径每 <b>17.9 个路点</b>才查一次（0.167 ms/采样）——<strong>程序越长这个数字越大</strong></div></div>
+    <div class="metric"><div class="v">加密 452 次 → 3 处</div><div class="k">关节步长 10° 口径每 12.5 个路点查一次（0.173 ms/采样）——同一程序多查到的那一处，就是默认口径漏掉的</div></div>
   </div>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">干涉检查分段基准 · UR5e
   指令 184 条 → 路点 5632 个 · 干涉裕度 -20.0 mm
   机器人零件 8 个 · 环境对象 7 个（零件 24 个）
   ------------------------------------------------------------------------------------
   采样口径            采样数  每采样路点      总耗时    每次采样  接触   窄相对  广相剔除
-  默认（约 300 次）      314        17.9     52.9 ms    0.168 ms     2     4114     95.6%
-  关节步长 20°           199        28.3     37.1 ms    0.186 ms     2     2028     96.5%
-  关节步长 10°           452        12.5     79.4 ms    0.176 ms     3     4950     96.3%
-  关节步长 5°            917         6.1    153.4 ms    0.167 ms     4    10089     96.3%
+  默认（约 300 次）      314        17.9     52.3 ms    0.167 ms     2     4114     95.6%
+  关节步长 20°           199        28.3     36.7 ms    0.185 ms     2     2028     96.5%
+  关节步长 10°           452        12.5     78.0 ms    0.173 ms     3     4950     96.3%
+  关节步长 5°            917         6.1    151.2 ms    0.165 ms     4    10089     96.3%
   口径说明：「默认」按总采样数约 300 的预算取样，程序越长采样点隔得越远；给定关节步长的口径按「机器人可能移动多远」取样，不随程序变长而稀释。</pre>
   <p style="font-size:13.5px;color:var(--dim);margin-top:10px"><b>怎么读这张表</b>：关节步长口径的采样数是"机器人可能移动多远"的函数，<strong>不随程序变长而稀释</strong>（同一示教轨迹重复三遍，采样数不翻三倍）；默认口径的采样数被 300 的预算钉住，所以"每采样路点"那一列会随程序规模单调变大。两者每次采样的耗时<strong>基本恒定</strong>（约 0.17 ms）——也就是说「要不要更密」是个纯粹的<strong>时间换保证</strong>选择，而不是"能不能快"的问题。</p>
 
@@ -1264,7 +1264,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>默认口径的保证随规模变弱，且这一点此前是隐性的</b>——v1.1.9 没有改默认值（大程序上默认口径仍然最快），而是把它写进报告与文档，让"要不要更密"变成用户的显式选择</li>
     <li><b>每次采样约 0.17 ms 是这台机器上的数</b>，且随场景对象数近似线性增长；它的用途是同机横向比较与回归预警，不是跑分</li>
     <li><b>等价性对拍用的是随机基本体，不是真机几何</b>——覆盖的是内核的数值路径（含相切、包含、退化棱），不覆盖 URDF 解析与包络体生成</li>
-    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 120 --collision</code> 或 <code>examples/collision_perf_demo.py</code>；<code>tests/test_collision_perf.py</code> 52 个专项测试（内核逐字段等价 / AABB 标量化 / 局部几何缓存与只读 / <code>collides_with_boxes</code> 语义 / 暴力遍历 vs <code>check_config</code> 交叉验证 / 三种采样策略 / 检查器接线 / 工作量计数 / 报告与 CLI 子进程 / en 无 CJK），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 120 --collision</code> 或 <code>examples/collision_perf_demo.py</code>；<code>tests/test_collision_perf.py</code> 52 个专项测试（内核逐字段等价 / AABB 标量化 / 局部几何缓存与只读 / <code>collides_with_boxes</code> 语义 / 暴力遍历 vs <code>check_config</code> 交叉验证 / 三种采样策略 / 检查器接线 / 工作量计数 / 报告与 CLI 子进程 / en 无 CJK），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -1274,34 +1274,34 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <p style="font-size:13.5px">v1.1.8 把大程序的耗时逐段量了出来，v1.1.9 又把沿路径干涉检查压到约 0.17 ms/采样。剩下的大头就只剩一件事：<strong>改动之后每次全量重算</strong>。本节的实现是<strong>两层内容寻址缓存</strong>——键完全由内容派生（规划器参数 + 机器人结构 + 起始关节值 + 程序内容摘要，分段层再加"单条指令的签名 + 该条指令的起始关节值"），因此<strong>不存在"读到过期结果"这种情况</strong>，也就能放心让多个规划器实例共用一份缓存（界面上的"校验一下"其实会规划三次：程序校验一次、面板回放一次、各自的规划器实例一次，而三次的输入逐字段相同）。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 缓存账本：同一份程序规划三次</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">  第 1 次（冷启动）            3.07 ms   整程序 命中/未命中 0/1 · 分段 命中/未命中 0/8
-  第 2 次（内容不变）          0.55 ms   整程序 命中/未命中 1/0 · 分段 命中/未命中 0/0   → 6x
-  第 3 次（只改末尾一条速度）  1.05 ms   整程序 命中/未命中 0/1 · 分段 命中/未命中 7/1   → 2.9x</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">  第 1 次（冷启动）            3.04 ms   整程序 命中/未命中 0/1 · 分段 命中/未命中 0/8
+  第 2 次（内容不变）          0.54 ms   整程序 命中/未命中 1/0 · 分段 命中/未命中 0/0   → 6x
+  第 3 次（只改末尾一条速度）  1.04 ms   整程序 命中/未命中 0/1 · 分段 命中/未命中 7/1   → 2.9x</pre>
   <p style="font-size:13.5px;color:var(--dim)">第 2 次是<strong>整程序命中</strong>：路点、时间轴、驻留段、路径长度、问题清单整份交还，连逐路点的正运动学都不再跑（这是大头）。第 3 次改动只涉及<strong>时间</strong>、不动关节值，所以前缀与后缀全部照旧命中——只有被改的那一条要重算。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 分场景基准 · moveJ（终点是绝对关节目标）</h3>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">  场景                 耗时    加速   分段复用  整程序   等价
   ----------------------------------------------------------
-  无改动             1.1 ms  240.5x        0/0    命中     OK
-  改末尾运动        38.4 ms    7.1x    119/120       -     OK
-  改中段运动        42.8 ms    6.4x    118/120       -     OK
-  改首条运动        39.8 ms    6.9x    118/120       -     OK
-  只改速度          38.5 ms    7.1x    119/120       -     OK
-  插入驻留          36.8 ms    7.4x    120/120       -     OK
-  删除一条          44.7 ms    6.1x    116/119       -     OK</pre>
-  <p style="font-size:13.5px;color:var(--dim)">184 条指令（运动 120 条）→ 路点 5632 个 · 冷启动 273.7 ms。<strong>等价列是硬门槛</strong>：每一行都与<strong>关缓存</strong>的实算结果逐位比对关节/位姿/时刻/速度四项，任何一项不为 0 都会直接显示出来，而不是悄悄给一个更快的错结果。分段复用率的分母是「指令数」不是「路点数」——一条指令命中意味着它那几十个路点全部免算。</p>
+  无改动             1.2 ms  232.5x        0/0    命中     OK
+  改末尾运动        38.9 ms    7.0x    119/120       -     OK
+  改中段运动        42.5 ms    6.4x    118/120       -     OK
+  改首条运动        40.6 ms    6.7x    118/120       -     OK
+  只改速度          40.4 ms    6.7x    119/120       -     OK
+  插入驻留          37.0 ms    7.3x    120/120       -     OK
+  删除一条          44.6 ms    6.1x    116/119       -     OK</pre>
+  <p style="font-size:13.5px;color:var(--dim)">184 条指令（运动 120 条）→ 路点 5632 个 · 冷启动 271.0 ms。<strong>等价列是硬门槛</strong>：每一行都与<strong>关缓存</strong>的实算结果逐位比对关节/位姿/时刻/速度四项，任何一项不为 0 都会直接显示出来，而不是悄悄给一个更快的错结果。分段复用率的分母是「指令数」不是「路点数」——一条指令命中意味着它那几十个路点全部免算。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 分场景基准 · moveL（终点是位姿，要经逆解）</h3>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">  场景                 耗时    加速   分段复用  整程序   等价
   ----------------------------------------------------------
-  无改动             1.7 ms  258.3x        0/0    命中     OK
-  改末尾运动        18.6 ms   23.5x      39/40       -     OK
-  改中段运动       203.2 ms    2.1x      20/40       -     OK
-  改首条运动        96.4 ms    4.5x      34/40       -     OK
-  只改速度          16.7 ms   26.2x      39/40       -     OK
-  插入驻留           6.6 ms   66.5x      40/40       -     OK
-  删除一条          74.2 ms    5.9x      33/39       -     OK</pre>
-  <p style="font-size:13.5px;color:var(--dim)">40 条指令（运动 40 条）→ 路点 772 个 · 冷启动 436.9 ms。同一条结论在这里明显不同——原因见下一节。整程序命中时的加速是 258×，而几何编辑只有 50% 的分段复用率。</p>
+  无改动             1.7 ms  253.1x        0/0    命中     OK
+  改末尾运动        18.3 ms   23.3x      39/40       -     OK
+  改中段运动       205.8 ms    2.1x      20/40       -     OK
+  改首条运动        97.0 ms    4.4x      34/40       -     OK
+  只改速度          16.5 ms   25.7x      39/40       -     OK
+  插入驻留           6.5 ms   65.1x      40/40       -     OK
+  删除一条          74.5 ms    5.7x      33/39       -     OK</pre>
+  <p style="font-size:13.5px;color:var(--dim)">40 条指令（运动 40 条）→ 路点 772 个 · 冷启动 424.8 ms。同一条结论在这里明显不同——原因见下一节。整程序命中时的加速是 253×，而几何编辑只有 50% 的分段复用率。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 两种目标写法的对照（"能省多少取决于改哪儿"的结构性依据）</h3>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">  场景            moveJ 复用  moveL 复用
@@ -1327,7 +1327,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>交还的路点与位姿是共享对象，调用方必须当只读</b>。深拷贝 5632 个路点比重算一遍还贵，所以列表容器每次新建、关节数组一律复制，但路点对象是共享的——这条约定有测试兜着。</li>
     <li><b>失败与警告也缓存，但缓存里的文案不含指令序号与时刻</b>：序号随插入/删除而变、时刻随前缀时长而变，两者都在使用时按当下值重建（有一条测试往程序前面插一段驻留，验证同一告警的时刻跟着后移 0.5 s）。</li>
     <li><b>容量按"路点数"限容而不是"条数"</b>：一个路点约 0.6~0.7 KB，5632 路点的一份快照就是 3~4 MB——按条数限容会悄悄吃掉几百 MB。</li>
-    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 60 --incremental --incremental-cartesian</code> 或 <code>examples/incremental_demo.py</code>；<code>tests/test_incremental.py</code> 90 个专项测试（签名内容寻址 / 缓存限容与 LRU / <code>resolve_cache</code> 优先级 / 逐位等价 / 起点进键的回归守卫 / 只读共享 / 失败与警告缓存 / 报告自洽 / en 无 CJK），全量基线 <b>1473 passed</b></li>
+    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 60 --incremental --incremental-cartesian</code> 或 <code>examples/incremental_demo.py</code>；<code>tests/test_incremental.py</code> 90 个专项测试（签名内容寻址 / 缓存限容与 LRU / <code>resolve_cache</code> 优先级 / 逐位等价 / 起点进键的回归守卫 / 只读共享 / 失败与警告缓存 / 报告自洽 / en 无 CJK），全量基线 <b>1684 passed</b></li>
   </ul>
 </section>
 
@@ -1368,7 +1368,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>合成装配体</b>：<code>tests/test_vendor_step_pipeline.py</code> 38 个测试函数，把上面这条链<strong>在没有厂商 CAD 的情况下也真跑一遍</strong>（另有 5 项按品牌参数化的只读冒烟，本地有官方 STEP 时自动生效）。这条测试的有效性被验证过：把新写法临时改回 <code>TopoDS.Face_s(...)</code>，<strong>13 条测试立刻变红</strong>（含下面这条静态守卫），改回即绿。</li>
     <li><b>静态守卫</b>：扫描 <code>build_vendor_urdf.py / vendor_cad_import.py</code>（共 1036 行），命中裸的 <code>Face_s(</code>/<code>Edge_s(</code>/<code>Vertex_s(</code> 的处数 = <b>0</b>（无）。这条守卫会在这类改名再次出现时当场失败，而不是等到有人真去跑 <code>--all</code>。</li>
-    <li><b>一条命令可复现</b>：<code>python tools/build_vendor_urdf.py --brand &lt;品牌&gt; --probe</code>（现在会先打印 OCP 绑定版本与符号解析结果）、<code>pytest tests/test_vendor_step_pipeline.py</code>；全量基线 <b>1473 passed</b>。</li>
+    <li><b>一条命令可复现</b>：<code>python tools/build_vendor_urdf.py --brand &lt;品牌&gt; --probe</code>（现在会先打印 OCP 绑定版本与符号解析结果）、<code>pytest tests/test_vendor_step_pipeline.py</code>；全量基线 <b>1684 passed</b>。</li>
   </ul>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ 这一节不回答什么</h3>
@@ -1385,12 +1385,12 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <p style="font-size:13.5px">v1.2.0 之后，「校验一下」的规划部分命中缓存，但<strong>沿路径干涉检查每次仍全量真算</strong>——校验两次就真算两次。本轮补上干涉检查的<strong>结果缓存</strong>，键仍走内容寻址，且多一维<strong>场景签名</strong>：被查机器人的基座与连杆几何、每个环境对象的<strong>世界系</strong>零件几何（父级链随法兰变动的部分天然被折进键）、逐路点关节值、margin 与采样口径，全部进键。于是<strong>场景一动键就变</strong>——「把工件拖进机器人路径后还返回过期"无干涉"」这类事故在键的设计上就不可能发生，并有专项测试盯着。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 完整校验两次（GUI「校验一下」的等价动作，构建时真跑）</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（冷启动：规划 + 干涉 + 动力学全真算）  352 ms
-第 2 次（规划命中 + 干涉命中，动力学照算）    2.6 ms   → 135.3x（9 条问题，两次完全一致）</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（冷启动：规划 + 干涉 + 动力学全真算）  353 ms
+第 2 次（规划命中 + 干涉命中，动力学照算）    2.6 ms   → 137.6x（9 条问题，两次完全一致）</pre>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 干涉检查单段两次（5632 路点 · 抓取工作站场景 · 构建时真跑）</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（实算）   72.1 ms   · 检出 8 处接触
-第 2 次（命中）   1.40 ms   → 51x（其中键构建约 1.29 ms，是命中路径的全部开销）
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（实算）   71.8 ms   · 检出 8 处接触
+第 2 次（命中）   1.39 ms   → 52x（其中键构建约 1.29 ms，是命中路径的全部开销）
 账本：命中 1 / 未命中 1 / 存储 1 / 条目 1</pre>
   <p style="font-size:13.5px;color:var(--dim)">命中路径做了两件事：交还结论 + <strong>复现"把最后采样点的关节写回场景"的历史副作用</strong>（实算路径经 <code>check_config</code> 写回，命中路径跳过了它——不复现的话紧随其后的单点位形检查会拿到过期关节）。返回的列表容器每次新建，容器里的 <code>Collision</code> 是冻结 dataclass、共享只读。</p>
 
@@ -1406,7 +1406,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>基准与计时必须绕开它</b>：<code>orolp.perf</code> 的三处计时（规划档的干涉段、校验段、采样口径表）与 <code>collision_perf_demo</code> 的账本都已在计时期间临时关闭结果缓存——<strong>缓存命中的"干涉检查"测的不是检查</strong>。工作量账本类测试（<code>collision_stats</code> 断言）同样绕行。</li>
     <li><b>其他机器人在场景里的关节角不进键</b>：沿轨迹检查只查「被查机器人 vs 环境 + 自碰撞」，其他机器人不是环境项（机器人-机器人对检查走另一条路径、不经此缓存）；挂在被查机器人下的对象被豁免，其位姿同样不进键——两条口径都与 <code>_env_items</code> 同源，并有测试钉住「改挂载件位姿仍命中、改环境位姿必未命中」。</li>
     <li><b>URDF 改了盘但场景没重建也不串味</b>：键取的是场景<strong>内存里</strong>实际持有的基本体与变换，不是 URDF 路径。</li>
-    <li><b>一条命令可复现</b>：<code>pytest tests/test_collision_cache.py</code>（31 个专项测试：命中等价 / 场景签名七类变更 / 拖进路径的正确性守卫 / 副作用复现 / LRU / 开关与隔离 / 基准诚实性），全量基线 <b>1473 passed</b>。</li>
+    <li><b>一条命令可复现</b>：<code>pytest tests/test_collision_cache.py</code>（31 个专项测试：命中等价 / 场景签名七类变更 / 拖进路径的正确性守卫 / 副作用复现 / LRU / 开关与隔离 / 基准诚实性），全量基线 <b>1684 passed</b>。</li>
   </ul>
 </section>
 
@@ -1416,13 +1416,13 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <p style="font-size:13.5px">v1.2.2 收掉干涉检查后，校验第二次起仍慢的大头只剩一件：<strong>逐路点逆动力学</strong>（实测 SO101 / 5632 路点：validate 202ms，关掉动力学只剩 18ms——<strong>约 185ms 全在力矩校验</strong>）。本轮补上它的结果缓存，键仍走内容寻址：模型<strong>内容签名</strong>（连杆惯性逐字节 / 末端负载 / 额定力矩——改负载、改惯性、改 URDF effort 都换键）+ 指令时间区间（决定超限定位）+ 逐路点关节位置/速度/加速度（逆动力学的全部输入）。<code>check_trajectory</code> 本就返回纯数据 dict，命中与实算走<strong>同一条「应用到报表」路径</strong>——结论逐字段一致。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 完整校验两次（SO101 · 289 路点 · 构建时真跑）</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（冷：规划命中缓存，力矩校验真算）   156.4 ms
-第 2 次（热：规划 + 力矩校验双命中）        1.51 ms   → 104x（115 条问题，两次完全一致）</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（冷：规划命中缓存，力矩校验真算）   154.4 ms
+第 2 次（热：规划 + 力矩校验双命中）        1.48 ms   → 104x（115 条问题，两次完全一致）</pre>
   <p style="font-size:13.5px;color:var(--dim)">对照 v1.2.2：当时完整校验第二次约 3x（动力学照真算），本轮之后同一动作快到键构建量级。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 改末端负载 → 立刻未命中（内容寻址的核心承诺）</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">set_payload(0.5 kg) 后再校验   161.0 ms（未命中 → 重新真算 → 新负载的力矩表）
-关闭缓存对照（诚实口径）        160.3 ms   → 缓存收益 = 冷 − 关
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">set_payload(0.5 kg) 后再校验   158.9 ms（未命中 → 重新真算 → 新负载的力矩表）
+关闭缓存对照（诚实口径）        157.1 ms   → 缓存收益 = 冷 − 关
 账本：命中 1 / 未命中 2 / 存储 2 / 条目 2</pre>
   <p style="font-size:13.5px;color:var(--dim)">「改了负载还用旧力矩表」在键的设计上不可能发生——负载、连杆惯性（逐字节）、额定力矩、程序、时间区间任一变动即换键，各有专项测试。</p>
 
@@ -1431,7 +1431,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>键不猜</b>：缺惯性参数时校验走「跳过」分支——没算结果就没有键，缓存条目为零（有测试）。</li>
     <li><b>基准诚实性升级（修掉 v1.2.2 的一个缺口）</b>：缓存解析的优先级里<strong>实例缓存高于全局</strong>，v1.2.2 的计时关闭只把全局换成 None——自带实例缓存的规划器在基准里照样命中。现在 <code>orolp.perf</code> 的 <code>_caches_off(planner)</code> 同时关干涉检查与动力学两路、<strong>连规划器实例开关一起否决</strong>，五处计时全部改传 planner——<strong>缓存命中的"校验"测的不是校验</strong>。</li>
     <li><b>规划结果缓存（v1.2.0）刻意不在计时关闭之列</b>：规划基准本身就以「冷/热缓存」两种工况为观测对象，关掉反而测不出来。</li>
-    <li><b>一条命令可复现</b>：<code>pytest tests/test_dynamics_cache.py</code>（26 个专项测试：键确定性 / 模型·程序·spans·effort 变更敏感性 / 命中等价 / 共享对象契约 / 三级优先级 / LRU / 计时诚实性 / 包级导出），全量基线 <b>1473 passed</b>。</li>
+    <li><b>一条命令可复现</b>：<code>pytest tests/test_dynamics_cache.py</code>（26 个专项测试：键确定性 / 模型·程序·spans·effort 变更敏感性 / 命中等价 / 共享对象契约 / 三级优先级 / LRU / 计时诚实性 / 包级导出），全量基线 <b>1684 passed</b>。</li>
   </ul>
 </section>
 
@@ -1441,7 +1441,7 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
   <p style="font-size:13.5px">规划/分段（v1.2.0）、干涉检查（v1.2.2）、力矩校验（v1.2.3）三类内容寻址缓存都已默认开启——但"活少干了多少"此前只能在代码里看 <code>stats()</code>。本轮把三类缓存的占用与命中统一成一份快照（<code>cache_overview()</code>），GUI 的「视图 → 缓存状态…」一屏看完；「清空缓存与统计」一键回到全量真算。以下数字是本页构建时真跑出来的快照。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① UR5e + 抓取工作站：校验两次（构建时真跑）</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（冷）355 ms → 第 2 次（热）3 ms
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">第 1 次（冷）349 ms → 第 2 次（热）3 ms
 规划与分段缓存：整程序命中 1 / 未命中 1（命中率 50%）
 干涉检查结果缓存：条目 1 · 命中 1 / 未命中 1（命中率 50%）</pre>
 
@@ -1454,7 +1454,350 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <li><b>全局关闭的缓存也在列</b>（对话框里如实写"已关闭"）——看不见的关闭最容易被当成"没这回事"。</li>
     <li><b>命中数字与各缓存自己的 <code>stats()</code> 同源</b>，不另立口径；"清空缓存与统计"是条目与计数一起清（下次校验全量真算），与基准计时里的"临时绕行"是两件事。</li>
     <li><b>内容寻址不会给出过期结果</b>：这个面板解释的是"活少干了多少"，不是正确性开关。</li>
-    <li><b>一条命令可复现</b>：<code>pytest tests/test_cache_status.py</code>（13 个专项测试：三类快照 / 关闭态如实呈现 / 校验两次后命中成长 / 重置与清空的"账与条目"边界 / offscreen GUI 菜单与对话框 / en 界面零中文），全量基线 <b>1473 passed</b>。</li>
+    <li><b>一条命令可复现</b>：<code>pytest tests/test_cache_status.py</code>（13 个专项测试：三类快照 / 关闭态如实呈现 / 校验两次后命中成长 / 重置与清空的"账与条目"边界 / offscreen GUI 菜单与对话框 / en 界面零中文），全量基线 <b>1684 passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>界面架构改版（v1.3.0 · 左侧双 Tab：场景设备库 / 设备树；把夹爪拖到臂末端就装夹）</h2>
+
+  <p style="font-size:13.5px"><code>docs/prd/ui-architecture.md</code> 是 2026-09-11 立的界面架构 PRD，但它的六条验收标准<b>此前只写在文档里、没有任何测试盯着</b>——结构被后续改动破坏（某个面板把内容直接挂到标签页、不再套滚动容器），全量测试照样是绿的。本轮把验收标准钉成 <code>tests/test_ui_layout.py</code> 的 12 条断言，并补掉两处真缺口。下面所有数字都是本页构建时<b>真起一次主窗口、真跑一次法兰装夹</b>读出来的。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 布局结构（构建时真读）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">左侧：场景设备库 / 设备树
+右侧：属性 / 代码预览 / 导出打包
+代码预览子标签：路径示教 / 硬件列表 / PLC 程序逻辑 / 机器人子程序
+旧标签残留（场景 / 动作与从属 / 资源库）：无（已清除）</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 小窗口不裁切（缩到窗口能到达的最小高度再逐页量）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">左·场景设备库：内容 88px ≤ 可视 267px
+左·设备树：内容 88px ≤ 可视 480px
+右·属性：内容 236px ≤ 可视 267px
+右·代码预览：内容 195px ≤ 可视 480px
+右·导出打包：内容 88px ≤ 可视 480px
+标签容器可视高 300px ｜ 窗口最小高 344px</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">场景设备库：面板最小高 88px ｜ 内容实际高 356px ｜ 视口高 249px ｜ 滚动条 未出现</pre>
+  <p style="font-size:13.5px;color:var(--dim)">修复前实测（开发期记录）：内容最小高度 <b>286px</b> 直接顶成面板最小高度，而最小窗口下标签页可视高度只有 <b>267px</b>——底部的「刷新」与拖拽提示被裁掉。现在的内容最小高是 <b>356px</b>（给列表加了 160px 下限，避免小窗口下筛选行被压扁），但<b>面板</b>最小高只有 <b>88px</b>：多出来的高度交给滚动条。这就是"不被裁切"的可执行含义：<b>内容比可视区高，退化成滚动条，而不是消失</b>。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 装夹到法兰（构建时真跑 placement）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">工件（料箱里）(60, -400, 268) ｜ 法兰世界坐标 (-391, -102, 527)
+挪到法兰旁 30mm：吸附判定（半径 60mm）→ 机器人
+挪到 200mm 外：吸附判定 → 未命中（超出 60mm 半径）
+装夹后：局部位姿平移 (0.0, 0.0, 0.0)（工具坐标系与法兰对齐）｜ 挂载状态 是
+机器人 J1 转 20° 后：工件随动 140.3 mm</pre>
+  <div class="shots">
+    <figure><img src="assets/ui_left_tabs.png" alt="左侧双 Tab"><figcaption>左侧双 Tab：场景设备库 / 设备树（构建时离屏真抓；设备树里「工件_1」挂在机器人节点下＝装夹关系）</figcaption></figure>
+    <figure><img src="assets/ui_right_tabs.png" alt="右侧标签"><figcaption>右侧：属性 / 代码预览 / 导出打包（原来的「动作与从属」并入设备树，不再占一个标签）</figcaption></figure>
+  </div>
+  <p style="font-size:13px;color:var(--dim)">截图口径：本机 macOS 无 Cocoa 会话，GL 视口抓不到内容（离屏无 OpenGL 上下文），因此这里抓的是<b>左右两个标签容器</b>本身——标签名、顺序、面板内容都是真的。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 口径</h3>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>守卫建立在可执行的事实上</b>：那次 286px 的修复就是把滚动容器摘掉——摘掉即红，所以它守得住；标签名、顺序、子标签同样逐条断言，改版回退会当场变红。</li>
+    <li><b>顺带修掉一件真缺陷</b>：「一键导出…」自身文档写着"不要求先点生成代码"（内部直接构建程序并后处理），但 <code>set_robot</code> 只开了「生成代码」没开「一键导出」，用户必须先点一次生成代码它才亮得起来——与 PRD「无置灰不可用的按钮」直接冲突。</li>
+    <li><b>版本口径由四份手工同步减到三份</b>：GUI 窗口标题改为从 <code>orolp.__version__</code> 派生（v1.0.1 里程碑就漏过 pyproject；标题这一份从此不可能漂移）。</li>
+    <li><b>当时仍有一项未过，已在下一节补齐</b>：PRD §6 第 6 条当时拆成两半——按钮部分已过，而「工艺时序（泳道图）」还是骨架（设备树 P1「动态时序」未实现），文档里如实未勾选；<b>v1.3.1 把它换成了真编辑器，§6 六条至此全过</b>（见下一节）。</li>
+    <li><b>一条命令可复现</b>：<code>QT_QPA_PLATFORM=offscreen pytest tests/test_ui_layout.py</code>（12 个专项测试），全量基线 <b>1684 passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>工艺时序 · 动态时序（v1.3.1 · 设备树不再只有「静态挂载」，工序真的排得出来了）</h2>
+
+  <p style="font-size:13.5px">设备树此前只表达<b>静态绑定</b>（谁挂在谁下面，坐标系自动吸合，v1.3.0 落地）；PRD §4.3 P1 要的是<b>动态时序</b>——配置工序触发、信号等待、子程序调用。原来的「工艺时序（泳道图）」是个空壳，也正是 §6 第 6 条「无空占位区块」唯一没过的一项。本轮新增 <code>python/orolp/sequence.py</code>：四种工步编成一条有序序列，<b>再翻译到两个既有出口——一个新指令语法都不加</b>。下面所有数字都是本页构建时真跑出来的。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 序列与校验（真跑）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">泳道（按首次出现序）：机器人 / 输送带
+
+1. [SignalStep] 夹紧 @ 机器人 → gripper_close = True
+2. [DwellStep] 保压 @ 机器人 → 驻留 0.5s
+3. [CallStep] 抓取 @ 机器人 → 调用 PickPart
+4. [WaitStep] 等到位 @ 输送带 → 等 part_ready（level / 5.0s）
+5. [SignalStep] 放行 @ 输送带 → conveyor_run = False
+
+干净序列：0 条问题（干净序列）
+只把 gripper_close / conveyor_run 两个信号投进点表：1 条问题，其中 1 条 error（点表里只有 gripper_close / conveyor_run）
+  └─ 第 4 步：工步 4（等到位） 等待的信号 part_ready 不在点表里——下装前必须补上映射</pre>
+  <p style="font-size:13.5px;color:var(--dim)">校验问题都带 <code>index</code> 指回出问题的那个工步——<b>「序列里第 4 步用了点表里没有的 part_ready」这种话要能定位</b>，而不是笼统报一句「校验失败」。共七类问题：空序列 / 重名 / 未知设备 / 未知信号 / 未知子程序 / 无超时 / 边沿触发忽略期望电平。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 机器人侧出口（真喂既有 ProgramBuilder）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">落地成既有 IO 指令：SetDO / WaitTime / WaitDI / SetDO（共 4 条）
+只记进 notes、不进程序的：工步 抓取（调用 PickPart）不是程序指令，未写入——调用语法由品牌主程序层生成</pre>
+  <p style="font-size:13.5px;color:var(--dim)">子程序调用<b>不是程序指令</b>——<code>Program</code> 里没有这棵语法树，各品牌主程序/子程序的组织方式也不同（<code>CALL</code> / <code>Job</code> / <code>Run</code>…）。所以这里<b>不臆造调用语法</b>，只如实记进 notes 交给调用方展示；<b>静默丢弃才是最坏的做法</b>。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ PLC 侧出口（真翻 Step，再真出 SCL）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">1. 名「驻留 0.5s」｜输出 {'gripper_close': True}｜等待 —｜延时 0.5s
+2. 名「等待 part_ready」｜输出 {}｜等待 part_ready(True)｜延时 0.0s
+3. 名「末步输出」｜输出 {'conveyor_run': False}｜等待 —｜延时 0.0s</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">与 steps_from_program 逐字段对拍：一致（3 条逐字段相同）
+（序列侧 3 步 vs 程序侧 4 步——差的那一步是程序侧补的「等待工件到位」循环起点）
+generate_scl：声明了 gripper_close、part_ready、conveyor_run ｜ 驻留定时器 无 ｜ 共 94 行</pre>
+  <p style="font-size:13.5px;color:var(--dim)">两处差异是<b>刻意的、不是漂移</b>：① <code>steps_from_program</code> 会在头部补一步「等待工件到位」当循环起点，而序列<b>自己就编排等待</b>（本序列第 4 步就是），再补一步会跟它打架；② 步名口径不同（「驻留 0.5s」vs「保压 0.50s」、「末步输出」vs「输出保持」）。测试断言的是<b>语义字段逐条相同</b>（输出 / 等待 / 期望电平 / 延时），名字不参与比较——这样以后谁把翻译规则改歪了会当场变红。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 诚实性口径：只有驻留是可计算的时间</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">工步数 5 ｜ 构成（call 1 / signal 2 / wait 1 / dwell 1）
+驻留合计 0.5s
+note：驻留合计是唯一可计算的时间；触发与等待的耗时取决于现场机构</pre>
+  <p style="font-size:13.5px;color:var(--dim)">序列只有<b>顺序</b>，没有实测节拍。信号触发与信号等待的真实耗时取决于现场机构（气缸响应、输送带节拍、机器人到位时间），所以 <code>summary()</code> <b>只报驻留合计与各类型步数</b>，绝不编一个「预计节拍」；泳道图抬头也直接写明「驻留按秒加宽；非实测节拍」，免得有人把横轴当时间轴读。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ 编辑器（真起控件）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">步骤表 4 行 ｜ 泳道画布 4 块 ｜ 可选信号 8 个 ｜ 校验问题 0 条
+4 个工步 ｜ 触发 1 ｜ 等待 1 ｜ 调用 1 ｜ 驻留合计 0.5s</pre>
+  <div class="shots">
+    <figure><img src="assets/ui_sequence_editor.png" alt="工艺时序编辑器（泳道图）"><figcaption>设备树下的「工艺时序（泳道图）」：工步表 + 泳道画布 + 添加 / 删除 / 上下移 / 校验 / 保存 / 载入（构建时离屏真抓）</figcaption></figure>
+  </div>
+  <p style="font-size:13px;color:var(--dim)">信号下拉不是写死的字符串列表：<code>app.py</code> 用 <code>set_available_signals</code> 把<b>真实点表 ∪ 握手信号</b>灌进去，<b>选不到空气信号</b>；选项里没有的名字仍可手填，但校验会当场报 error（"下装前必须补上映射"）。改动经 <code>sequenceChanged</code> 转发到面板的 <code>sceneChanged</code>——时序改了就是场景改了，撤销/保存共用同一条通路。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑥ 口径</h3>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>不新增指令语法</b>：两个出口翻的都是既有指令（<code>SetDO</code>/<code>WaitDI</code>/<code>WaitTime</code>）与既有工步（<code>plc_scl.Step</code>），所以序列一落地就能被后处理、校验、SCL 三处复用，不存在"时序是孤岛"。</li>
+    <li><b>等价性有可执行证据</b>：PLC 出口的语义等价不是"看着像"，而是与 <code>steps_from_program</code> 逐字段对拍；SCL 出口也不是"能编译就行"，而是真跑 <code>generate_scl</code> 并断言信号被声明、0.5s 驻留真的变成 <code>T#500MS</code> 定时器。</li>
+    <li><b>本轮撞到两个「绿着的坑」</b>：①新测试把内置 UR5e 路径写成 <code>models/ur5e/ur5e.urdf</code>（真路径是 <code>models/ur/ur5e/ur5e.urdf</code>），<code>pytest.skip</code> 静默生效、4 条出口测试根本没跑——<b>skip 又是绿的</b>，与 v1.2.1 那次同类；②仓库里的 <code>.venv</code> 是缺 <code>paramiko</code> / <code>OCP</code> / <code>setuptools</code> 的<b>旁路环境</b>，<code>pytest.importorskip</code> 会让三个测试模块整块不收集，跑出 <b>1431 passed</b> 这种"看着还行"的假账（比真基线少 57 条用例）——全量基线固定用 <code>/Users/jayhan/.workbuddy/binaries/python/envs/default/bin/python</code>。</li>
+    <li><b>一条命令可复现</b>：<code>QT_QPA_PLATFORM=offscreen pytest tests/test_sequence.py</code>（33 个专项测试），全量基线 <b>1684 passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>动态时序使用体验 · 示例工程一条命令跑通（v1.3.2）</h2>
+  <p style="font-size:13.5px">v1.3.1 落地了工艺时序模型与泳道编辑器，本轮补上<b>使用体验层</b>：<code>examples/sequence_demo.py</code> 一条命令跑通「建点表 → 编排 9 条工步 → 校验 → 机器人/PLC 双出口 → JSON 往返」，配套使用文档 <code>docs/sequence.md</code> 与 <b>8 项子进程验收测试</b>（<code>tests/test_sequence_demo.py</code>）。下面所有输出都是<b>本页构建时真跑示例脚本</b>的原样产物。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 工作单元点表 + 工序编排（四种工步，泳道 = 设备）</h3>
+  <pre style="white-space:pre-wrap">（四种工步）
+============================================================
+   1. [WaitStep  ] PLC  | 等待启动循环 (robot_start) trigger=rising timeout=0.0s
+   2. [WaitStep  ] PLC  | 等待安全就绪 (safety_ok) trigger=level timeout=5.0s
+   3. [WaitStep  ] 传感器  | 等待工件到位 (part_present) trigger=rising timeout=10.0s
+   4. [CallStep  ] 机器人  | 调用抓取子程序 (PickPart)
+   5. [SignalStep] 机器人  | 夹爪闭合 (gripper_close)
+   6. [DwellStep ] 机器人  | 夹紧保压 0.5s
+   7. [SignalStep] 机器人  | 夹爪松开 (gripper_open)
+   8. [DwellStep ] 机器人  | 开爪确认 0.2s
+   9. [SignalStep] 机器人  | 上报循环完成 (robot_done)
+============================================================</pre>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 校验（点表/子程序/设备全部真实；含刻意安排的无限等待警告与未知信号自证）</h3>
+  <pre style="white-space:pre-wrap">（信号/子程序/设备全部来自真实点表与设备清单）
+============================================================
+  [warning] no_timeout: 工步 1（等待启动循环） 无限等待 robot_start——现场必须配看门狗，否则一步卡死整条线  @ 工步 1
+  [warning] edge_ignores_value: 工步 1（等待启动循环） 是上升沿触发，期望电平不参与判定  @ 工步 1
+  [warning] edge_ignores_value: 工步 3（等待工件到位） 是上升沿触发，期望电平不参与判定  @ 工步 3
+  （自证）往序列里塞未知信号 not_in_table -&gt; 报 1 条 error，校验真实生效
+============================================================</pre>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 机器人侧出口：CallStep 如实披露 + 点表接进后处理解析出真实序号</h3>
+  <pre style="white-space:pre-wrap">[notes] 工步 调用抓取子程序（调用 PickPart）不是程序指令，未写入——调用语法由品牌主程序层生成
+UR 出码共 12 行，其中 IO/等待行：
+wait_digital_in(0, True)  # TODO: 原语义为 rising 边沿触发，需轮询实现，当前按电平输出，请人工核对
+wait_digital_in(2, True)  # TODO: 超时 5.00s 需自行实现看门狗
+wait_digital_in(1, True)  # TODO: 超时 10.00s 需自行实现看门狗  # TODO: 原语义为 rising 边沿触发，需轮询实现，当前按电平输出，请人工核对
+set_digital_out(0, True)
+set_digital_out(1, True)
+set_digital_out(2, True)</pre>
+  <p style="font-size:13px;color:#9aa5b5">边沿触发降级为电平、超时看门狗待补，都在出码里留了显式 TODO——绝不静默丢弃、绝不编假地址。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ PLC 侧出口：to_plc_steps() 真出 SCL（头部点表节选）</h3>
+  <pre style="white-space:pre-wrap">RobotWorld 自动生成 —— 西门子 SCL 单元控制逻辑
+程序名 : SeqDemoCell
+设备数 : 4
+生成于 : 2026-09-16 19:47:13
+警告：本文件是工程模板，未经真机/TIA 验证。
+下装前必须核对 IO 地址与工艺步骤。
+============================================================ *)
+(* ---------------- IO 点表（自动生成，下装前必须核对） ---------------- *)
+(*   信号 | 地址 | 方向 | 用途 | 归属 *)
+(*   robot_start | I0.0 | PLC→机器人 | 机器人未用 | 机器人 *)</pre>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ JSON 往返（examples/assets/pick_sequence.json）</h3>
+  <pre style="white-space:pre-wrap">============================================================
+已写入 examples/assets/pick_sequence.json
+读回：9 条工步，泳道 PLC / 传感器 / 机器人 —— 与写入前一致</pre>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python examples/sequence_demo.py</code>；使用文档在 <code>docs/sequence.md</code>（四种工步 / 七类校验 / 双出口 / 诚实性口径 / GUI 指引）。</li>
+    <li><b>诚实口径不变</b>：驻留合计 0.7s 是唯一可计算的时间；触发与等待的耗时取决于现场机构。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>零件库与预置场景库（v1.3.3 落地 · v1.3.7 扩容 · PRD §4.1 P1/P2 内容就绪，入口已亮）</h2>
+  <p style="font-size:13.5px">界面 PRD 最后一项「内容就绪再开放入口」落地：**预置场景库**（P2）新增两个行业模板——分拣工位（PRD 点名）与机床上下料——随抓取工作站一起通过既有「文件 → 载入预置工作站」入口一键加载（内容驱动，不做空壳入口）；**零件库**（P1）补上自定义导入：零件库 JSON（<code>orolp.parts/1</code>）里的参数化基本体组合经「导入零件…」注册进组件目录，与内置组件同一拖拽通路。下面数字都是本页构建时真跑出来的。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 预置场景库：五个内置模板（构建时真建 + 真跑干涉检查）</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">id</th><th>名称</th><th>说明（诚实口径）</th><th>对象数</th><th>干涉</th></tr>
+    <tr><td><code>grasping_workstation</code></td><td>抓取工作站</td><td>UR5e + 真空吸盘：输送带上料、托盘码放，含 TCP 定义与 4 工件</td><td>9</td><td>0</td></tr><tr><td><code>sorting_station</code></td><td>分拣工位</td><td>UR5e + 吸盘：来料输送带 → 合格/不合格双料箱分拣，含安全围栏（几何为工程示意）</td><td>9</td><td>0</td></tr><tr><td><code>machine_tending</code></td><td>机床上下料</td><td>UR5e + 夹爪：上料输送带 → 台钳工位 → 成品料箱；机床为柜体几何简化示意（真机 CAD 走厂商包通路）</td><td>9</td><td>0</td></tr><tr><td><code>3c_assembly</code></td><td>3C 装配工位</td><td>UR5e + 夹爪：上料托盘（3 块板件）→ 装配治具压装 → 成品托盘；板件与治具为工程示意（按实际产品微调）</td><td>10</td><td>0</td></tr><tr><td><code>auto_welding</code></td><td>汽车焊装工位</td><td>UR5e + 焊枪：变位机弧焊 + 输送辊道来料 + 控制柜与弧光围栏；变位机为单轴示意（不做联动）、机器人本体随 URDF 通路替换</td><td>9</td><td>0</td></tr>
+  </table>
+  <p style="font-size:13px;color:#9aa5b5">布局经过碰撞 oracle 校准（逐候选位扫描取零干涉解），不是摆出来就行；机床上下料的机床是柜体几何简化示意——真机床走厂商 CAD 通路（v0.2.3），两条通道不混装。<b>v1.3.7 扩容</b>新增两个点名行业模板：3C 装配（上料托盘 → 治具压装 → 成品托盘）与汽车焊装（单轴变位机弧焊 + 输送辊道来料）——焊装模板的焊枪 TCP 依焊嘴型号而定、<b>刻意不猜</b>（tcp_flange=None），真实值走现场标定（v0.3.4）通路；变位机为单轴示意、不做外部轴联动，机器人本体随 URDF 通路替换。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 零件库：示例文件真实注册 → 真实构建 → 撤销复原</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">零件</th><th>注册 id</th><th>几何构成</th><th>说明</th></tr>
+    <tr><td>法兰盘</td><td><code>custom_flange_plate</code></td><td>Cylinder+Cylinder</td><td>双孔法兰盘示例（圆柱 + 定位凸台）</td></tr><tr><td>L 型支架</td><td><code>custom_l_bracket</code></td><td>Box+Box</td><td>钣金折弯支架示例（两块板正交）</td></tr>
+  </table>
+  <p style="font-size:13px;color:#9aa5b5">组件目录现有分类：基础设施 / 安全设施 / 工件 / 夹具 / 变位机 / 输送设备 / 末端工具（共 工件 7 · 基础设施 3 · 末端工具 3 · 夹具 2 · 变位机 2 · 安全设施 1 · 输送设备 1）。导入是幂等的：重复导入先撤上一批；坏 schema / 非法尺寸当场报错，绝不静默吞零件。</p>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>诚实口径</b>：零件库管理的是<b>参数化基本体</b>（box/cylinder/sphere 组合，与内置组件同一几何通道），<b>不解析 STL/STEP 网格</b>——网格件走 URDF/厂商 CAD 通路；自定义零件几何固定（文件里写什么就是什么），不假装参数可调。</li>
+    <li><b>一条命令复现</b>：导入样例 <code>examples/assets/custom_parts.json</code>；模板自检 <code>PYTHONPATH=python python -m orolp.world.templates check</code>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>工程文件（.orolp · v1.3.4）——一次会话一个文件</h2>
+  <p style="font-size:13.5px">v1.3.0–v1.3.3 把界面侧一件件补齐（场景设备库 / 设备树 / 工艺时序 / 零件库 / 预置场景库），但每一件都只带<b>自己的</b> JSON——用户视角是"存一个活要存四个文件，回头还得记住哪四个"。v1.3.4 补的是这个缝：一个 <code>.orolp</code> 把<b>场景 / 示教程序 / 工艺时序 / 设备点表 / 零件库来源 / 标定集</b>六段收进单一文件。下面每个数字与文本都是本页构建时真跑出来的（抓取工作站模板 + 真实 IK 示教点 + 真实时序与点表）。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 真存真读：六段工程落盘 → 载入 → 逐段摘要</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">段</th><th>载入后的摘要（由段内容直接算出）</th></tr>
+    <tr><td><code>scene</code></td><td>场景：8 个对象 ｜ 1 台机器人（ur5e.urdf）</td></tr><tr><td><code>program</code></td><td>示教程序：10 行 ｜ 8 个示教点（抓取 1 / 放置 1）</td></tr><tr><td><code>sequence</code></td><td>工艺时序：4 个工步 ｜ 驻留合计 0.4s</td></tr><tr><td><code>cell</code></td><td>设备点表：3 台设备 ｜ 5 个已映射信号</td></tr><tr><td><code>parts</code></td><td>零件库来源：1 个零件库文件</td></tr>
+  </table>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">工程名 grasping_workstation_demo ｜ 文件 8.0 KB ｜ 示教点 8 个 ｜ 时序 4 工步 ｜ 设备 3 台 / 已映射信号 5 个
+工程：grasping_workstation_demo
+保存版本：orolp 1.3.9 ｜ 最后修改 2026-09-16T19:47:13
+备注：构建期真跑：场景/示教程序/时序/点表/零件来源
+  场景：8 个对象 ｜ 1 台机器人（ur5e.urdf）
+  示教程序：10 行 ｜ 8 个示教点（抓取 1 / 放置 1）
+  工艺时序：4 个工步 ｜ 驻留合计 0.4s
+  设备点表：3 台设备 ｜ 5 个已映射信号
+  零件库来源：1 个零件库文件
+工程里没有：标定集
+
+载入报告：
+已载入 5 段：场景、示教程序、工艺时序、设备点表、零件库来源</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 文件长什么样（前 14 行，原样截取）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">{
+  &quot;schema&quot;: &quot;orolp.project/1&quot;,
+  &quot;meta&quot;: {
+    &quot;name&quot;: &quot;grasping_workstation_demo&quot;,
+    &quot;created&quot;: &quot;2026-09-16T19:47:13&quot;,
+    &quot;modified&quot;: &quot;2026-09-16T19:47:13&quot;,
+    &quot;orolp_version&quot;: &quot;1.3.9&quot;,
+    &quot;note&quot;: &quot;构建期真跑：场景/示教程序/时序/点表/零件来源&quot;
+  },
+  &quot;sections&quot;: {
+    &quot;scene&quot;: {
+      &quot;format_version&quot;: 1,
+      &quot;robot_urdf&quot;: &quot;models/ur/ur5e/ur5e.urdf&quot;,
+      &quot;robot_joints_deg&quot;: [</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 一段写坏了会怎样：只跳那一段，其余照常载入</h3>
+  <p style="font-size:13px;color:#9aa5b5">构建时把 <code>sequence</code> 段故意写坏（<code>steps</code> 写成字符串），再加一个本库不认识的段 <code>vision</code> 与一个未知顶层键 <code>authoring</code>，然后真的载入一次：</p>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">段</th><th>结果</th><th>原因 / 说明</th></tr>
+    <tr><td><code>scene</code></td><td>已载入</td><td>—</td></tr><tr><td><code>program</code></td><td>已载入</td><td>—</td></tr><tr><td><code>sequence</code></td><td><span style='color:#e06c75'>跳过</span></td><td>工艺时序段的 steps 必须是数组</td></tr><tr><td><code>cell</code></td><td>已载入</td><td>—</td></tr><tr><td><code>parts</code></td><td>已载入</td><td>—</td></tr><tr><td><code>vision</code></td><td>本版本不解释</td><td>原样保留（未知段）</td></tr>
+  </table>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">已载入 4 段：场景、示教程序、设备点表、零件库来源
+跳过 1 段（内容原样保留，保存时写回）：
+  · 工艺时序：工艺时序段的 steps 必须是数组
+未知段 vision——本版本不解释，原样保留
+未知顶层键 authoring——原样保留</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 保真：打开一趟再保存，不认识的内容不能丢</h3>
+  <p style="font-size:13px;color:#9aa5b5">把上面那份半坏工程再保存一次，逐项核对原始负载（不是"看起来没报错"，是逐字节比较）：</p>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">内容</th><th>键</th><th>结果</th></tr>
+    <tr><td>未知段</td><td><code>vision</code></td><td><span style='color:#7fbf7a'>原样保留</span></td></tr><tr><td>坏段原负载</td><td><code>sequence</code></td><td><span style='color:#7fbf7a'>原样保留</span></td></tr><tr><td>未知顶层键</td><td><code>authoring</code></td><td><span style='color:#7fbf7a'>原样保留</span></td></tr>
+  </table>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ 不开 GUI 也能看：CLI 摘要</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.project grasping.orolp
+工程：grasping_workstation_demo
+保存版本：orolp 1.3.9 ｜ 最后修改 2026-09-16T19:47:13
+备注：构建期真跑：场景/示教程序/时序/点表/零件来源
+  场景：8 个对象 ｜ 1 台机器人（ur5e.urdf）
+  示教程序：10 行 ｜ 8 个示教点（抓取 1 / 放置 1）
+  工艺时序：4 个工步 ｜ 驻留合计 0.4s</pre>
+
+  <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
+    <li><b>为什么是"逐段容错"而不是"整体校验"</b>：工程文件是用户<b>唯一的一份工作成果</b>。零件库格式将来升级了、某个第三方工具加了新段——不能因此让整个工程打不开。坏段只跳坏段，并在报告里说清是哪一段、为什么。</li>
+    <li><b>本库不认识的段与顶层键原样保留</b>（第④项逐字节核对）："打开—保存"一趟不会把别家工具写的字段抹掉。</li>
+    <li><b>写入是原子的</b>（同目录临时文件 + <code>os.replace</code>）：写一半断电不会把上一份好工程截断成半截 JSON。<code>NaN</code>/<code>Inf</code> 在写入前就被拒绝——它们序列化出来是非法 JSON，等读的时候才发现就晚了。</li>
+    <li><b>同一版本内字段缺失按可选</b>；<code>schema</code> 主版本不等则<b>明确拒收</b>（不猜）——工程文件宁可明确拒绝，也不能按错的语义打开后让用户以为"内容丢了"。</li>
+    <li><b>GUI 侧把"缝"补实了</b>：<code>文件 → 保存工程…/打开工程…</code>（Ctrl+Shift+S / Ctrl+Shift+O），窗口标题显示工程名与"•未保存"；示教点的<b>抓取/放置语义</b>存在工程里——它原本只活在界面内存中，单存路径代码会丢。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m orolp.project &lt;工程文件&gt; [--json]</code>；测试 75 个（<code>tests/test_project.py</code> + <code>tests/test_project_gui.py</code> 离屏真开窗口），全量基线 <b>1684 passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>会话支撑（最近打开 + 崩溃自动恢复 · v1.3.5）</h2>
+  <p style="font-size:13.5px">v1.3.4 解决了「存一个活只存一个文件」，还剩两条每天都会踩的缝：「昨天那个工程在哪来着」和「改了一下午还没保存，应用崩了」。v1.3.5 补上：<code>文件 → 最近打开</code> 子菜单 + 有未保存改动时每 60 秒自动落一份快照、下次启动询问是否恢复。下面每个数字都是本页构建时真跑出来的（配置目录重定向到临时目录，不碰真实 <code>~/.orolp</code>）。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 最近打开：真存真读，失效条目置灰不隐藏</h3>
+  <p style="font-size:13px;color:#9aa5b5">记 3 条（1 条真实工程 + 2 条已不存在的路径），保存后重新载入：</p>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">记录（最新在前）</th><th>状态</th></tr>
+    <tr><td style="padding:4px 8px">/some/vanished/b.orolp</td><td><b>已不存在（菜单里置灰，不悄悄藏）</b></td></tr>
+<tr><td style="padding:4px 8px">/some/vanished/a.orolp</td><td><b>已不存在（菜单里置灰，不悄悄藏）</b></td></tr>
+<tr><td style="padding:4px 8px">/private/var/folders/9t/yd84tmq100sd7cdv11pn5sg80000gn/T/orolp-session-07ba7kvs/work/demo_session.orolp</td><td>在</td></tr>
+  </table>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">existing()（真实存在的条目，菜单可点）：1 条
+prune_missing()（清理失效条目的返回值）：/some/vanished/b.orolp、/some/vanished/a.orolp
+清理后重新载入：3 条</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 崩溃自动恢复：快照本身就是合法 .orolp</h3>
+  <p style="font-size:13px;color:#9aa5b5">把一份带未知段（<code>vision</code>）与未知顶层键（<code>authoring</code>）的工程写进自动保存目录，再读回元数据、把快照当普通工程载入：</p>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">快照 session.orolp：0.6 KB ｜ sidecar 元数据：
+source_path = /var/folders/9t/yd84tmq100sd7cdv11pn5sg80000gn/T/orolp-session-07ba7kvs/work/demo_session.orolp
+saved_at    = 2026-09-16T19:47:13
+app_version = 1.3.9
+schema      = orolp.autosave/1
+
+把快照用 Project.load 载入（与「打开工程」同一条路）：
+工程：demo_session
+保存版本：orolp 1.3.9 ｜ 最后修改 2026-09-16T19:47:13
+  示教程序：4 行 ｜ 2 个示教点（抓取 0 / 放置 0）
+  vision：原样保留（本版本不解释）
+工程里没有：场景、工艺时序、设备点表、零件库来源、标定集</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 不开 GUI 也能看：CLI</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.session
+最近打开（3 条）：
+  /some/vanished/b.orolp  （文件已不存在）
+  /some/vanished/a.orolp  （文件已不存在）
+  /private/var/folders/9t/yd84tmq100sd7cdv11pn5sg80000gn/T/orolp-session-07ba7kvs/work/demo_session.orolp
+自动保存：2026-09-16T19:47:13 ｜ 源工程 /var/folders/9t/yd84tmq100sd7cdv11pn5sg80000gn/T/orolp-session-07ba7kvs/work/demo_session.orolp
+快照：/var/folders/9t/yd84tmq100sd7cdv11pn5sg80000gn/T/orolp-session-07ba7kvs/autosave/session.orolp</pre>
+
+  <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
+    <li><b>恢复走的就是「打开工程」同一条路</b>：快照用 <code>Project.save</code> 原子写入，本身就是合法 <code>.orolp</code>——自动保存机制就算坏了，用户也能手动打开快照文件。</li>
+    <li><b>只在有未保存改动时才落快照</b>：干净会话没什么可救；快照用新建的 Project 收集，<b>不动正在编辑的工程对象</b>——快照落盘不能覆盖原工程路径，否则下次手动保存的建议位置会错。</li>
+    <li><b>恢复后按「未保存」对待</b>：标题显示「•未保存」、自动保存继续守护；保存建议路径指回原工程；快照路径<b>不进</b>最近打开（它是内部槽位）。</li>
+    <li><b>容错口径</b>：这两样都是锦上添花的机制，任何故障都「当它不存在」——快照写失败清残件不留空壳、元数据坏一律当无快照（不给来路不明的恢复选项），绝不打断启动或保存。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m orolp.session</code>；测试 26 个（<code>tests/test_project_session.py</code> + <code>tests/test_project_session_gui.py</code> 离屏真开窗口），全量基线 <b>1684 passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>从模板新建工程（工程文件模板 · v1.3.6 落地 · v1.3.8 扩容至五个）</h2>
+  <p style="font-size:13.5px">v1.3.4/v1.3.5 解决了「存一个活」与「再找到它」，但「打开工程」面前永远是一张白纸。v1.3.6 补上最后一条缝：<code>文件 → 从模板新建工程…</code>——新活不从空白开始；v1.3.8 把 3C 装配 / 汽车焊装两个行业模板也收进来，与「载入预置工作站」五场景对齐（场景同一数据源）。下面每个数字都是本页构建时真跑出来的（抓取模板经真实 IK 构建后落盘、载回、出摘要）。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 五个内置模板（v1.3.8 扩容）</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">模板</th><th>id</th><th>说明</th></tr>
+    <tr><td style="padding:4px 8px">抓取工作站</td><td><code>grasping_workstation</code></td><td>UR5e + 吸盘 + 输送带 + 工件 + 托盘，附 8 点抓取循环示例程序（含抓取/放置语义）</td></tr>
+<tr><td style="padding:4px 8px">分拣工位</td><td><code>sorting_station</code></td><td>输送带 + 双料箱分拣 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步</td></tr>
+<tr><td style="padding:4px 8px">机床上下料</td><td><code>machine_tending</code></td><td>输送带 + 台钳工位 + 机床柜体 + 成品料箱，机器人与工件已摆好，示教程序从 Home 位起步</td></tr>
+<tr><td style="padding:4px 8px">3C 装配工位</td><td><code>3c_assembly</code></td><td>上料托盘（3 块板件）+ 装配治具 + 成品托盘 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步</td></tr>
+<tr><td style="padding:4px 8px">汽车焊装工位</td><td><code>auto_welding</code></td><td>焊接变位机 + 输送辊道 + 控制柜 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步</td></tr>
+  </table>
+  <p style="font-size:13px;color:#9aa5b5">抓取工作站的示例程序由既有 <code>world/templates</code> + <code>world/demo</code> 真实 IK 构建——与「抓取工作站演示（一键）」<b>同一数据源</b>，不是另写的一份假数据。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 模板产物就是普通工程：真存真读</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">抓取工作站模板落盘后载回：场景对象 8 个 ｜ 示教点 8 个（抓取 1 / 放置 1）｜ 程序 8 行
+工程：抓取工作站
+保存版本：orolp 1.3.9 ｜ 最后修改 2026-09-16T19:47:14
+备注：由工程模板生成：场景与示教程序可直接使用，按需修改后保存
+  场景：8 个对象 ｜ 1 台机器人（ur5e.urdf）
+  示教程序：10 行 ｜ 8 个示教点（抓取 1 / 放置 1）
+工程里没有：工艺时序、设备点表、零件库来源、标定集</pre>
+  <p style="font-size:13px;color:#9aa5b5">「工程里没有：工艺时序、设备点表……」是<b>如实展示</b>——模板只收真给的东西，不写空段凑数。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 不开 GUI 也能看：CLI</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.project grasping.orolp
+工程：抓取工作站
+保存版本：orolp 1.3.9 ｜ 最后修改 2026-09-16T19:47:14
+备注：由工程模板生成：场景与示教程序可直接使用，按需修改后保存
+  场景：8 个对象 ｜ 1 台机器人（ur5e.urdf）
+  示教程序：10 行 ｜ 8 个示教点（抓取 1 / 放置 1）
+工程里没有：工艺时序、设备点表、零件库来源、标定集
+已载入 2 段：场景、示教程序</pre>
+
+  <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
+    <li><b>三条规矩</b>：模板产物就是普通 <code>Project</code>（保存/载入/摘要/保真全套契约照用）；只收模板真给的段；每次全新构建（两个同模板工程互不共享状态）。</li>
+    <li><b>GUI 细节</b>：当前工程有未保存改动时先询问（默认「否」，拒绝则当前工程原样保留）；模板构建失败如实弹窗；新建的工程尚未落盘——标题显示「•未保存」、自动保存继续守护，且<b>不进最近打开</b>（它不是文件）。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -c "from orolp.project_templates import save_project_template; save_project_template('grasping_workstation', 'demo.orolp')"</code>；测试 15 个（<code>tests/test_project_templates.py</code> + <code>tests/test_project_templates_gui.py</code> 离屏真开窗口），全量基线 <b>1684 passed</b>。</li>
   </ul>
 </section>
 
@@ -1466,6 +1809,18 @@ MoveC [-295.771, -210.434, 756.579, 0.000, 20.000, -50.000], [-195.270, -264.938
     <figure><img src="assets/grasping_offline_programming.png" alt="离线编程面板"><figcaption>离线编程 · 校验通过 + 节拍 + 4 品牌出码</figcaption></figure>
   </div>
   <p style="color:#9aa5b5;margin-top:10px">无 GUI 一条命令跑通同一流程：<code>python examples/grasping_workstation_demo.py</code>（模板 → IK 示教点 → 夹爪 IO → 节拍 → UR/KUKA/ABB/FANUC 出码）</p>
+</section>
+
+<section>
+  <h2>路线图调研 · 变位机外部轴联动（v1.3.9 · 纯方案文档）</h2>
+  <p style="font-size:13.5px">汽车焊装模板的变位机目前是「单轴示意、不做联动」（诚实口径）。联动怎么做，方案已整理成 <code>docs/design/external-axis.md</code>——<b>只调研不实施</b>，实施前等三个开放问题拍板（品牌优先级 / 机械参数来源 / 联动模式是否立项）。方案要点：</p>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>两种模式先钉住</b>：<b>分段定位</b>（position-weld，焊前把焊缝转到合适姿态、停住再焊）工程复杂度低，现场大量使用；<b>联动焊接</b>（weld on the fly，变位机与机器人同时动）需要时间同步，另立项。</li>
+    <li><b>核心设计决策</b>：外部轴位置<b>进路点</b>（路点带 <code>ext_joints</code>），不开独立指令——分段定位里「第 3 段在变位机 45° 时焊」这个绑定关系天然属于路点。</li>
+    <li><b>出码形态</b>：KUKA（E1 扩展轴）/ FANUC（独立运动组）/ ABB（Mechanical Unit）可原生出码；UR <b>无外部轴概念，诚实降级</b>（注释 + 数字量触发）；国产品牌语法待厂商协议（与真机 CAD 同一阻塞口径）。</li>
+    <li><b>P1 代价可控</b>：分段定位不碰 IK（机器人在工件动坐标系里求解，现有运动学原样可用）；碰撞检查吃任意 object 世界位姿，工件随动位姿路径打通后<b>免费复用</b>；变位机转位时间是纯几何可计算项，可进节拍报表。</li>
+    <li><b>现状（代码事实）</b>：变位机组件已是参数化静态几何（<code>rot_deg</code> 变了台面真转）；<code>Trajectory</code>/路点只含机器人关节；8 个品牌后处理零外部轴语法（grep 证实）。</li>
+  </ul>
 </section>
 
 <section>

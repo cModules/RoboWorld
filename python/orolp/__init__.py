@@ -7,7 +7,7 @@ post-processors.
 
 #: 包版本。与 `docs/ROADMAP.md` 的功能里程碑、以及 `app.spec` 的
 #: CFBundleShortVersionString 保持同一口径（此前长期停在 0.1.0，与文档脱节）。
-__version__ = "1.2.4"
+__version__ = "1.3.9"
 
 # Core C++ bindings (optional)
 try:
@@ -47,6 +47,7 @@ from . import calibration
 from . import compliance
 from . import iomap
 from . import multirobot
+from . import sequence
 from .iomap import (
     DEFAULT_DIRECTIONS,
     DIRECTIONS,
@@ -68,6 +69,15 @@ from .multirobot import (
     build_job,
     scan_timeline,
     schedule_cell,
+)
+from .sequence import (
+    CallStep,
+    DwellStep,
+    ProcessSequence,
+    SeqIssue,
+    SeqStep,
+    SignalStep,
+    WaitStep,
 )
 from .calibration import (
     CalibrationError,
@@ -226,6 +236,28 @@ from .twinsync import (
     deviation_chart_svg,
     pose_deviation,
 )
+from .project import (  # v1.3.4 工程文件：把一次工作会话收进单一 .orolp 文件
+    PROJECT_EXTENSION,
+    PROJECT_FILTER,
+    PROJECT_SCHEMA,
+    SECTION_NAMES,
+    SECTION_TITLES,
+    LoadReport,
+    Project,
+    ProjectError,
+    cell_from_snapshot,
+    cell_snapshot,
+    describe_section,
+)
+
+from .session import (  # v1.3.5 会话支撑：最近打开 + 崩溃自动恢复
+    AutosaveInfo,
+    RecentProjects,
+    clear_autosave,
+    has_autosave,
+    read_autosave,
+    write_autosave,
+)
 
 __all__ = [
     "Robot",
@@ -282,6 +314,13 @@ __all__ = [
     "schedule_cell",
     # PLC ↔ 机器人 IO 点表（v1.1.6）：视图 / 编辑 / 校验 / 往返
     "SignalMap",
+    "ProcessSequence",
+    "SeqIssue",
+    "SeqStep",
+    "SignalStep",
+    "WaitStep",
+    "CallStep",
+    "DwellStep",
     "SignalPoint",
     "SignalIssue",
     "SignalReport",
@@ -384,4 +423,22 @@ __all__ = [
     "scale_report",
     "sweep_program",
     "reference_link_transforms",
+    # v1.3.4 工程文件（.orolp）：六段会话信封 + 逐段容错载入报告
+    "PROJECT_SCHEMA",
+    "PROJECT_EXTENSION",
+    "PROJECT_FILTER",
+    "SECTION_NAMES",
+    "SECTION_TITLES",
+    "Project",
+    "ProjectError",
+    "LoadReport",
+    "cell_snapshot",
+    "cell_from_snapshot",
+    "describe_section",
+    "RecentProjects",
+    "AutosaveInfo",
+    "write_autosave",
+    "read_autosave",
+    "has_autosave",
+    "clear_autosave",
 ]

@@ -351,6 +351,9 @@ class ProgramPanel(QtWidgets.QWidget):
             self.lbl_status.setText(tr("{name} · 就绪").format(name=robot.name))
             self.lbl_status.setObjectName("ok")
             self.btn_generate.setEnabled(True)
+            # 「一键导出」的门槛与「生成代码」完全相同——它内部自己构建程序
+            # （见 export_program 的文档），不该逼用户先点一次「生成代码」才亮。
+            self.btn_export.setEnabled(True)
         # 重新套用样式表，objectName 改变后需手动刷新
         self.lbl_status.style().polish(self.lbl_status)
 

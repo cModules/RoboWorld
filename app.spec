@@ -60,6 +60,8 @@ a = Analysis(
         'orolp.ocpcompat',
         'orolp.dynamics',
         'orolp.process',
+        'orolp.project',
+        'orolp.sequence',
     ],
     hookspath=[],
     hooksconfig={},
@@ -122,7 +124,7 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'RobotWorld',
         'CFBundleDisplayName': 'RobotWorld',
-        'CFBundleShortVersionString': '1.2.4',
+        'CFBundleShortVersionString': '1.3.9',
         'NSHighResolutionCapable': True,
     },
 )

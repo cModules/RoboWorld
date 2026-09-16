@@ -337,6 +337,26 @@ def test_single_robot_roundtrip(flag_urdf):
     assert "工作台" in back.objects
 
 
+def test_multi_robot_roundtrip_keeps_scene_objects(flag_urdf):
+    """双机器人场景存盘再打开，底座/工件不能丢。
+
+    回归：``from_dict`` 的多机器人分支曾在恢复对象**之前**就 ``return``，
+    于是文件里明明写着 ``objects``，加载后却一个都不剩。
+    """
+    scene = Scene()
+    scene.add_robot(flag_urdf, [10.0], name="机器人A")
+    scene.add_robot(flag_urdf, [20.0], name="机器人B")
+    scene.add("worktable", name="底座")
+
+    data = scene.to_dict()
+    assert [o["name"] for o in data["objects"]] == ["底座"]
+
+    back = Scene.from_dict(json.loads(json.dumps(data)))
+
+    assert "底座" in back.objects, "双机器人场景加载后非机器人对象丢失"
+    assert back.robot_names == ["机器人A", "机器人B"]
+
+
 def test_multi_robot_roundtrip_keeps_names_joints_and_poses(flag_urdf):
     scene = Scene()
     a = scene.add_robot(flag_urdf, [10.0], name="机器人A")

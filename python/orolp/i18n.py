@@ -204,7 +204,8 @@ _CATALOG_EN: dict[str, str] = {
     "工件:": "Workpiece:",
     # --- app.py：右侧标签页 / 对象属性 ---
     "属性": "Properties",
-    "动作与从属": "Actions & Attachments",
+    "场景设备库": "Scene Device Library",
+    "设备树": "Device Tree",
     "导出打包": "Export & Package",
     "对象属性": "Object properties",
     "位置": "Position",
@@ -657,6 +658,25 @@ _CATALOG_EN: dict[str, str] = {
     "夹紧": "Close",
     "松开": "Open",
     "(场景根)": "(Scene root)",
+    "场景根": "Scene root",
+    "拖拽节点改写挂载层级：挂到机器人＝安装到法兰，自动对齐坐标系": (
+        "Drag a node to re-parent it: dropping onto a robot mounts it on the "
+        "flange and auto-aligns the coordinate frame"
+    ),
+    "{name} 是机器人，不能被挂载": "{name} is a robot and cannot be mounted",
+    "{name} 是机器人，不能挂到 {host} 的法兰上": (
+        "{name} is a robot and cannot be mounted on {host}'s flange"
+    ),
+    "挂载失败: {exc}": "Mounting failed: {exc}",
+    "已将 {name} 挂到 {host}": "Mounted {name} onto {host}",
+    "已将 {name} 装夹到 {host} 末端": "Mounted {name} onto {host}'s flange",
+    "装夹到末端": "Mount on flange",
+    "解除装夹": "Unmount",
+    "吸附到机器人法兰原点，工具坐标系与法兰对齐并随机器人运动": (
+        "Snap to the robot flange origin: the tool frame aligns with the flange "
+        "and follows the robot"
+    ),
+    "解除挂载并保持当前世界位姿": "Unmount and keep the current world pose",
     "按场景里的机器人/组件补齐设备清单（已存在的保留不动）": (
         "Fill the device list from the scene's robots/components "
         "(existing entries are kept as-is)"
@@ -903,5 +923,374 @@ _CATALOG_EN: dict[str, str] = {
     "增量基准再加跑 moveL（位姿目标）程序——两者复用率差别是结构性的": (
         "Also benchmark a moveL (pose-target) program — the reuse gap between the "
         "two is structural"
+    ),
+    # --- 工艺时序（v1.3.1）：序列模型 / 校验 / 双出口 / 设备树编辑器 ---
+    "添加工步": "Add step",
+    "校验时序": "Validate sequence",
+    "保存时序…": "Save sequence…",
+    "载入时序…": "Load sequence…",
+    "保存工艺时序": "Save process sequence",
+    "载入工艺时序": "Load process sequence",
+    "未校验": "Not validated",
+    "还没有工步——点「添加工步」把工序排进泳道": (
+        'No steps yet — click "Add step" to lay operations into the swimlanes'
+    ),
+    "步骤序号 →（驻留按秒加宽；非实测节拍）": (
+        "Step # → (dwell widened by seconds; not a measured cycle)"
+    ),
+    "序号": "#",
+    "泳道": "Lane",
+    "内容": "Content",
+    "泳道（设备）:": "Lane (device):",
+    "工步名:": "Step name:",
+    "子程序名:": "Subprogram name:",
+    "信号:": "Signal:",
+    "动作:": "Action:",
+    "置位（勾选＝True，不勾＝False）": "Set (checked = True, unchecked = False)",
+    "触发方式:": "Trigger:",
+    "电平": "Level",
+    "上升沿": "rising edge",
+    "下降沿": "falling edge",
+    "期望电平为 True": "Expected level is True",
+    "期望电平:": "Expected level:",
+    "超时 (s):": "Timeout (s):",
+    "0＝无限等待。现场必须配看门狗，否则一步卡死整条线": (
+        "0 = wait forever. A watchdog is mandatory on site, otherwise one step "
+        "stalls the whole line"
+    ),
+    "驻留 (s):": "Dwell (s):",
+    "添加工步：子程序调用": "Add step: subprogram call",
+    "添加工步：触发信号": "Add step: set signal",
+    "添加工步：等待信号": "Add step: wait for signal",
+    "添加工步：驻留": "Add step: dwell",
+    "子程序调用": "Subprogram call",
+    "触发信号": "Set signal",
+    "等待信号": "Wait for signal",
+    "调用": "Call",
+    "触发": "Set",
+    "等待": "Wait",
+    "驻留": "Dwell",
+    "工步 {n}": "Step {n}",
+    "已添加工步 {name}": "Added step {name}",
+    "先在步骤表里选中一行": "Select a row in the step table first",
+    "已经到头了": "Already at the end",
+    "信号名不能为空": "Signal name cannot be empty",
+    "子程序名不能为空": "Subprogram name cannot be empty",
+    "校验通过：{n} 个工步，驻留合计 {s}s": (
+        "Validation passed: {n} steps, dwell total {s}s"
+    ),
+    "{mark} {e} 处错误 / {w} 处警告": "{mark} {e} errors / {w} warnings",
+    "（其余 {n} 条见日志）": "({n} more in the log)",
+    "时序已保存：{path}": "Sequence saved: {path}",
+    "载入失败: {exc}": "Load failed: {exc}",
+    "{n} 个工步 ｜ 触发 {signal} ｜ 等待 {wait} ｜ 调用 {call} ｜ 驻留合计 {dwell}s": (
+        "{n} steps | set {signal} | wait {wait} | call {call} | dwell total {dwell}s"
+    ),
+    "调用 {sub}": "Call {sub}",
+    "{signal} = {value}": "{signal} = {value}",
+    "等 {signal} = {value}": "Wait {signal} = {value}",
+    "等 {signal}（{trg}）": "Wait {signal} ({trg})",
+    "等待 {signal}": "Wait {signal}",
+    "驻留 {s}s": "Dwell {s}s",
+    "调用 {sub} 前置输出": "Outputs before calling {sub}",
+    "末步输出": "Final outputs",
+    "驻留合计是唯一可计算的时间；触发与等待的耗时取决于现场机构": (
+        "Dwell total is the only computable time; trigger and wait durations "
+        "depend on the on-site mechanism"
+    ),
+    "时序为空——设备树只编排了静态挂载，还没有任何工序": (
+        "Sequence is empty — the device tree only has static mounts, no operations yet"
+    ),
+    "工步 {i}（{name}）": "Step {i} ({name})",
+    "等待触发方式必须是 {opts} 之一，收到 {got}": (
+        "Wait trigger must be one of {opts}, got {got}"
+    ),
+    "驻留时长不能为负，收到 {s}s": "Dwell duration cannot be negative, got {s}s",
+    "不支持的时序 schema：{schema}": "Unsupported sequence schema: {schema}",
+    "未知工步类型：{kind}": "Unknown step kind: {kind}",
+    "（缺失）": "(missing)",
+    "{where} 与工步 {j} 重名": "{where} has the same name as step {j}",
+    "{where} 的泳道 {device} 不在场景设备里": (
+        "{where} uses lane {device}, which is not a device in the scene"
+    ),
+    "{where} 触发的信号 {signal} 不在点表里——下装前必须补上映射": (
+        "{where} sets signal {signal}, which is not in the point table — map it "
+        "before downloading"
+    ),
+    "{where} 等待的信号 {signal} 不在点表里——下装前必须补上映射": (
+        "{where} waits on signal {signal}, which is not in the point table — map "
+        "it before downloading"
+    ),
+    "{where} 无限等待 {signal}——现场必须配看门狗，否则一步卡死整条线": (
+        "{where} waits on {signal} forever — a watchdog is mandatory on site, "
+        "otherwise one step stalls the whole line"
+    ),
+    "{where} 是{trg}触发，期望电平不参与判定": (
+        "{where} triggers on {trg}, so the expected level is not used in the check"
+    ),
+    "{where} 调用的子程序 {sub} 不存在": (
+        "{where} calls subprogram {sub}, which does not exist"
+    ),
+    "工步 {name}（调用 {sub}）不是程序指令，未写入——调用语法由品牌主程序层生成": (
+        "Step {name} (calls {sub}) is not a program instruction and was not "
+        "emitted — call syntax is generated by the brand main-program layer"
+    ),
+    # ---- 零件库（v1.3.3） ----
+    "未知基本体类型 {kind}（支持 {opts}）": (
+        "Unknown primitive kind {kind} (supported: {opts})"
+    ),
+    "box 基本体需要 size=(长, 宽, 高)，零件 {name}": (
+        "A box primitive needs size=(L, W, H); part {name}"
+    ),
+    "box 尺寸必须为正，收到 {size}": (
+        "Box dimensions must be positive, got {size}"
+    ),
+    "{kind} 基本体需要正的 radius，零件 {name}": (
+        "A {kind} primitive needs a positive radius; part {name}"
+    ),
+    "cylinder 基本体需要正的 height，零件 {name}": (
+        "A cylinder primitive needs a positive height; part {name}"
+    ),
+    "颜色分量必须在 0~1 之间，收到 {c}": (
+        "Color components must be within 0..1, got {c}"
+    ),
+    "零件 id 必须是字母开头的短标识符（字母/数字/_/-），收到 {id}": (
+        "Part id must be a short identifier starting with a letter "
+        "(letters/digits/_/-), got {id}"
+    ),
+    "零件缺少显示名（{id}）": "Part is missing a display name ({id})",
+    "零件 {name} 没有任何几何基本体": (
+        "Part {name} has no geometry primitives"
+    ),
+    "零件 {name} 里有重名的基本体：{dupes}": (
+        "Part {name} has duplicate primitive names: {dupes}"
+    ),
+    "不支持的零件库 schema：{schema}（期望 {want}）": (
+        "Unsupported parts-library schema: {schema} (expected {want})"
+    ),
+    "零件库中已存在同名零件 id：{id}": (
+        "A part with id {id} already exists in the library"
+    ),
+    "零件库中没有 id 为 {id} 的零件": (
+        "No part with id {id} in the library"
+    ),
+    "组件目录里已存在 {cid}——先 unregister 或换一个零件 id": (
+        "{cid} already exists in the component catalog — unregister first "
+        "or pick another part id"
+    ),
+    "自定义零件（来自零件库导入，几何固定）": (
+        "Custom part (imported from a parts library; fixed geometry)"
+    ),
+    "导入零件…": "Import Parts…",
+    "导入零件库 JSON（orolp.parts/1，参数化基本体的自定义工件/结构件）": (
+        "Import a parts-library JSON (orolp.parts/1; custom workpiece / "
+        "structural parts made of parametric primitives)"
+    ),
+    "组件库不可用，无法导入零件": (
+        "Component catalog unavailable; cannot import parts"
+    ),
+    "导入零件库": "Import Parts Library",
+    "零件库 JSON (*.json);;所有文件 (*)": "Parts Library JSON (*.json);;All Files (*)",
+    "导入零件失败：{kind}: {msg}": "Part import failed: {kind}: {msg}",
+    "零件库已导入：{n} 个自定义零件（「自定义」分类下，可拖入视口）": (
+        "Parts library imported: {n} custom parts (under the Custom "
+        "category; drag into the viewport)"
+    ),
+
+    # ---- v1.3.4 工程文件（`.orolp`）与界面接线 ---- #
+    " •未保存": " •unsaved",
+    "未命名工程": "Untitled project",
+    "保存工程": "Save Project",
+    "打开工程": "Open Project",
+    "工程文件模块不可用。": "Project file support is unavailable.",
+    "应用时的问题：": "Issues while applying:",
+    "打开工程(&O)…": "&Open Project…",
+    (
+        "打开 .orolp 工程文件：一次载入场景、示教程序（含抓取/放置语义）、工艺时序、设备点表与零件库来源。\n"
+        "缺段/坏段只跳过那一段并在报告里说明——不会因为一段格式问题打不开整个工程。"
+    ): (
+        "Open a .orolp project: loads the scene, the teach program (including the pick/place semantics that only live in the project file), the process sequence, the device IO table and the parts-library sources in one go.\n"
+        "A missing or broken section only skips that section and is reported — a single bad section never blocks the whole project."
+    ),
+    "保存工程(&S)…": "&Save Project…",
+    (
+        "把当前工作会话存成一个 .orolp 工程文件（原子写入）。\n"
+        "本库不认识的段与字段会原样保留，往返一趟不丢内容。"
+    ): (
+        "Save the current work session as a single .orolp project file (atomic write).\n"
+        "Sections and fields this library does not understand are preserved verbatim, so a round trip never loses content."
+    ),
+    "场景段已跳过：环境建模不可用": "Scene section skipped: world modeling unavailable",
+    "示教程序段已跳过：路径编辑器不可用": "Teach program section skipped: path editor unavailable",
+    "工艺时序段已跳过：时序编辑器不可用": "Process sequence section skipped: sequence editor unavailable",
+    "设备点表段已跳过：工作单元模块不可用": "Device IO table section skipped: workcell module unavailable",
+    "保存工程失败": "Save Project Failed",
+    "工程已保存：{name}（{n} 段）": "Project saved: {name} ({n} sections)",
+    "打开工程失败": "Open Project Failed",
+    "已打开 {name}": "Opened {name}",
+    "工程已打开：{name}": "Project opened: {name}",
+    "零件库来源已跳过：机器组件库不可用": "Parts sources skipped: robot library unavailable",
+    "场景段载入失败：{msg}": "Scene section failed to load: {msg}",
+    "示教点语义 {a} 个与解析出的 {b} 个点不一致，已按默认语义重建（不猜哪个是抓取点）": (
+        "{a} point semantics do not match the {b} points parsed from the code; "
+        "rebuilt with default semantics (we do not guess which point is the pick)"
+    ),
+    "工艺时序段载入失败：{msg}": "Process sequence section failed to load: {msg}",
+    "设备点表段载入失败：{msg}": "Device IO table section failed to load: {msg}",
+    "零件库文件找不到：{src}（未导入；工程里仍记录着它）": (
+        "Parts-library file not found: {src} (not imported; the project still "
+        "records it)"
+    ),
+    "已从工程恢复零件库：{n} 个自定义零件": "Parts library restored from the project: {n} custom parts",
+    "场景里的机器人模型找不到：{urdf}（场景仍已载入）": (
+        "Robot model referenced by the scene not found: {urdf} (the scene itself "
+        "was still loaded)"
+    ),
+    "零件库导入失败：{src}（{msg}）": "Parts library import failed: {src} ({msg})",
+    "示教点语义含未知值（{msg}），已按默认语义重建": (
+        "Point semantics contain an unknown value ({msg}); rebuilt with default "
+        "semantics"
+    ),
+    "RobotWorld 工程 (*.orolp);;所有文件 (*)": "RobotWorld project (*.orolp);;All Files (*)",
+    "示教程序": "Teach program",
+    "工艺时序": "Process sequence",
+    "设备点表": "Device IO table",
+    "零件库来源": "Parts sources",
+    "标定集": "Calibration set",
+    "未知段": "Unknown section",
+    "（未指定）": "(not specified)",
+    "（内容为空）": "(empty)",
+    "{title}：未知段": "{title}: unknown section",
+    "场景段必须是对象": "The scene section must be an object",
+    "场景段的 objects 必须是数组": "The scene section's objects must be an array",
+    "示教程序段必须是对象": "The teach program section must be an object",
+    "示教程序段缺 code": "The teach program section is missing code",
+    "示教程序段的 code 必须是字符串": "The teach program section's code must be a string",
+    "示教程序段的 point_types 必须是数组": "The teach program section's point_types must be an array",
+    "工艺时序段必须是对象": "The process sequence section must be an object",
+    "工艺时序段的 steps 必须是数组": "The process sequence section's steps must be an array",
+    "设备点表段必须是对象": "The device IO table section must be an object",
+    "设备点表段缺 devices": "The device IO table section is missing devices",
+    "设备点表段的 devices 必须是数组": "The device IO table section's devices must be an array",
+    "零件库来源段必须是对象": "The parts sources section must be an object",
+    "零件库来源段缺 sources": "The parts sources section is missing sources",
+    "零件库来源段的 sources 必须是字符串数组": "The parts sources section's sources must be an array of strings",
+    "标定集段必须是对象": "The calibration section must be an object",
+    "（未命名工程）": "(untitled project)",
+    "查看 .orolp 工程文件的内容摘要（不加载场景/机器人）": "Print a content summary of a .orolp project file (no scene/robot loading)",
+    "工程文件路径": "path to the project file",
+    "以 JSON 输出摘要": "print the summary as JSON",
+    "工程里没有任何可识别的段": "No recognizable section in this project",
+    "{title}：{n} 个对象 ｜ {r} 台机器人（{name}）": "{title}: {n} object(s) | {r} robot(s) ({name})",
+    "{title}：{n} 行 ｜ {p} 个示教点（抓取 {k} / 放置 {v}）": "{title}: {n} line(s) | {p} taught point(s) (pick {k} / place {v})",
+    "{title}：{n} 个工步 ｜ 驻留合计 {d}s": "{title}: {n} step(s) | dwell total {d}s",
+    "{title}：{n} 台设备 ｜ {s} 个已映射信号": "{title}: {n} device(s) | {s} mapped signal(s)",
+    "{title}：{n} 个零件库文件": "{title}: {n} parts-library file(s)",
+    "{title}：{detail}": "{title}: {detail}",
+    "设备点表里有一台设备缺 name": "A device in the IO table has no name",
+    "  （空工程：没有任何段）": "  (empty project: no sections)",
+    "工程文件的内容必须是一个对象": "A project file's content must be an object",
+    "工程文件的 sections 必须是一个对象": "A project file's sections must be an object",
+    "保存路径为空": "Save path is empty",
+    "{title}：格式异常": "{title}: malformed",
+    "标定集 schema 不支持：{schema}": "Unsupported calibration schema: {schema}",
+    "{name}：原样保留（本版本不解释）": "{name}: preserved verbatim (not interpreted here)",
+    "工程：{name}": "Project: {name}",
+    "保存版本：orolp {v} ｜ 最后修改 {t}": "Saved with: orolp {v} | last modified {t}",
+    "已载入 {n} 段：{names}": "Loaded {n} section(s): {names}",
+    "跳过 {n} 段（内容原样保留，保存时写回）：": (
+        "Skipped {n} section(s) (content preserved verbatim and written back on "
+        "save):"
+    ),
+    "未知段 {names}——本版本不解释，原样保留": (
+        "Unknown section(s) {names} — not interpreted by this version, preserved "
+        "verbatim"
+    ),
+    "未知顶层键 {keys}——原样保留": "Unknown top-level key(s) {keys} — preserved verbatim",
+    "未知工程段：{name}（可用：{opts}）": "Unknown project section: {name} (available: {opts})",
+    "备注：{note}": "Note: {note}",
+    "工程里没有：{names}": "Not in this project: {names}",
+    "不是 RobotWorld 工程文件（schema={got}，期望 {want}）": "Not a RobotWorld project file (schema={got}, expected {want})",
+    "工程由 orolp {saved} 保存，当前库版本 {cur}——按现行 schema 读取，未做版本迁移": (
+        "Saved by orolp {saved}; current library version is {cur} — read with the "
+        "current schema, no version migration was performed"
+    ),
+    "打不开：{msg}": "Cannot open: {msg}",
+    "  · {name}：{reason}": "  · {name}: {reason}",
+    "工程段 {name} 无法序列化：{msg}": "Project section {name} cannot be serialized: {msg}",
+    "工程无法序列化：{msg}": "Project cannot be serialized: {msg}",
+    "写入工程文件失败：{msg}": "Failed to write the project file: {msg}",
+    "读取工程文件失败：{msg}": "Failed to read the project file: {msg}",
+    "工程文件不是合法 JSON：{msg}": "Project file is not valid JSON: {msg}",
+    # ---- 会话支撑（v1.3.5）：最近打开 + 崩溃自动恢复 ---- #
+    "查看最近打开记录与崩溃自动恢复状态": "Show recent projects and crash-autosave status",
+    "最近打开（{n} 条）：": "Recent projects ({n}):",
+    "  （文件已不存在）": "  (file no longer exists)",
+    "自动保存：无": "Autosave: none",
+    "自动保存：{saved_at} ｜ 源工程 {src}": "Autosave: {saved_at} | source project {src}",
+    "（未知时间）": "(unknown time)",
+    "（未命名工程）": "(untitled project)",
+    "快照：{path}": "Snapshot: {path}",
+    "最近打开(&R)": "Recent &projects",
+    "最近打开过的 .orolp 工程文件（最新在前，最多 10 条）。\n文件已不存在的条目会置灰，不会被悄悄藏掉。": (
+        "Recently opened .orolp project files (newest first, up to 10).\n"
+        "Entries whose file no longer exists are greyed out, not hidden."
+    ),
+    "（暂无记录）": "(no entries yet)",
+    "清除最近打开记录": "Clear recent projects",
+    "已清除最近打开记录": "Recent projects cleared",
+    "恢复上次会话": "Restore last session",
+    "检测到上次会话的自动保存。\n\n工程：{source}\n保存时间：{saved}\n\n是否恢复？（不恢复也可以稍后用「打开工程」手动打开快照：\n{snapshot}）": (
+        "An autosaved snapshot from your last session was found.\n\n"
+        "Project: {source}\nSaved at: {saved}\n\n"
+        "Restore it? (You can also open the snapshot manually later via Open Project:\n{snapshot})"
+    ),
+    "已从自动保存恢复：{saved}": "Restored from autosave: {saved}",
+    # ---- 工程模板（v1.3.6）：从模板新建工程 ---- #
+    "从模板新建工程(&N)…": "New project from &template…",
+    "从模板新建工程": "New project from template",
+    "从内置模板（抓取工作站 / 分拣工位 / 机床上下料 / 3C 装配 / 汽车焊装）新建工程：\n场景与起步程序一步到位，不必从空白开始。\n当前工程有未保存改动时会先询问。": (
+        "Start a new project from a built-in template (grasping workstation / "
+        "sorting station / machine tending / 3C assembly / automotive welding):\n"
+        "scene and starter program in one step — no blank slate.\nAsks first "
+        "when the current project has unsaved changes."
+    ),
+    "工程模板模块不可用。": "Project template module unavailable.",
+    "选择一个模板作为新工程的起点：": "Pick a template as the starting point of the new project:",
+    "当前工程有未保存改动，新建模板工程会丢弃这些改动。\n\n是否继续？": (
+        "The current project has unsaved changes; creating a template project "
+        "will discard them.\n\nContinue?"
+    ),
+    "已从模板新建：{name}": "New project from template: {name}",
+    "已从模板新建：{name}（尚未保存，可直接修改后「保存工程」）": (
+        "New project from template: {name} (not saved yet — edit freely, then "
+        "use Save Project)"
+    ),
+    "未知工程模板：{tid}（可用：{opts}）": "Unknown project template: {tid} (available: {opts})",
+    "抓取工作站": "Grasping workstation",
+    "分拣工位": "Sorting station",
+    "机床上下料": "Machine tending",
+    "UR5e + 吸盘 + 输送带 + 工件 + 托盘，附 8 点抓取循环示例程序（含抓取/放置语义）": (
+        "UR5e + suction cup + conveyor + workpieces + pallet, with an 8-point "
+        "pick-and-place sample program (pick/place semantics included)"
+    ),
+    "输送带 + 双料箱分拣 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步": (
+        "Conveyor + dual-bin sorting + fence; robot and workpieces laid out, "
+        "teach program starts from Home"
+    ),
+    "输送带 + 台钳工位 + 机床柜体 + 成品料箱，机器人与工件已摆好，示教程序从 Home 位起步": (
+        "Conveyor + vise station + machine cabinet + output bin; robot and "
+        "workpieces laid out, teach program starts from Home"
+    ),
+    # ---- 工程模板扩容（v1.3.8）：3C 装配 / 汽车焊装 ---- #
+    "3C 装配工位": "3C assembly workcell",
+    "汽车焊装工位": "Automotive welding workcell",
+    "上料托盘（3 块板件）+ 装配治具 + 成品托盘 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步": (
+        "Feed pallet (3 boards) + assembly fixture + finished pallet + fence; "
+        "robot and workpieces laid out, teach program starts from Home"
+    ),
+    "焊接变位机 + 输送辊道 + 控制柜 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步": (
+        "Welding positioner + roller conveyor + controller cabinet + fence; "
+        "robot and workpieces laid out, teach program starts from Home"
     ),
 }

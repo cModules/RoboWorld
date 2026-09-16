@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orolp"
-version = "1.2.4"
+version = "1.3.9"
 description = "RobotWorld - Open-source Offline Programming Software for Industrial Robots"
 readme = "README.md"
 license = {text = "Apache-2.0"}

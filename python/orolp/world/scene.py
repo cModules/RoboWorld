@@ -939,6 +939,27 @@ class Scene:
         """
         return self.mounted_robot(name) is not None
 
+    def robot_mount_chain(self, robot: str) -> set:
+        """机器人**自身挂载链**上的对象名（它所在的对象，及其所有祖先）。
+
+        机器人装在底座/台面上时，基座与这些对象必然接触。碰撞检查只豁免
+        "挂在机器人下"的对象还不够——必须同时豁免"机器人装在它身上"，否则
+        把机器人挂上底座就会恒定报一条假干涉。
+        """
+        out: set = set()
+        obj = self.objects.get(robot)
+        cur = (
+            self.objects.get(obj.parent)
+            if obj is not None and obj.parent
+            else None
+        )
+        seen: set = set()
+        while cur is not None and cur.name not in seen:
+            out.add(cur.name)
+            seen.add(cur.name)
+            cur = self.objects.get(cur.parent) if cur.parent else None
+        return out
+
     def check_collisions(
         self,
         include_robot: bool = True,
@@ -1027,6 +1048,11 @@ class Scene:
             "format_version": SCENE_FORMAT_VERSION,
             "robot_urdf": primary.urdf if primary is not None else self._robot_urdf_hint,
             "robot_joints_deg": list(primary.joints_deg) if primary is not None else [],
+            # 机器人也能挂到底座/台面上：父级名单独记一笔。旧版本读新文件时
+            # 忽略这个键，不受影响（向后兼容）。
+            "robot_parent": (
+                self.objects[primary.name].parent if primary is not None else None
+            ),
             "objects": [
                 {
                     "name": o.name,
@@ -1049,6 +1075,7 @@ class Scene:
                     "urdf": state.urdf,
                     "joints_deg": list(state.joints_deg),
                     "pose": self.objects[state.name].pose.matrix.flatten().tolist(),
+                    "parent": self.objects[state.name].parent,
                 }
                 for state in self.robots.values()
             ]
@@ -1093,14 +1120,13 @@ class Scene:
                         continue
                 # URDF 失效：保留记录 + 对象壳，不构建运动学链
                 scene._register_robot_shell(name, urdf, pose)
-            return scene
-
-        urdf = data.get("robot_urdf")
-        if urdf and Path(urdf).exists():
-            scene.set_robot(urdf, data.get("robot_joints_deg") or None)
-        elif urdf:
-            # URDF 路径失效时保留记录，但不再构建运动学链
-            scene._robot_urdf_hint = urdf
+        else:
+            urdf = data.get("robot_urdf")
+            if urdf and Path(urdf).exists():
+                scene.set_robot(urdf, data.get("robot_joints_deg") or None)
+            elif urdf:
+                # URDF 路径失效时保留记录，但不再构建运动学链
+                scene._robot_urdf_hint = urdf
 
         for raw in data.get("objects", []):
             obj = SceneObject(
@@ -1114,6 +1140,15 @@ class Scene:
                 color=tuple(raw["color"]) if raw.get("color") else None,
             )
             scene.objects[obj.name] = obj
+
+        # 机器人也能挂到底座/台面上：父子关系要等对象全部恢复完再补，
+        # 否则父对象此刻还不存在，会被静默丢弃
+        robot_parents = {ROBOT_NAME: data.get("robot_parent")}
+        for raw in data.get("robots") or []:
+            robot_parents[raw.get("name") or ROBOT_NAME] = raw.get("parent")
+        for rname, rparent in robot_parents.items():
+            if rparent and rname in scene.objects and rparent in scene.objects:
+                scene.objects[rname].parent = rparent
         return scene
 
     def _register_robot_shell(

@@ -49,7 +49,7 @@ from orolp.world import build_grasping_workstation  # noqa: E402
 warnings.filterwarnings("ignore")
 
 #: 当前全量测试套件规模（`pytest tests python/tests`），网页上所有"测试基线"数字统一取它
-TOTAL_TESTS = 1473
+TOTAL_TESTS = 1684
 
 
 def _display_width(text: str) -> int:
@@ -194,6 +194,20 @@ def collect_data() -> dict:
         **_dynamics_cache_data(),
         # 缓存可观测性小节（v1.2.4，真跑校验后取 cache_overview 真实快照）
         **_cache_overview_data(),
+        # 界面架构改版小节（v1.3.0，真起主窗口读标签结构 + 真跑法兰装夹，放最后）
+        **_ui_layout_data(),
+        # 工艺时序（动态时序）小节（v1.3.1，真跑序列模型 + 双向出口 + 泳道编辑器）
+        **_sequence_data(),
+        # 动态时序使用体验小节（v1.3.2，构建时子进程真跑 examples/sequence_demo.py）
+        **_sequence_demo_data(),
+        # 零件库与预置场景库小节（v1.3.3，真建模板真注册零件）
+        **_partslib_data(),
+        # 工程文件小节（v1.3.4，真存真读 + 坏段容错 + 保真逐字节核对 + 真跑 CLI）
+        **_project_data(),
+        # 会话支撑小节（v1.3.5，真存真读最近打开 + 真写真读自动保存 + 真跑 CLI）
+        **_session_data(),
+        # 工程模板小节（v1.3.6，真构建三模板 + 真存真读 + 真跑 CLI）
+        **_tpl_data(),
     }
 
 
@@ -2395,6 +2409,280 @@ def _placement_data() -> dict:
     }
 
 
+def _ui_layout_data() -> dict:
+    """「界面架构改版」小节的真实数据（v1.3.0）。
+
+    构建时真起一次主窗口（offscreen）读取左右标签结构，并把窗口缩到它能到达的
+    **最小高度**，逐页读「内容最小高度 vs 可视高度」；再真跑一次法兰装夹
+    （模板场景 + ``orolp.world.placement``，含随动验证）。页面上每个数字都来自
+    这次运行；修复前的 286px 是开发期实测值，页面已显式标注是"修复前"。
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtWidgets
+    from PySide6.QtWidgets import QScrollArea
+
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import app as rw
+    from orolp.world import placement as P
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    win = rw.MainWindow()
+    win.show()
+    win.resize(900, win.minimumSizeHint().height())
+    QtWidgets.QApplication.processEvents()
+
+    left = " / ".join(
+        win.left_tabs.tabText(i) for i in range(win.left_tabs.count())
+    )
+    right = " / ".join(
+        win.right_tabs.tabText(i) for i in range(win.right_tabs.count())
+    )
+    subtabs = " / ".join(
+        win.code_editor.sub_tabs.tabText(i)
+        for i in range(win.code_editor.sub_tabs.count())
+    )
+    legacy = [
+        t
+        for t in ("场景", "动作与从属", "资源库")
+        if t in {left, right} or t in left.split(" / ") or t in right.split(" / ")
+    ]
+    rows = []
+    for prefix, tabs in (("左", win.left_tabs), ("右", win.right_tabs)):
+        for i in range(tabs.count()):
+            page = tabs.widget(i)
+            rows.append(
+                "{p}·{name}：内容 {need}px ≤ 可视 {have}px".format(
+                    p=prefix,
+                    name=tabs.tabText(i),
+                    need=page.minimumSizeHint().height(),
+                    have=page.height(),
+                )
+            )
+    fit = "\n".join(rows) + "\n标签容器可视高 {}px ｜ 窗口最小高 {}px".format(
+        win.left_tabs.height(), win.minimumSizeHint().height()
+    )
+
+    # ---- 法兰装夹（模板场景 + 真 API）----
+    cell = build_grasping_workstation()
+    scene = cell.scene
+    part = cell.grasp_objects[0]
+    robot = scene.robot_names[0]
+    flange = (scene.world_transform(robot) @ scene.flange_transform(robot))[:3, 3]
+    part_w = scene.world_transform(part)[:3, 3]
+
+    P.apply_world_pose(scene, part, float(flange[0] + 30.0), float(flange[1]), float(flange[2]), 0.0)
+    near = P.flange_snap_target(scene, part, 60.0)
+    P.apply_world_pose(scene, part, float(flange[0] + 200.0), float(flange[1]), float(flange[2]), 0.0)
+    far = P.flange_snap_target(scene, part, 60.0)
+
+    P.mount_to_flange(scene, part, robot)
+    local = scene.objects[part].pose.matrix[:3, 3]
+    mounted = P.mounted_on_robot(scene, part)
+    before_move = scene.world_transform(part)[:3, 3].copy()
+    joints = list(scene.robots[robot].joints_deg)
+    joints[0] += 20.0
+    scene.set_robot_joints(joints, robot)
+    after_move = scene.world_transform(part)[:3, 3]
+    follow = float(np.linalg.norm(after_move - before_move))
+
+    # ---- 截图：把模板场景装进窗口，让设备树显示真实层级
+    #（已装夹的工件出现在「机器人」节点下，这正是拖拽装夹要表达的东西）----
+    shots = []
+    win._adopt_scene(scene)
+    win.scene_panel._refresh_tree()
+    # 左侧切到「设备树」页：装夹关系（工件挂在机器人节点下）正是这轮要展示的东西
+    if win.left_tabs.count() > 1:
+        win.left_tabs.setCurrentIndex(1)
+    QtWidgets.QApplication.processEvents()
+    for name, widget in (
+        ("ui_left_tabs.png", win.left_tabs),
+        ("ui_right_tabs.png", win.right_tabs),
+    ):
+        path = REPO_ROOT / "docs" / "screenshots" / name
+        if widget.grab().save(str(path)):
+            shots.append(name)
+
+    lib = win.library_panel
+    scroll = lib.findChild(QScrollArea)
+    lib_content = scroll.widget().minimumSizeHint().height() if scroll else 0
+    lib_viewport = scroll.viewport().height() if scroll else 0
+    lib_panel = lib.minimumSizeHint().height()
+    lib_scroll = "已出现" if (scroll and scroll.verticalScrollBar().isVisible()) else "未出现"
+    win.close()
+
+    return {
+        "uil_left": left,
+        "uil_right": right,
+        "uil_subtabs": subtabs,
+        "uil_legacy": "、".join(legacy) if legacy else "无（已清除）",
+        "uil_fit": fit,
+        "uil_lib_panel": str(lib_panel),
+        "uil_lib_content": str(lib_content),
+        "uil_lib_viewport": str(lib_viewport),
+        "uil_lib_scroll": lib_scroll,
+        "uil_part": "({:.0f}, {:.0f}, {:.0f})".format(*part_w),
+        "uil_flange": "({:.0f}, {:.0f}, {:.0f})".format(*flange),
+        "uil_snap_near": near or "未命中",
+        "uil_snap_far": far or "未命中（超出 60mm 半径）",
+        "uil_local": "({:.1f}, {:.1f}, {:.1f})".format(*[float(v) for v in local]),
+        "uil_mounted": "是" if mounted else "否",
+        "uil_follow": "{:.1f}".format(follow),
+        "uil_shots": "、".join(shots) if shots else "（截图未生成）",
+        "uil_tests": "12",
+    }
+
+
+def _sequence_data() -> dict:
+    """「工艺时序（动态时序）」小节的真实数据（v1.3.1）。
+
+    构建时真跑一遍 ``orolp.sequence``：建参考序列 → 真校验（干净态与"点表里没有
+    这个信号"态各一次）→ 两个出口各真翻一次（机器人侧真喂 ``ProgramBuilder``，
+    PLC 侧真喂 ``generate_scl``）→ 与 ``steps_from_program`` 逐字段对拍 →
+    再真起一次 ``SequenceEditor`` 加四条工步、校验、离屏截图。
+
+    页面上的每个数字都来自这次运行。诚实口径：**只有驻留合计是时间**，触发与
+    等待的耗时如实写"取决于现场机构"，这里绝不编"预计节拍"。
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    from orolp.cell import CellConfig, Device
+    from orolp.plc_scl import generate_scl, steps_from_program
+    from orolp.sequence import (
+        CallStep,
+        DwellStep,
+        ProcessSequence,
+        SignalStep,
+        WaitStep,
+    )
+
+    seq = ProcessSequence([
+        SignalStep("夹紧", "机器人", "gripper_close", value=True),
+        DwellStep("保压", "机器人", 0.5),
+        CallStep("抓取", "机器人", "PickPart"),
+        WaitStep("等到位", "输送带", "part_ready", trigger="level", timeout=5.0),
+        SignalStep("放行", "输送带", "conveyor_run", value=False),
+    ])
+
+    clean = seq.validate()
+    partial = seq.validate(signal_names={"gripper_close", "conveyor_run"})
+    errors = [i for i in partial if i.severity == "error"]
+
+    # ---- 机器人侧出口：真喂既有 ProgramBuilder ----
+    urdf = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    builder = ProgramBuilder(Robot(str(urdf), "UR5e"))
+    notes = seq.to_program(builder)
+    items = builder.build().items
+
+    # ---- PLC 侧出口：真翻 Step，再与 steps_from_program 对拍，最后真出 SCL ----
+    from_plc = seq.to_plc_steps()
+    from_prog = steps_from_program(items)
+
+    def _sig(step):
+        return (dict(step.outputs), step.wait, step.wait_value, round(float(step.delay), 3))
+
+    paired = [_sig(a) == _sig(b) for a, b in zip(from_plc, from_prog[1:])]
+    equivalent = bool(paired) and all(paired) and len(from_plc) == len(from_prog) - 1
+
+    cell = CellConfig()
+    cell.add(Device(name="夹具", type="夹具", io_map={"gripper_close": "Q0.2"}))
+    cell.add(Device(
+        name="输送带", type="输送带",
+        io_map={"part_ready": "I0.4", "conveyor_run": "Q0.4"},
+    ))
+    scl = generate_scl(cell, program_name="CellControl", steps=from_plc)
+    head = scl.split("BEGIN")[0]
+    declared = [name for name in ("gripper_close", "part_ready", "conveyor_run") if name in head]
+    timer = "有" if "#T#500MS" in scl else "无"
+
+    s = seq.summary()
+
+    # ---- 编辑器（offscreen）：真加四条工步 + 校验 + 截图 ----
+    from PySide6 import QtWidgets
+
+    from orolp.world.panel import SequenceEditor
+
+    qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    ed = SequenceEditor()
+    ed.set_available_signals(["gripper_close", "part_ready", "conveyor_run", "part_present"])
+    ed.resize(430, 560)
+    ed.add_step("signal", device="机器人", signal="gripper_close", value=True)
+    ed.add_step("dwell", device="机器人", seconds=0.5)
+    ed.add_step("wait", device="输送带", signal="part_ready", trigger="level", timeout=5.0)
+    ed.add_step("call", device="机器人", subprogram="PickPart")
+    ed_issues = ed.validate_now()
+    QtWidgets.QApplication.processEvents()
+    ed_summary = ed.summary_text()
+    ed_blocks = len(ed.canvas._blocks)
+    ed_rows = ed.table.rowCount()
+    ed_signals = len(ed.available_signals())
+
+    shot = ""
+    path = REPO_ROOT / "docs" / "screenshots" / "ui_sequence_editor.png"
+    if ed.grab().save(str(path)):
+        shot = "ui_sequence_editor.png"
+    ed.deleteLater()
+
+    del qapp  # 仅用于确保存在 QApplication
+
+    return {
+        "seq_lanes": " / ".join(seq.lanes()),
+        "seq_dump": "\n".join(
+            "{i}. [{kind}] {name} @ {dev}{extra}".format(
+                i=n + 1,
+                kind=type(st).__name__,
+                name=st.name,
+                dev=st.device,
+                extra=(
+                    " → {} = {}".format(st.signal, st.value) if isinstance(st, SignalStep)
+                    else " → 等 {}（{} / {}s）".format(st.signal, st.trigger, st.timeout)
+                    if isinstance(st, WaitStep)
+                    else " → 调用 {}".format(st.subprogram) if isinstance(st, CallStep)
+                    else " → 驻留 {}s".format(st.seconds)
+                ),
+            )
+            for n, st in enumerate(seq)
+        ),
+        "seq_clean": "{} 条问题（干净序列）".format(len(clean)),
+        "seq_partial": "{} 条问题，其中 {} 条 error（点表里只有 gripper_close / conveyor_run）".format(
+            len(partial), len(errors)
+        ),
+        "seq_partial_msg": errors[0].message if errors else "（无）",
+        "seq_partial_idx": str(errors[0].index + 1) if errors else "-",
+        "seq_robot_kinds": " / ".join(type(i).__name__ for i in items),
+        "seq_robot_count": str(len(items)),
+        "seq_notes": "；".join(notes) if notes else "（无）",
+        "seq_plc_rows": "\n".join(
+            "{i}. 名「{name}」｜输出 {out}｜等待 {wait}｜延时 {delay}s".format(
+                i=n + 1,
+                name=st.name,
+                out=dict(st.outputs) or "{}",
+                wait="{}({})".format(st.wait, st.wait_value) if st.wait else "—",
+                delay=st.delay,
+            )
+            for n, st in enumerate(from_plc)
+        ),
+        "seq_plc_count": str(len(from_plc)),
+        "seq_prog_count": str(len(from_prog)),
+        "seq_equiv": "一致（{} 条逐字段相同）".format(len(paired)) if equivalent else "不一致",
+        "seq_scl_declared": "、".join(declared),
+        "seq_scl_timer": timer,
+        "seq_scl_lines": str(len(scl.splitlines())),
+        "seq_steps": str(s["steps"]),
+        "seq_counts": " / ".join("{} {}".format(k, v) for k, v in s["counts"].items()),
+        "seq_dwell": "{:.1f}".format(s["dwell_total_s"]),
+        "seq_note": s["note"],
+        "seq_ed_rows": str(ed_rows),
+        "seq_ed_blocks": str(ed_blocks),
+        "seq_ed_signals": str(ed_signals),
+        "seq_ed_issues": str(len(ed_issues)),
+        "seq_ed_summary": ed_summary,
+        "seq_shot": shot or "（截图未生成）",
+        "seq_tests": "33",
+    }
+
+
 def _perf_data() -> dict:
     """「规模与性能基准」小节的真实数据（v1.1.8）。
 
@@ -4465,6 +4753,244 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
 </section>
 
 <section>
+  <h2>界面架构改版（v1.3.0 · 左侧双 Tab：场景设备库 / 设备树；把夹爪拖到臂末端就装夹）</h2>
+
+  <p style="font-size:13.5px"><code>docs/prd/ui-architecture.md</code> 是 2026-09-11 立的界面架构 PRD，但它的六条验收标准<b>此前只写在文档里、没有任何测试盯着</b>——结构被后续改动破坏（某个面板把内容直接挂到标签页、不再套滚动容器），全量测试照样是绿的。本轮把验收标准钉成 <code>tests/test_ui_layout.py</code> 的 12 条断言，并补掉两处真缺口。下面所有数字都是本页构建时<b>真起一次主窗口、真跑一次法兰装夹</b>读出来的。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 布局结构（构建时真读）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">左侧：@@UIL_LEFT@@
+右侧：@@UIL_RIGHT@@
+代码预览子标签：@@UIL_SUBTABS@@
+旧标签残留（场景 / 动作与从属 / 资源库）：@@UIL_LEGACY@@</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 小窗口不裁切（缩到窗口能到达的最小高度再逐页量）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">@@UIL_FIT@@</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">场景设备库：面板最小高 @@UIL_LIB_PANEL@@px ｜ 内容实际高 @@UIL_LIB_CONTENT@@px ｜ 视口高 @@UIL_LIB_VIEWPORT@@px ｜ 滚动条 @@UIL_LIB_SCROLL@@</pre>
+  <p style="font-size:13.5px;color:var(--dim)">修复前实测（开发期记录）：内容最小高度 <b>286px</b> 直接顶成面板最小高度，而最小窗口下标签页可视高度只有 <b>267px</b>——底部的「刷新」与拖拽提示被裁掉。现在的内容最小高是 <b>356px</b>（给列表加了 160px 下限，避免小窗口下筛选行被压扁），但<b>面板</b>最小高只有 <b>88px</b>：多出来的高度交给滚动条。这就是"不被裁切"的可执行含义：<b>内容比可视区高，退化成滚动条，而不是消失</b>。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 装夹到法兰（构建时真跑 placement）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">工件（料箱里）@@UIL_PART@@ ｜ 法兰世界坐标 @@UIL_FLANGE@@
+挪到法兰旁 30mm：吸附判定（半径 60mm）→ @@UIL_SNAP_NEAR@@
+挪到 200mm 外：吸附判定 → @@UIL_SNAP_FAR@@
+装夹后：局部位姿平移 @@UIL_LOCAL@@（工具坐标系与法兰对齐）｜ 挂载状态 @@UIL_MOUNTED@@
+机器人 J1 转 20° 后：工件随动 @@UIL_FOLLOW@@ mm</pre>
+  <div class="shots">
+    <figure><img src="assets/ui_left_tabs.png" alt="左侧双 Tab"><figcaption>左侧双 Tab：场景设备库 / 设备树（构建时离屏真抓；设备树里「工件_1」挂在机器人节点下＝装夹关系）</figcaption></figure>
+    <figure><img src="assets/ui_right_tabs.png" alt="右侧标签"><figcaption>右侧：属性 / 代码预览 / 导出打包（原来的「动作与从属」并入设备树，不再占一个标签）</figcaption></figure>
+  </div>
+  <p style="font-size:13px;color:var(--dim)">截图口径：本机 macOS 无 Cocoa 会话，GL 视口抓不到内容（离屏无 OpenGL 上下文），因此这里抓的是<b>左右两个标签容器</b>本身——标签名、顺序、面板内容都是真的。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 口径</h3>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>守卫建立在可执行的事实上</b>：那次 286px 的修复就是把滚动容器摘掉——摘掉即红，所以它守得住；标签名、顺序、子标签同样逐条断言，改版回退会当场变红。</li>
+    <li><b>顺带修掉一件真缺陷</b>：「一键导出…」自身文档写着"不要求先点生成代码"（内部直接构建程序并后处理），但 <code>set_robot</code> 只开了「生成代码」没开「一键导出」，用户必须先点一次生成代码它才亮得起来——与 PRD「无置灰不可用的按钮」直接冲突。</li>
+    <li><b>版本口径由四份手工同步减到三份</b>：GUI 窗口标题改为从 <code>orolp.__version__</code> 派生（v1.0.1 里程碑就漏过 pyproject；标题这一份从此不可能漂移）。</li>
+    <li><b>当时仍有一项未过，已在下一节补齐</b>：PRD §6 第 6 条当时拆成两半——按钮部分已过，而「工艺时序（泳道图）」还是骨架（设备树 P1「动态时序」未实现），文档里如实未勾选；<b>v1.3.1 把它换成了真编辑器，§6 六条至此全过</b>（见下一节）。</li>
+    <li><b>一条命令可复现</b>：<code>QT_QPA_PLATFORM=offscreen pytest tests/test_ui_layout.py</code>（@@UIL_TESTS@@ 个专项测试），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>工艺时序 · 动态时序（v1.3.1 · 设备树不再只有「静态挂载」，工序真的排得出来了）</h2>
+
+  <p style="font-size:13.5px">设备树此前只表达<b>静态绑定</b>（谁挂在谁下面，坐标系自动吸合，v1.3.0 落地）；PRD §4.3 P1 要的是<b>动态时序</b>——配置工序触发、信号等待、子程序调用。原来的「工艺时序（泳道图）」是个空壳，也正是 §6 第 6 条「无空占位区块」唯一没过的一项。本轮新增 <code>python/orolp/sequence.py</code>：四种工步编成一条有序序列，<b>再翻译到两个既有出口——一个新指令语法都不加</b>。下面所有数字都是本页构建时真跑出来的。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 序列与校验（真跑）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">泳道（按首次出现序）：@@SEQ_LANES@@
+
+@@SEQ_DUMP@@
+
+干净序列：@@SEQ_CLEAN@@
+只把 gripper_close / conveyor_run 两个信号投进点表：@@SEQ_PARTIAL@@
+  └─ 第 @@SEQ_PARTIAL_IDX@@ 步：@@SEQ_PARTIAL_MSG@@</pre>
+  <p style="font-size:13.5px;color:var(--dim)">校验问题都带 <code>index</code> 指回出问题的那个工步——<b>「序列里第 4 步用了点表里没有的 part_ready」这种话要能定位</b>，而不是笼统报一句「校验失败」。共七类问题：空序列 / 重名 / 未知设备 / 未知信号 / 未知子程序 / 无超时 / 边沿触发忽略期望电平。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 机器人侧出口（真喂既有 ProgramBuilder）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">落地成既有 IO 指令：@@SEQ_ROBOT_KINDS@@（共 @@SEQ_ROBOT_COUNT@@ 条）
+只记进 notes、不进程序的：@@SEQ_NOTES@@</pre>
+  <p style="font-size:13.5px;color:var(--dim)">子程序调用<b>不是程序指令</b>——<code>Program</code> 里没有这棵语法树，各品牌主程序/子程序的组织方式也不同（<code>CALL</code> / <code>Job</code> / <code>Run</code>…）。所以这里<b>不臆造调用语法</b>，只如实记进 notes 交给调用方展示；<b>静默丢弃才是最坏的做法</b>。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ PLC 侧出口（真翻 Step，再真出 SCL）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">@@SEQ_PLC_ROWS@@</pre>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">与 steps_from_program 逐字段对拍：@@SEQ_EQUIV@@
+（序列侧 @@SEQ_PLC_COUNT@@ 步 vs 程序侧 @@SEQ_PROG_COUNT@@ 步——差的那一步是程序侧补的「等待工件到位」循环起点）
+generate_scl：声明了 @@SEQ_SCL_DECLARED@@ ｜ 驻留定时器 @@SEQ_SCL_TIMER@@ ｜ 共 @@SEQ_SCL_LINES@@ 行</pre>
+  <p style="font-size:13.5px;color:var(--dim)">两处差异是<b>刻意的、不是漂移</b>：① <code>steps_from_program</code> 会在头部补一步「等待工件到位」当循环起点，而序列<b>自己就编排等待</b>（本序列第 4 步就是），再补一步会跟它打架；② 步名口径不同（「驻留 0.5s」vs「保压 0.50s」、「末步输出」vs「输出保持」）。测试断言的是<b>语义字段逐条相同</b>（输出 / 等待 / 期望电平 / 延时），名字不参与比较——这样以后谁把翻译规则改歪了会当场变红。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 诚实性口径：只有驻留是可计算的时间</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">工步数 @@SEQ_STEPS@@ ｜ 构成（@@SEQ_COUNTS@@）
+驻留合计 @@SEQ_DWELL@@s
+note：@@SEQ_NOTE@@</pre>
+  <p style="font-size:13.5px;color:var(--dim)">序列只有<b>顺序</b>，没有实测节拍。信号触发与信号等待的真实耗时取决于现场机构（气缸响应、输送带节拍、机器人到位时间），所以 <code>summary()</code> <b>只报驻留合计与各类型步数</b>，绝不编一个「预计节拍」；泳道图抬头也直接写明「驻留按秒加宽；非实测节拍」，免得有人把横轴当时间轴读。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ 编辑器（真起控件）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">步骤表 @@SEQ_ED_ROWS@@ 行 ｜ 泳道画布 @@SEQ_ED_BLOCKS@@ 块 ｜ 可选信号 @@SEQ_ED_SIGNALS@@ 个 ｜ 校验问题 @@SEQ_ED_ISSUES@@ 条
+@@SEQ_ED_SUMMARY@@</pre>
+  <div class="shots">
+    <figure><img src="assets/ui_sequence_editor.png" alt="工艺时序编辑器（泳道图）"><figcaption>设备树下的「工艺时序（泳道图）」：工步表 + 泳道画布 + 添加 / 删除 / 上下移 / 校验 / 保存 / 载入（构建时离屏真抓）</figcaption></figure>
+  </div>
+  <p style="font-size:13px;color:var(--dim)">信号下拉不是写死的字符串列表：<code>app.py</code> 用 <code>set_available_signals</code> 把<b>真实点表 ∪ 握手信号</b>灌进去，<b>选不到空气信号</b>；选项里没有的名字仍可手填，但校验会当场报 error（"下装前必须补上映射"）。改动经 <code>sequenceChanged</code> 转发到面板的 <code>sceneChanged</code>——时序改了就是场景改了，撤销/保存共用同一条通路。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑥ 口径</h3>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>不新增指令语法</b>：两个出口翻的都是既有指令（<code>SetDO</code>/<code>WaitDI</code>/<code>WaitTime</code>）与既有工步（<code>plc_scl.Step</code>），所以序列一落地就能被后处理、校验、SCL 三处复用，不存在"时序是孤岛"。</li>
+    <li><b>等价性有可执行证据</b>：PLC 出口的语义等价不是"看着像"，而是与 <code>steps_from_program</code> 逐字段对拍；SCL 出口也不是"能编译就行"，而是真跑 <code>generate_scl</code> 并断言信号被声明、0.5s 驻留真的变成 <code>T#500MS</code> 定时器。</li>
+    <li><b>本轮撞到两个「绿着的坑」</b>：①新测试把内置 UR5e 路径写成 <code>models/ur5e/ur5e.urdf</code>（真路径是 <code>models/ur/ur5e/ur5e.urdf</code>），<code>pytest.skip</code> 静默生效、4 条出口测试根本没跑——<b>skip 又是绿的</b>，与 v1.2.1 那次同类；②仓库里的 <code>.venv</code> 是缺 <code>paramiko</code> / <code>OCP</code> / <code>setuptools</code> 的<b>旁路环境</b>，<code>pytest.importorskip</code> 会让三个测试模块整块不收集，跑出 <b>1431 passed</b> 这种"看着还行"的假账（比真基线少 57 条用例）——全量基线固定用 <code>/Users/jayhan/.workbuddy/binaries/python/envs/default/bin/python</code>。</li>
+    <li><b>一条命令可复现</b>：<code>QT_QPA_PLATFORM=offscreen pytest tests/test_sequence.py</code>（@@SEQ_TESTS@@ 个专项测试），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>动态时序使用体验 · 示例工程一条命令跑通（v1.3.2）</h2>
+  <p style="font-size:13.5px">v1.3.1 落地了工艺时序模型与泳道编辑器，本轮补上<b>使用体验层</b>：<code>examples/sequence_demo.py</code> 一条命令跑通「建点表 → 编排 9 条工步 → 校验 → 机器人/PLC 双出口 → JSON 往返」，配套使用文档 <code>docs/sequence.md</code> 与 <b>8 项子进程验收测试</b>（<code>tests/test_sequence_demo.py</code>）。下面所有输出都是<b>本页构建时真跑示例脚本</b>的原样产物。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 工作单元点表 + 工序编排（四种工步，泳道 = 设备）</h3>
+  <pre style="white-space:pre-wrap">@@SDEMO_STEPS@@</pre>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 校验（点表/子程序/设备全部真实；含刻意安排的无限等待警告与未知信号自证）</h3>
+  <pre style="white-space:pre-wrap">@@SDEMO_VALIDATION@@</pre>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 机器人侧出口：CallStep 如实披露 + 点表接进后处理解析出真实序号</h3>
+  <pre style="white-space:pre-wrap">@@SDEMO_UR@@</pre>
+  <p style="font-size:13px;color:#9aa5b5">边沿触发降级为电平、超时看门狗待补，都在出码里留了显式 TODO——绝不静默丢弃、绝不编假地址。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ PLC 侧出口：to_plc_steps() 真出 SCL（头部点表节选）</h3>
+  <pre style="white-space:pre-wrap">@@SDEMO_SCL@@</pre>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ JSON 往返（examples/assets/pick_sequence.json）</h3>
+  <pre style="white-space:pre-wrap">@@SDEMO_JSON@@</pre>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python examples/sequence_demo.py</code>；使用文档在 <code>docs/sequence.md</code>（四种工步 / 七类校验 / 双出口 / 诚实性口径 / GUI 指引）。</li>
+    <li><b>诚实口径不变</b>：驻留合计 0.7s 是唯一可计算的时间；触发与等待的耗时取决于现场机构。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>零件库与预置场景库（v1.3.3 落地 · v1.3.7 扩容 · PRD §4.1 P1/P2 内容就绪，入口已亮）</h2>
+  <p style="font-size:13.5px">界面 PRD 最后一项「内容就绪再开放入口」落地：**预置场景库**（P2）新增两个行业模板——分拣工位（PRD 点名）与机床上下料——随抓取工作站一起通过既有「文件 → 载入预置工作站」入口一键加载（内容驱动，不做空壳入口）；**零件库**（P1）补上自定义导入：零件库 JSON（<code>orolp.parts/1</code>）里的参数化基本体组合经「导入零件…」注册进组件目录，与内置组件同一拖拽通路。下面数字都是本页构建时真跑出来的。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 预置场景库：五个内置模板（构建时真建 + 真跑干涉检查）</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">id</th><th>名称</th><th>说明（诚实口径）</th><th>对象数</th><th>干涉</th></tr>
+    @@PLB_PRESET_ROWS@@
+  </table>
+  <p style="font-size:13px;color:#9aa5b5">布局经过碰撞 oracle 校准（逐候选位扫描取零干涉解），不是摆出来就行；机床上下料的机床是柜体几何简化示意——真机床走厂商 CAD 通路（v0.2.3），两条通道不混装。<b>v1.3.7 扩容</b>新增两个点名行业模板：3C 装配（上料托盘 → 治具压装 → 成品托盘）与汽车焊装（单轴变位机弧焊 + 输送辊道来料）——焊装模板的焊枪 TCP 依焊嘴型号而定、<b>刻意不猜</b>（tcp_flange=None），真实值走现场标定（v0.3.4）通路；变位机为单轴示意、不做外部轴联动，机器人本体随 URDF 通路替换。</p>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 零件库：示例文件真实注册 → 真实构建 → 撤销复原</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">零件</th><th>注册 id</th><th>几何构成</th><th>说明</th></tr>
+    @@PLB_CUSTOM_ROWS@@
+  </table>
+  <p style="font-size:13px;color:#9aa5b5">组件目录现有分类：@@PLB_CATEGORIES@@（共 @@PLB_CATALOG@@）。导入是幂等的：重复导入先撤上一批；坏 schema / 非法尺寸当场报错，绝不静默吞零件。</p>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>诚实口径</b>：零件库管理的是<b>参数化基本体</b>（box/cylinder/sphere 组合，与内置组件同一几何通道），<b>不解析 STL/STEP 网格</b>——网格件走 URDF/厂商 CAD 通路；自定义零件几何固定（文件里写什么就是什么），不假装参数可调。</li>
+    <li><b>一条命令复现</b>：导入样例 <code>examples/assets/custom_parts.json</code>；模板自检 <code>PYTHONPATH=python python -m orolp.world.templates check</code>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>工程文件（.orolp · v1.3.4）——一次会话一个文件</h2>
+  <p style="font-size:13.5px">v1.3.0–v1.3.3 把界面侧一件件补齐（场景设备库 / 设备树 / 工艺时序 / 零件库 / 预置场景库），但每一件都只带<b>自己的</b> JSON——用户视角是"存一个活要存四个文件，回头还得记住哪四个"。v1.3.4 补的是这个缝：一个 <code>.orolp</code> 把<b>场景 / 示教程序 / 工艺时序 / 设备点表 / 零件库来源 / 标定集</b>六段收进单一文件。下面每个数字与文本都是本页构建时真跑出来的（抓取工作站模板 + 真实 IK 示教点 + 真实时序与点表）。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 真存真读：六段工程落盘 → 载入 → 逐段摘要</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">段</th><th>载入后的摘要（由段内容直接算出）</th></tr>
+    @@PROJ_ROWS@@
+  </table>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">工程名 @@PROJ_NAME@@ ｜ 文件 @@PROJ_SIZE_KB@@ KB ｜ 示教点 @@PROJ_POINTS@@ 个 ｜ 时序 @@PROJ_SEQ_STEPS@@ 工步 ｜ 设备 @@PROJ_DEVICES@@ 台 / 已映射信号 @@PROJ_MAPPED@@ 个
+@@PROJ_DESCRIBE@@
+
+载入报告：
+@@PROJ_REPORT@@</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 文件长什么样（前 14 行，原样截取）</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">@@PROJ_SNIPPET@@</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 一段写坏了会怎样：只跳那一段，其余照常载入</h3>
+  <p style="font-size:13px;color:#9aa5b5">构建时把 <code>sequence</code> 段故意写坏（<code>steps</code> 写成字符串），再加一个本库不认识的段 <code>vision</code> 与一个未知顶层键 <code>authoring</code>，然后真的载入一次：</p>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">段</th><th>结果</th><th>原因 / 说明</th></tr>
+    @@PROJ_BROKEN_ROWS@@
+  </table>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">@@PROJ_BROKEN_REPORT@@</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 保真：打开一趟再保存，不认识的内容不能丢</h3>
+  <p style="font-size:13px;color:#9aa5b5">把上面那份半坏工程再保存一次，逐项核对原始负载（不是"看起来没报错"，是逐字节比较）：</p>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">内容</th><th>键</th><th>结果</th></tr>
+    @@PROJ_KEPT_ROWS@@
+  </table>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ 不开 GUI 也能看：CLI 摘要</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.project grasping.orolp
+@@PROJ_CLI@@</pre>
+
+  <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
+    <li><b>为什么是"逐段容错"而不是"整体校验"</b>：工程文件是用户<b>唯一的一份工作成果</b>。零件库格式将来升级了、某个第三方工具加了新段——不能因此让整个工程打不开。坏段只跳坏段，并在报告里说清是哪一段、为什么。</li>
+    <li><b>本库不认识的段与顶层键原样保留</b>（第④项逐字节核对）："打开—保存"一趟不会把别家工具写的字段抹掉。</li>
+    <li><b>写入是原子的</b>（同目录临时文件 + <code>os.replace</code>）：写一半断电不会把上一份好工程截断成半截 JSON。<code>NaN</code>/<code>Inf</code> 在写入前就被拒绝——它们序列化出来是非法 JSON，等读的时候才发现就晚了。</li>
+    <li><b>同一版本内字段缺失按可选</b>；<code>schema</code> 主版本不等则<b>明确拒收</b>（不猜）——工程文件宁可明确拒绝，也不能按错的语义打开后让用户以为"内容丢了"。</li>
+    <li><b>GUI 侧把"缝"补实了</b>：<code>文件 → 保存工程…/打开工程…</code>（Ctrl+Shift+S / Ctrl+Shift+O），窗口标题显示工程名与"•未保存"；示教点的<b>抓取/放置语义</b>存在工程里——它原本只活在界面内存中，单存路径代码会丢。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m orolp.project &lt;工程文件&gt; [--json]</code>；测试 @@PROJ_TESTS@@ 个（<code>tests/test_project.py</code> + <code>tests/test_project_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>会话支撑（最近打开 + 崩溃自动恢复 · v1.3.5）</h2>
+  <p style="font-size:13.5px">v1.3.4 解决了「存一个活只存一个文件」，还剩两条每天都会踩的缝：「昨天那个工程在哪来着」和「改了一下午还没保存，应用崩了」。v1.3.5 补上：<code>文件 → 最近打开</code> 子菜单 + 有未保存改动时每 60 秒自动落一份快照、下次启动询问是否恢复。下面每个数字都是本页构建时真跑出来的（配置目录重定向到临时目录，不碰真实 <code>~/.orolp</code>）。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 最近打开：真存真读，失效条目置灰不隐藏</h3>
+  <p style="font-size:13px;color:#9aa5b5">记 3 条（1 条真实工程 + 2 条已不存在的路径），保存后重新载入：</p>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">记录（最新在前）</th><th>状态</th></tr>
+    @@SES_RECENT_ROWS@@
+  </table>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">existing()（真实存在的条目，菜单可点）：@@SES_EXISTING_N@@ 条
+prune_missing()（清理失效条目的返回值）：@@SES_PRUNED@@
+清理后重新载入：@@SES_RECENT_N@@ 条</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 崩溃自动恢复：快照本身就是合法 .orolp</h3>
+  <p style="font-size:13px;color:#9aa5b5">把一份带未知段（<code>vision</code>）与未知顶层键（<code>authoring</code>）的工程写进自动保存目录，再读回元数据、把快照当普通工程载入：</p>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">快照 session.orolp：@@SES_SNAP_SIZE_KB@@ KB ｜ sidecar 元数据：
+@@SES_META@@
+
+把快照用 Project.load 载入（与「打开工程」同一条路）：
+@@SES_SNAPSHOT_SUMMARY@@</pre>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 不开 GUI 也能看：CLI</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.session
+@@SES_CLI@@</pre>
+
+  <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
+    <li><b>恢复走的就是「打开工程」同一条路</b>：快照用 <code>Project.save</code> 原子写入，本身就是合法 <code>.orolp</code>——自动保存机制就算坏了，用户也能手动打开快照文件。</li>
+    <li><b>只在有未保存改动时才落快照</b>：干净会话没什么可救；快照用新建的 Project 收集，<b>不动正在编辑的工程对象</b>——快照落盘不能覆盖原工程路径，否则下次手动保存的建议位置会错。</li>
+    <li><b>恢复后按「未保存」对待</b>：标题显示「•未保存」、自动保存继续守护；保存建议路径指回原工程；快照路径<b>不进</b>最近打开（它是内部槽位）。</li>
+    <li><b>容错口径</b>：这两样都是锦上添花的机制，任何故障都「当它不存在」——快照写失败清残件不留空壳、元数据坏一律当无快照（不给来路不明的恢复选项），绝不打断启动或保存。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m orolp.session</code>；测试 @@SES_TESTS@@ 个（<code>tests/test_project_session.py</code> + <code>tests/test_project_session_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>从模板新建工程（工程文件模板 · v1.3.6 落地 · v1.3.8 扩容至五个）</h2>
+  <p style="font-size:13.5px">v1.3.4/v1.3.5 解决了「存一个活」与「再找到它」，但「打开工程」面前永远是一张白纸。v1.3.6 补上最后一条缝：<code>文件 → 从模板新建工程…</code>——新活不从空白开始；v1.3.8 把 3C 装配 / 汽车焊装两个行业模板也收进来，与「载入预置工作站」五场景对齐（场景同一数据源）。下面每个数字都是本页构建时真跑出来的（抓取模板经真实 IK 构建后落盘、载回、出摘要）。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 五个内置模板（v1.3.8 扩容）</h3>
+  <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+    <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">模板</th><th>id</th><th>说明</th></tr>
+    @@TPL_ROWS@@
+  </table>
+  <p style="font-size:13px;color:#9aa5b5">抓取工作站的示例程序由既有 <code>world/templates</code> + <code>world/demo</code> 真实 IK 构建——与「抓取工作站演示（一键）」<b>同一数据源</b>，不是另写的一份假数据。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 模板产物就是普通工程：真存真读</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">抓取工作站模板落盘后载回：@@TPL_STATS@@
+@@TPL_DESCRIBE@@</pre>
+  <p style="font-size:13px;color:#9aa5b5">「工程里没有：工艺时序、设备点表……」是<b>如实展示</b>——模板只收真给的东西，不写空段凑数。</p>
+
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 不开 GUI 也能看：CLI</h3>
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.project grasping.orolp
+@@TPL_CLI@@</pre>
+
+  <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
+    <li><b>三条规矩</b>：模板产物就是普通 <code>Project</code>（保存/载入/摘要/保真全套契约照用）；只收模板真给的段；每次全新构建（两个同模板工程互不共享状态）。</li>
+    <li><b>GUI 细节</b>：当前工程有未保存改动时先询问（默认「否」，拒绝则当前工程原样保留）；模板构建失败如实弹窗；新建的工程尚未落盘——标题显示「•未保存」、自动保存继续守护，且<b>不进最近打开</b>（它不是文件）。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -c "from orolp.project_templates import save_project_template; save_project_template('grasping_workstation', 'demo.orolp')"</code>；测试 @@TPL_TESTS@@ 个（<code>tests/test_project_templates.py</code> + <code>tests/test_project_templates_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+  </ul>
+</section>
+
+<section>
   <h2>GUI 截图 · 抓取工作站一键演示（S1–S5 就绪）</h2>
   <div class="shots">
     <figure><img src="assets/grasping_workstation.png" alt="抓取工作站主视图"><figcaption>抓取工作站 · 一键载入（UR5e + 吸盘 + 输送带 + 托盘），状态栏显示节拍</figcaption></figure>
@@ -4472,6 +4998,18 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
     <figure><img src="assets/grasping_offline_programming.png" alt="离线编程面板"><figcaption>离线编程 · 校验通过 + 节拍 + 4 品牌出码</figcaption></figure>
   </div>
   <p style="color:#9aa5b5;margin-top:10px">无 GUI 一条命令跑通同一流程：<code>python examples/grasping_workstation_demo.py</code>（模板 → IK 示教点 → 夹爪 IO → 节拍 → UR/KUKA/ABB/FANUC 出码）</p>
+</section>
+
+<section>
+  <h2>路线图调研 · 变位机外部轴联动（v1.3.9 · 纯方案文档）</h2>
+  <p style="font-size:13.5px">汽车焊装模板的变位机目前是「单轴示意、不做联动」（诚实口径）。联动怎么做，方案已整理成 <code>docs/design/external-axis.md</code>——<b>只调研不实施</b>，实施前等三个开放问题拍板（品牌优先级 / 机械参数来源 / 联动模式是否立项）。方案要点：</p>
+  <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
+    <li><b>两种模式先钉住</b>：<b>分段定位</b>（position-weld，焊前把焊缝转到合适姿态、停住再焊）工程复杂度低，现场大量使用；<b>联动焊接</b>（weld on the fly，变位机与机器人同时动）需要时间同步，另立项。</li>
+    <li><b>核心设计决策</b>：外部轴位置<b>进路点</b>（路点带 <code>ext_joints</code>），不开独立指令——分段定位里「第 3 段在变位机 45° 时焊」这个绑定关系天然属于路点。</li>
+    <li><b>出码形态</b>：KUKA（E1 扩展轴）/ FANUC（独立运动组）/ ABB（Mechanical Unit）可原生出码；UR <b>无外部轴概念，诚实降级</b>（注释 + 数字量触发）；国产品牌语法待厂商协议（与真机 CAD 同一阻塞口径）。</li>
+    <li><b>P1 代价可控</b>：分段定位不碰 IK（机器人在工件动坐标系里求解，现有运动学原样可用）；碰撞检查吃任意 object 世界位姿，工件随动位姿路径打通后<b>免费复用</b>；变位机转位时间是纯几何可计算项，可进节拍报表。</li>
+    <li><b>现状（代码事实）</b>：变位机组件已是参数化静态几何（<code>rot_deg</code> 变了台面真转）；<code>Trajectory</code>/路点只含机器人关节；8 个品牌后处理零外部轴语法（grep 证实）。</li>
+  </ul>
 </section>
 
 <section>
@@ -4558,6 +5096,468 @@ frame();
 """
 
 
+def _sequence_demo_data() -> dict:
+    """「动态时序使用体验」小节的真实数据（v1.3.2）。
+
+    构建时以子进程真实运行 ``examples/sequence_demo.py``（与
+    ``tests/test_sequence_demo.py`` 同一入口），把脚本输出的关键分段
+    原样搬进页面——数字与代码行都是本次运行的真实产物，不是手写。
+    """
+    import subprocess
+
+    root = REPO_ROOT
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(root / "python"), str(root), env.get("PYTHONPATH", "")]
+    )
+    proc = subprocess.run(
+        [sys.executable, str(root / "examples" / "sequence_demo.py")],
+        cwd=str(root), env=env, capture_output=True, text=True, timeout=300,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("sequence_demo.py 运行失败：" + proc.stderr[-2000:])
+    out = proc.stdout
+
+    def _section(start: str, end: str) -> str:
+        i, j = out.index(start), out.index(end)
+        return out[i + len(start):j]
+
+    def _lines(block: str, keep=None, strip_left: bool = False) -> str:
+        rows = []
+        for ln in block.splitlines():
+            if not ln.strip():
+                continue
+            if keep is not None and not any(k in ln for k in keep):
+                continue
+            rows.append(html.escape(ln.strip() if strip_left else ln.rstrip()))
+        return "\n".join(rows)
+
+    orchestration = _lines(_section("2. 工序编排", "3. 校验"))
+    validation = _lines(_section("3. 校验", "4. 组成摘要"))
+    ur_io = _lines(
+        _section("5. 机器人侧出口", "6. PLC 侧出口"),
+        keep=("set_digital_out", "wait_digital_in", "[notes]", "UR 出码共"),
+        strip_left=True,
+    )
+    scl_body = _section("6. PLC 侧出口", "7. JSON 往返").splitlines()
+    scl_head = _lines("\n".join(scl_body[4:16]), strip_left=True)
+    roundtrip = _lines(_section("7. JSON 往返", "完成："), strip_left=True)
+    return {
+        "SDEMO_STEPS": orchestration,
+        "SDEMO_VALIDATION": validation,
+        "SDEMO_UR": ur_io,
+        "SDEMO_SCL": scl_head,
+        "SDEMO_JSON": roundtrip,
+    }
+
+
+def _partslib_data() -> dict:
+    """「零件库与预置场景库」小节的真实数据（v1.3.3）。
+
+    构建时真做三件事：①构建三个内置模板并跑干涉检查（布局经碰撞 oracle
+    校准的证据）；②枚举组件目录分类与数量；③把示例零件库真实注册进
+    组件目录、真实构建几何、再撤销——页面数字全部来自这次运行。
+    """
+    from orolp.world import build_template
+    from orolp.world.components import build_component, categories
+    from orolp.world.parts_library import (
+        CUSTOM_ID_PREFIX,
+        CustomPartsLibrary,
+        register_custom_parts,
+        unregister_custom_parts,
+    )
+
+    # ① 预置场景（模板 → 干涉检查）
+    rows = []
+    for meta in [
+        ("grasping_workstation", "抓取工作站"),
+        ("sorting_station", "分拣工位"),
+        ("machine_tending", "机床上下料"),
+        ("3c_assembly", "3C 装配工位"),
+        ("auto_welding", "汽车焊装工位"),
+    ]:
+        tid, label = meta
+        cell = build_template(tid)
+        hits = len(cell.scene.check_collisions())
+        rows.append(
+            "<tr><td><code>{id}</code></td><td>{name}</td>"
+            "<td>{desc}</td><td>{objs}</td><td>{hits}</td></tr>".format(
+                id=html.escape(tid), name=html.escape(label),
+                desc=html.escape(cell.description),
+                objs=len(cell.scene.objects), hits=hits,
+            )
+        )
+    preset_rows = "".join(rows)
+
+    # ② 组件目录分类
+    from orolp.world.components import COMPONENTS
+    from collections import Counter
+    counter = Counter(s.category for s in COMPONENTS.values())
+    cat_txt = " · ".join(
+        html.escape(f"{c} {n}") for c, n in counter.most_common()
+    )
+
+    # ③ 示例零件库端到端（注册 → 构建 → 撤销）
+    lib = CustomPartsLibrary.load_json(REPO_ROOT / "examples" / "assets" / "custom_parts.json")
+    ids = register_custom_parts(lib)
+    geo = []
+    for cid, part in zip(ids, lib.parts):
+        parts = build_component(cid)
+        kinds = "+".join(type(p.prim).__name__ for p in parts)
+        geo.append(
+            "<tr><td>{name}</td><td><code>{cid}</code></td>"
+            "<td>{kinds}</td><td>{desc}</td></tr>".format(
+                name=html.escape(part.name), cid=html.escape(cid),
+                kinds=html.escape(kinds), desc=html.escape(part.description),
+            )
+        )
+    custom_rows = "".join(geo)
+    unregister_custom_parts(ids)
+    leftover = [c for c in COMPONENTS if c.startswith(CUSTOM_ID_PREFIX)]
+    assert not leftover, "撤销后目录必须复原"
+
+    cat_list = " / ".join(categories())
+    return {
+        "PLB_PRESET_ROWS": preset_rows,
+        "PLB_CATALOG": cat_txt,
+        "PLB_CATEGORIES": html.escape(cat_list),
+        "PLB_CUSTOM_ROWS": custom_rows,
+    }
+
+
+def _tpl_data() -> dict:
+    """「从模板新建工程」小节的真实数据（v1.3.6）。
+
+    构建时真做三件事：①列出三个内置模板；②真构建抓取工作站模板
+    （真实 IK 示教点）并落盘、载回、逐段摘要；③子进程真跑
+    ``python -m orolp.project`` 看落盘的模板工程。
+    页面上每个数字与文本都来自这次运行。
+    """
+    import subprocess
+    import tempfile
+
+    from orolp.project import Project
+    from orolp.project_templates import (
+        build_project_template,
+        list_project_templates,
+        save_project_template,
+    )
+
+    templates = list_project_templates()
+    tpl_rows = []
+    for tpl in templates:
+        tpl_rows.append(
+            "<tr><td style=\"padding:4px 8px\">{name}</td>"
+            "<td><code>{tid}</code></td><td>{desc}</td></tr>".format(
+                name=html.escape(tpl["name"]),
+                tid=html.escape(tpl["id"]),
+                desc=html.escape(tpl["description"]),
+            )
+        )
+    tpl_rows_html = "\n".join(tpl_rows)
+
+    base = Path(tempfile.mkdtemp(prefix="orolp-tpl-"))
+    target = save_project_template("grasping_workstation", base / "grasping.orolp")
+    back = Project.load(target)
+    tpl_describe = html.escape(back.describe())
+    prog = back.get("program")
+    tpl_types = prog["point_types"]
+    tpl_stats = (
+        "场景对象 {obj} 个 ｜ 示教点 {pts} 个（抓取 {pick} / 放置 {place}）｜ "
+        "程序 {lines} 行".format(
+            obj=len((back.get("scene") or {}).get("objects") or []),
+            pts=len(tpl_types),
+            pick=tpl_types.count("pick"),
+            place=tpl_types.count("place"),
+            lines=len([ln for ln in prog["code"].splitlines() if ln.startswith("movej")]),
+        )
+    )
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "orolp.project", str(target)],
+        cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("orolp.project CLI 运行失败：" + proc.stderr[-2000:])
+    tpl_cli = html.escape(proc.stdout.strip())
+
+    return {
+        "TPL_ROWS": tpl_rows_html,
+        "TPL_STATS": tpl_stats,
+        "TPL_DESCRIBE": tpl_describe,
+        "TPL_CLI": tpl_cli,
+        "TPL_TESTS": "15",
+    }
+
+
+def _session_data() -> dict:
+    """「会话支撑：最近打开 + 崩溃自动恢复」小节的真实数据（v1.3.5）。
+
+    构建时真做三件事（配置目录重定向到临时目录，不碰用户 ``~/.orolp``）：
+    ①最近打开：记 3 条（1 条真实落盘的工程 + 2 条不存在的），保存 → 重载，
+      取 ``existing()``/``prune_missing()`` 的真实口径；
+    ②自动保存：组一个带未知段与未知顶层键的工程 → ``write_autosave`` →
+      ``read_autosave`` 读回元数据 → ``Project.load(快照)`` 验证"快照本身就是
+      合法 .orolp"（未知段跟着走）；
+    ③子进程真跑 CLI ``python -m orolp.session``。
+    页面上每个数字与文本都来自这次运行。
+    """
+    import subprocess
+    import tempfile
+
+    from orolp.project import Project
+    from orolp.session import RecentProjects, read_autosave, write_autosave
+
+    base = Path(tempfile.mkdtemp(prefix="orolp-session-"))
+    old_cfg = os.environ.get("OROLP_CONFIG_DIR")
+    os.environ["OROLP_CONFIG_DIR"] = str(base)
+    try:
+        # 一份真实落盘的工程（临时目录内）
+        real_dir = base / "work"
+        project = Project(name="demo_session")
+        project.set(
+            "program",
+            {
+                "code": "# OLP Path Code\nmovej([0, -90, 90, -90, 90, 0])\n",
+                "point_types": ["via"],
+                "joint_names": [],
+            },
+        )
+        project.set("parts", {"sources": []})
+        project.raw_sections["vision"] = {"cameras": [{"id": "cam1"}]}
+        project.extra["authoring"] = {"tool": "other-cad"}
+        real_path = project.save(base / "work" / "demo_session.orolp")
+
+        # ---- ① 最近打开：真存真读 ---- #
+        recents = RecentProjects.load()
+        recents.add(str(real_path))
+        recents.add("/some/vanished/a.orolp")
+        recents.add("/some/vanished/b.orolp")
+        recents.save()
+        recents = RecentProjects.load()
+        rows = []
+        for p in recents.paths:
+            exists = Path(p).exists()
+            mark = "在" if exists else "<b>已不存在（菜单里置灰，不悄悄藏）</b>"
+            rows.append(
+                "<tr><td style=\"padding:4px 8px\">{p}</td><td>{m}</td></tr>".format(
+                    p=html.escape(p), m=mark
+                )
+            )
+        ses_recent_rows = "\n".join(rows)
+        ses_existing_n = str(len(recents.existing()))
+        gone = recents.prune_missing()
+        ses_pruned = "、".join(html.escape(g) for g in gone) or "（无）"
+        ses_recent_n = str(len(RecentProjects.load().paths))
+
+        # ---- ② 自动保存：真写真读 ---- #
+        snapshot_project = Project(name="demo_session")
+        snapshot_project.raw_sections["vision"] = {"cameras": [{"id": "cam1"}]}
+        snapshot_project.extra["authoring"] = {"tool": "other-cad"}
+        snapshot_project.set(
+            "program",
+            {
+                "code": "# OLP Path Code\nmovej([0, -90, 90, -90, 90, 0])\nmovej([20, -80, 80, -90, 90, 0])\n",
+                "point_types": ["via", "via"],
+                "joint_names": [],
+            },
+        )
+        snap = write_autosave(
+            snapshot_project, source_path=str(real_path)
+        )
+        assert snap is not None
+        info = read_autosave()
+        assert info is not None
+        ses_snap_size_kb = f"{snap.stat().st_size / 1024:.1f}"
+        ses_meta = (
+            "source_path = {src}\nsaved_at    = {saved}\n"
+            "app_version = {ver}\nschema      = {schema}".format(
+                src=html.escape(info.source_path),
+                saved=html.escape(info.saved_at),
+                ver=html.escape(info.app_version),
+                schema="orolp.autosave/1",
+            )
+        )
+        back = Project.load(snap)
+        ses_snapshot_summary = html.escape(back.describe())
+        assert back.raw("vision") == {"cameras": [{"id": "cam1"}]}
+
+        # ---- ③ CLI：子进程真跑 ---- #
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
+        )
+        env["OROLP_CONFIG_DIR"] = str(base)
+        proc = subprocess.run(
+            [sys.executable, "-m", "orolp.session"],
+            cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError("orolp.session CLI 运行失败：" + proc.stderr[-2000:])
+        ses_cli = html.escape(proc.stdout.strip())
+    finally:
+        if old_cfg is None:
+            os.environ.pop("OROLP_CONFIG_DIR", None)
+        else:
+            os.environ["OROLP_CONFIG_DIR"] = old_cfg
+
+    return {
+        "SES_RECENT_ROWS": ses_recent_rows,
+        "SES_EXISTING_N": ses_existing_n,
+        "SES_PRUNED": ses_pruned,
+        "SES_RECENT_N": ses_recent_n,
+        "SES_SNAP_SIZE_KB": ses_snap_size_kb,
+        "SES_META": ses_meta,
+        "SES_SNAPSHOT_SUMMARY": ses_snapshot_summary,
+        "SES_CLI": ses_cli,
+        "SES_TESTS": "26",
+    }
+
+
+def _project_data() -> dict:
+    """「工程文件（.orolp）」小节的真实数据（v1.3.4）。
+
+    构建时真做四件事：①用抓取工作站模板 + 真实 IK 示教点 + 真实时序/点表
+    组成一个工程并落盘（原子写入）；②载入回来逐段核对并取摘要；③手工造一个
+    半坏的工程（一段格式错 + 一个未知段 + 一个未知顶层键），演示**只跳坏的那
+    一段**与"打开—保存"保真；④子进程真跑 CLI 看摘要。
+    页面上每个数字与文本都来自这次运行。
+    """
+    import json
+    import subprocess
+    import tempfile
+
+    from orolp.cell import CellConfig, Device
+    from orolp.project import SECTION_NAMES, Project, cell_snapshot
+    from orolp.sequence import CallStep, DwellStep, ProcessSequence, SignalStep, WaitStep
+    from orolp.world.demo import demo_pick_place_points
+    from orolp.world.templates import build_grasping_workstation
+
+    workdir = Path(tempfile.mkdtemp(prefix="orolp-project-"))
+    cell = build_grasping_workstation()
+    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot.tool = cell.tcp_flange
+    points_deg, types = demo_pick_place_points(cell, robot)
+
+    # ---- ① 组成工程（六段，其中"标定集"故意不写：页面会显示"工程里没有"）---- #
+    program_code = "# OLP Path Code\n" + "".join(
+        "movej([{}], vel=80)\n".format(", ".join(f"{v:.3f}" for v in q))
+        for q in points_deg
+    )
+    sequence = ProcessSequence([
+        SignalStep(name="启动循环", device="机器人", signal="robot_start", value=True),
+        WaitStep(name="等工件到位", device="传感器_1", signal="part_present", timeout=5.0),
+        CallStep(name="抓取子程序", device="机器人", subprogram="GRASP_PICK"),
+        DwellStep(name="夹具保压", device="夹具_1", seconds=0.4),
+    ])
+    device_cell = CellConfig()
+    device_cell.add(Device(name="机器人", type="机器人", brand="UR", model="UR5e",
+                           comm="Profinet", ip="192.168.1.10",
+                           io_map={"robot_start": "Q0.0", "robot_done": "I0.0"}))
+    device_cell.add(Device(name="夹具_1", type="夹具", comm="硬接线 IO",
+                           io_map={"gripper_close": "Q0.1", "gripper_open": "Q0.2"}))
+    device_cell.add(Device(name="传感器_1", type="传感器",
+                           io_map={"part_present": "I0.3"}))
+
+    project = Project(name="grasping_workstation_demo",
+                      note="构建期真跑：场景/示教程序/时序/点表/零件来源")
+    project.set("scene", cell.scene.to_dict())
+    project.set("program", {
+        "code": program_code,
+        "point_types": [t.value for t in types],
+        "joint_names": list(robot.joint_names),
+    })
+    project.set("sequence", sequence.to_dict())
+    project.set("cell", cell_snapshot(device_cell))
+    project.set("parts", {"sources": ["examples/assets/custom_parts.json"]})
+    saved = project.save(workdir / "grasping.orolp")
+
+    # ---- ② 载入回来逐段核对 ---- #
+    reloaded = Project.load(saved)
+    report = reloaded.load_report
+    rows = "".join(
+        "<tr><td><code>{sec}</code></td><td>{text}</td></tr>".format(
+            sec=html.escape(name), text=html.escape(text)
+        )
+        for name, text in reloaded.summary().items()
+    )
+    snippet = "\n".join(
+        saved.read_text(encoding="utf-8").splitlines()[:14]
+    )
+    cli = subprocess.run(
+        [sys.executable, "-m", "orolp.project", str(saved)],
+        cwd=str(REPO_ROOT), capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "python")},
+    )
+    cli_text = "\n".join(cli.stdout.strip().splitlines()[:6])
+
+    # ---- ③ 半坏工程：只跳坏的那一段，未知内容原样保留 ---- #
+    raw = json.loads(saved.read_text(encoding="utf-8"))
+    raw["sections"]["sequence"] = {"steps": "这里故意写坏"}
+    raw["sections"]["vision"] = {"cameras": [{"id": "cam1", "fx": 900.0}]}
+    raw["authoring"] = {"tool": "hand-written", "priority": 3}
+    broken_path = workdir / "half_broken.orolp"
+    broken_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+    broken = Project.load(broken_path)
+    broken_report = broken.load_report
+    skipped_map = dict(broken_report.skipped)
+    reported = list(SECTION_NAMES) + list(broken_report.unknown)
+    broken_rows = "".join(
+        "<tr><td><code>{sec}</code></td><td>{state}</td><td>{reason}</td></tr>".format(
+            sec=html.escape(name),
+            state="<span style='color:#e06c75'>跳过</span>"
+            if name in skipped_map
+            else ("本版本不解释" if name in broken_report.unknown else "已载入"),
+            reason=html.escape(
+                skipped_map.get(name)
+                or ("原样保留（未知段）" if name in broken_report.unknown else "—")
+            ),
+        )
+        for name in reported
+        if name in broken_report.loaded
+        or name in skipped_map
+        or name in broken_report.unknown
+    )
+    keep_path = workdir / "half_broken_resaved.orolp"
+    broken.save(keep_path)
+    kept = json.loads(keep_path.read_text(encoding="utf-8"))
+    kept_rows = "".join(
+        "<tr><td>{what}</td><td><code>{key}</code></td><td>{ok}</td></tr>".format(
+            what=what, key=html.escape(key),
+            ok="<span style='color:#7fbf7a'>原样保留</span>"
+            if present else "<span style='color:#e06c75'>丢了</span>",
+        )
+        for what, key, present in (
+            ("未知段", "vision", kept["sections"].get("vision") == raw["sections"]["vision"]),
+            ("坏段原负载", "sequence", kept["sections"].get("sequence") == {"steps": "这里故意写坏"}),
+            ("未知顶层键", "authoring", kept.get("authoring") == raw["authoring"]),
+        )
+    )
+    return {
+        "PROJ_SIZE_KB": f"{saved.stat().st_size / 1024:.1f}",
+        "PROJ_NAME": html.escape(reloaded.name),
+        "PROJ_POINTS": str(len(points_deg)),
+        "PROJ_ROWS": rows,
+        "PROJ_DESCRIBE": html.escape(reloaded.describe()),
+        "PROJ_REPORT": html.escape(report.describe()),
+        "PROJ_SNIPPET": html.escape(snippet),
+        "PROJ_CLI": html.escape(cli_text),
+        "PROJ_BROKEN_ROWS": broken_rows,
+        "PROJ_BROKEN_REPORT": html.escape(broken_report.describe()),
+        "PROJ_KEPT_ROWS": kept_rows,
+        "PROJ_SEQ_STEPS": str(len(sequence)),
+        "PROJ_DEVICES": str(len(device_cell.devices)),
+        "PROJ_MAPPED": str(sum(len(d.io_map) for d in device_cell.devices)),
+        # 专项测试数（tests/test_project.py 63 + tests/test_project_gui.py 12）
+        "PROJ_TESTS": "75",
+    }
+
+
 _MOTION_KEYS = (
     "movej", "movel", "movec", "MOVEJ", "MOVL", "MOVEC", "PTP ", "LIN ", "CIRC", "MoveJ", "MoveL", "MoveC",
     # IO / 工艺指令行也保留，展示抓取动作的品牌语法
@@ -4641,6 +5641,9 @@ def main() -> None:
         "controller_panel_ssh.png",
         "trajectory_arc.png",
         "io_map.png",
+        "ui_left_tabs.png",
+        "ui_right_tabs.png",
+        "ui_sequence_editor.png",
     ):
         src = REPO_ROOT / "docs/screenshots" / name
         if src.exists():
@@ -5062,6 +6065,87 @@ def main() -> None:
         .replace("@@COV_DYN_MISSES@@", data.get("cov_dyn_misses", ""))
         .replace("@@COV_DYN_RATE@@", data.get("cov_dyn_rate", ""))
         .replace("@@COV_TESTS@@", data.get("cov_tests", ""))
+        .replace("@@UIL_LEFT@@", data.get("uil_left", ""))
+        .replace("@@UIL_RIGHT@@", data.get("uil_right", ""))
+        .replace("@@UIL_SUBTABS@@", data.get("uil_subtabs", ""))
+        .replace("@@UIL_LEGACY@@", data.get("uil_legacy", ""))
+        .replace("@@UIL_FIT@@", data.get("uil_fit", ""))
+        .replace("@@UIL_LIB_PANEL@@", data.get("uil_lib_panel", ""))
+        .replace("@@UIL_LIB_CONTENT@@", data.get("uil_lib_content", ""))
+        .replace("@@UIL_LIB_VIEWPORT@@", data.get("uil_lib_viewport", ""))
+        .replace("@@UIL_LIB_SCROLL@@", data.get("uil_lib_scroll", ""))
+        .replace("@@UIL_PART@@", data.get("uil_part", ""))
+        .replace("@@UIL_FLANGE@@", data.get("uil_flange", ""))
+        .replace("@@UIL_SNAP_NEAR@@", data.get("uil_snap_near", ""))
+        .replace("@@UIL_SNAP_FAR@@", data.get("uil_snap_far", ""))
+        .replace("@@UIL_LOCAL@@", data.get("uil_local", ""))
+        .replace("@@UIL_MOUNTED@@", data.get("uil_mounted", ""))
+        .replace("@@UIL_FOLLOW@@", data.get("uil_follow", ""))
+        .replace("@@UIL_TESTS@@", data.get("uil_tests", ""))
+        .replace("@@SEQ_LANES@@", data.get("seq_lanes", ""))
+        .replace("@@SEQ_DUMP@@", data.get("seq_dump", ""))
+        .replace("@@SEQ_CLEAN@@", data.get("seq_clean", ""))
+        .replace("@@SEQ_PARTIAL@@", data.get("seq_partial", ""))
+        .replace("@@SEQ_PARTIAL_IDX@@", data.get("seq_partial_idx", ""))
+        .replace("@@SEQ_PARTIAL_MSG@@", data.get("seq_partial_msg", ""))
+        .replace("@@SEQ_ROBOT_KINDS@@", data.get("seq_robot_kinds", ""))
+        .replace("@@SEQ_ROBOT_COUNT@@", data.get("seq_robot_count", ""))
+        .replace("@@SEQ_NOTES@@", data.get("seq_notes", ""))
+        .replace("@@SEQ_PLC_ROWS@@", data.get("seq_plc_rows", ""))
+        .replace("@@SEQ_PLC_COUNT@@", data.get("seq_plc_count", ""))
+        .replace("@@SEQ_PROG_COUNT@@", data.get("seq_prog_count", ""))
+        .replace("@@SEQ_EQUIV@@", data.get("seq_equiv", ""))
+        .replace("@@SEQ_SCL_DECLARED@@", data.get("seq_scl_declared", ""))
+        .replace("@@SEQ_SCL_TIMER@@", data.get("seq_scl_timer", ""))
+        .replace("@@SEQ_SCL_LINES@@", data.get("seq_scl_lines", ""))
+        .replace("@@SEQ_STEPS@@", data.get("seq_steps", ""))
+        .replace("@@SEQ_COUNTS@@", data.get("seq_counts", ""))
+        .replace("@@SEQ_DWELL@@", data.get("seq_dwell", ""))
+        .replace("@@SEQ_NOTE@@", data.get("seq_note", ""))
+        .replace("@@SEQ_ED_ROWS@@", data.get("seq_ed_rows", ""))
+        .replace("@@SEQ_ED_BLOCKS@@", data.get("seq_ed_blocks", ""))
+        .replace("@@SEQ_ED_SIGNALS@@", data.get("seq_ed_signals", ""))
+        .replace("@@SEQ_ED_ISSUES@@", data.get("seq_ed_issues", ""))
+        .replace("@@SEQ_ED_SUMMARY@@", data.get("seq_ed_summary", ""))
+        .replace("@@SEQ_TESTS@@", data.get("seq_tests", ""))
+        .replace("@@SDEMO_STEPS@@", data.get("SDEMO_STEPS", ""))
+        .replace("@@SDEMO_VALIDATION@@", data.get("SDEMO_VALIDATION", ""))
+        .replace("@@SDEMO_UR@@", data.get("SDEMO_UR", ""))
+        .replace("@@SDEMO_SCL@@", data.get("SDEMO_SCL", ""))
+        .replace("@@SDEMO_JSON@@", data.get("SDEMO_JSON", ""))
+        .replace("@@PLB_PRESET_ROWS@@", data.get("PLB_PRESET_ROWS", ""))
+        .replace("@@PLB_CATALOG@@", data.get("PLB_CATALOG", ""))
+        .replace("@@PLB_CATEGORIES@@", data.get("PLB_CATEGORIES", ""))
+        .replace("@@PLB_CUSTOM_ROWS@@", data.get("PLB_CUSTOM_ROWS", ""))
+        .replace("@@PROJ_SIZE_KB@@", data.get("PROJ_SIZE_KB", ""))
+        .replace("@@PROJ_NAME@@", data.get("PROJ_NAME", ""))
+        .replace("@@PROJ_POINTS@@", data.get("PROJ_POINTS", ""))
+        .replace("@@PROJ_SEQ_STEPS@@", data.get("PROJ_SEQ_STEPS", ""))
+        .replace("@@PROJ_DEVICES@@", data.get("PROJ_DEVICES", ""))
+        .replace("@@PROJ_MAPPED@@", data.get("PROJ_MAPPED", ""))
+        .replace("@@PROJ_ROWS@@", data.get("PROJ_ROWS", ""))
+        .replace("@@PROJ_DESCRIBE@@", data.get("PROJ_DESCRIBE", ""))
+        .replace("@@PROJ_REPORT@@", data.get("PROJ_REPORT", ""))
+        .replace("@@PROJ_SNIPPET@@", data.get("PROJ_SNIPPET", ""))
+        .replace("@@PROJ_CLI@@", data.get("PROJ_CLI", ""))
+        .replace("@@PROJ_BROKEN_ROWS@@", data.get("PROJ_BROKEN_ROWS", ""))
+        .replace("@@PROJ_BROKEN_REPORT@@", data.get("PROJ_BROKEN_REPORT", ""))
+        .replace("@@PROJ_KEPT_ROWS@@", data.get("PROJ_KEPT_ROWS", ""))
+        .replace("@@PROJ_TESTS@@", data.get("PROJ_TESTS", ""))
+        .replace("@@SES_RECENT_ROWS@@", data.get("SES_RECENT_ROWS", ""))
+        .replace("@@SES_EXISTING_N@@", data.get("SES_EXISTING_N", ""))
+        .replace("@@SES_PRUNED@@", data.get("SES_PRUNED", ""))
+        .replace("@@SES_RECENT_N@@", data.get("SES_RECENT_N", ""))
+        .replace("@@SES_SNAP_SIZE_KB@@", data.get("SES_SNAP_SIZE_KB", ""))
+        .replace("@@SES_META@@", data.get("SES_META", ""))
+        .replace("@@SES_SNAPSHOT_SUMMARY@@", data.get("SES_SNAPSHOT_SUMMARY", ""))
+        .replace("@@SES_CLI@@", data.get("SES_CLI", ""))
+        .replace("@@SES_TESTS@@", data.get("SES_TESTS", ""))
+        .replace("@@TPL_ROWS@@", data.get("TPL_ROWS", ""))
+        .replace("@@TPL_STATS@@", data.get("TPL_STATS", ""))
+        .replace("@@TPL_DESCRIBE@@", data.get("TPL_DESCRIBE", ""))
+        .replace("@@TPL_CLI@@", data.get("TPL_CLI", ""))
+        .replace("@@TPL_TESTS@@", data.get("TPL_TESTS", ""))
         .replace("@@VSC_NOTE@@", data.get("vsc_note", ""))
         .replace("@@IO_SCL_BLOCK@@", data["io_scl_block"])
         .replace("@@IO_UNMAPPED_COMMENT@@", data["io_unmapped_comment"])
