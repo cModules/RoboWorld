@@ -232,10 +232,16 @@ class ScenePanel(QtWidgets.QWidget):
 
             # 先建所有节点
             for name, obj in self.scene.objects.items():
-                if name == ROBOT_NAME:
+                # 类型保持与「场景设备库」一致：机器人 → 机器人；组件 → 它的
+                # **分类**（基础设施 / 工件 / 夹具 / 末端工具…），而不是组件名
+                # （组件名是"两指夹爪"这种具体型号，留给「名称」列）。
+                # 判定必须用 is_robot：多机时第二台叫「机器人_2」，按名字比会
+                # 落到"自定义"。
+                if self.scene.is_robot(name):
                     kind = tr("机器人")
                 else:
-                    kind = COMPONENTS[obj.component_id].name if obj.component_id else tr("自定义")
+                    spec = COMPONENTS.get(obj.component_id) if obj.component_id else None
+                    kind = tr(spec.category) if spec else tr("自定义")
                 items[name] = QtWidgets.QTreeWidgetItem([name, kind])
                 items[name].setData(0, QtCore.Qt.UserRole, name)
 

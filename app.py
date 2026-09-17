@@ -1107,7 +1107,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             # 干涉对用红色线框高亮，让问题一眼可见（v0.2.1 起支持连杆级：
             # 命中带 link_a 时把"撞在哪一段"的连杆也描红）
             for hit in self._last_collisions:
-                if hit.obj_b != ROBOT_NAME:
+                if not self.scene.is_robot(hit.obj_b):
                     self._highlight_object(hit.obj_b, (1.0, 0.25, 0.15))
                 if getattr(hit, "link_a", None):
                     self._highlight_link(hit.link_a, (1.0, 0.25, 0.15))
@@ -2648,7 +2648,13 @@ class PathCodeEditor(QtWidgets.QWidget):
         for name in list(scene.objects):
             if self.cell.find(name):
                 continue
-            dev_type = "机器人" if name == ROBOT_NAME else "传感器"
+            # 与设备库同一套取值：机器人 → 机器人，组件 → 分类
+            if scene.is_robot(name):
+                dev_type = "机器人"
+            else:
+                obj = scene.objects[name]
+                spec = COMPONENTS.get(obj.component_id) if obj.component_id else None
+                dev_type = tr(spec.category) if spec else "传感器"
             self.cell.add(Device(name=name, type=dev_type))
         self._refresh_device_table()
 
@@ -2953,7 +2959,7 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.workpiece_combo.addItem(tr("（无）"), None)
         if self._scene is not None:
             for name in self._scene.objects:
-                if name == ROBOT_NAME:
+                if self._scene.is_robot(name):
                     continue
                 self.workpiece_combo.addItem(name, name)
         idx = self.workpiece_combo.findData(current)
@@ -3271,7 +3277,9 @@ class DevicePropertyPanel(QtWidgets.QWidget):
 
         self.current_object = name
         obj = self.scene.objects[name]
-        is_robot = name == ROBOT_NAME
+        # 必须用 is_robot 而不是"名字等于主机器人名"：多机时第二台叫
+        # 「机器人_2」，按名字比会让规格块/关节滑块/挂载下拉统统不显示
+        is_robot = self.scene.is_robot(name)
         spec = COMPONENTS.get(obj.component_id) if obj.component_id else None
 
         # 显示「对象属性」容器（内含信息 / 位置 / 参数）
@@ -3289,7 +3297,8 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             self.mount_btn_row.setVisible(False)
             self._refresh_parent_combo(name)
         else:
-            self.obj_type_label.setText(spec.name if spec else tr("自定义"))
+            # 与设备库同一套取值：显示**分类**，组件名由「名称」行承载
+            self.obj_type_label.setText(tr(spec.category) if spec else tr("自定义"))
             self.robot_spec_widget.setVisible(False)
             self.note_label.setVisible(False)
             self.obj_mount_widget.setVisible(True)
@@ -3589,7 +3598,10 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             return
         target = self.obj_parent_combo.currentData()
         try:
-            self.scene.attach(name, target, keep_world=(target != ROBOT_NAME))
+            # 挂到**任意一台**机器人（不只是主机器人）的法兰都要走装夹对齐
+            self.scene.attach(
+                name, target, keep_world=(target not in self.scene.robots)
+            )
             # 机器人挂到底座/台面：要"坐上去"（上表面正中央），而不是停在
             # 原地只建立随动关系——后者看着像根本没挂上
             if (self.scene.is_robot(name) and target

@@ -659,6 +659,40 @@ def test_load_robot_keeps_scene_joints_in_sync(window):
     assert any(abs(v) > 1e-6 for v in scene.robots[robot].joints_deg)
 
 
+def test_device_tree_type_matches_library_category(qapp):
+    """设备树「类型」列必须取**分类**，且与设备库同一套取值。
+
+    回归两处：① 判定用 ``name == ROBOT_NAME``，多机时第二台「机器人_2」会
+    落到"自定义"；② 显示的是组件名（"两指夹爪"）而不是分类（"末端工具"）。
+    """
+    from orolp.world.panel import ScenePanel
+
+    s = Scene()
+    s.set_robot(URDF, [0.0] * 6)
+    second = s.add_robot(URDF, [0.0] * 6)
+    gripper = s.add("tool_gripper")
+    table = s.add("worktable")
+
+    panel = ScenePanel(s)
+    try:
+        kinds = {}
+
+        def walk(item):
+            kinds[item.text(0)] = item.text(1)
+            for j in range(item.childCount()):
+                walk(item.child(j))
+
+        for i in range(panel.tree.topLevelItemCount()):
+            walk(panel.tree.topLevelItem(i))
+
+        assert kinds[ROBOT_NAME] == "机器人"
+        assert kinds[second] == "机器人", f"第二台类型是 {kinds[second]!r}"
+        assert kinds[gripper.name] == "末端工具"
+        assert kinds[table.name] == "基础设施"
+    finally:
+        panel.deleteLater()
+
+
 def test_two_robots_have_independent_renderers_and_joints(window):
     """两台机器人各自独立：渲染器不共用、关节互不影响。
 
