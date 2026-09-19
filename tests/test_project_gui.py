@@ -412,3 +412,43 @@ def test_parts_sources_restore_from_project_dir(window, tmp_path, silent_dialogs
         unregister_custom_parts(
             [cid for cid in list(COMPONENTS) if cid.startswith(CUSTOM_ID_PREFIX)]
         )
+
+
+# --------------------------------------------------------------------------- #
+# 「加载场景」的引用一致性
+# --------------------------------------------------------------------------- #
+
+
+def test_load_scene_replaces_all_scene_references(window, monkeypatch, tmp_path):
+    """「加载场景」整体换掉场景引用时，必须让主窗口统一接管。
+
+    回归：``ScenePanel.load_scene`` 曾直接换掉面板里的 scene 引用而不通知
+    主窗口——视口 / 属性面板 / 代码编辑器还拿着旧场景。之后点选任何对象，
+    属性面板在**新**场景里查不到名字，整个收起只剩日志，看起来就是
+    "属性面板里的内容弄丢了"。
+    """
+    win = window
+    win.load_robot(str(UR5E))
+    win._add_component_from_library("workpiece_box")
+
+    scene_path = tmp_path / "workcell.json"
+    win.scene_panel.scene.save(str(scene_path))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(scene_path), "")),
+    )
+    win.scene_panel.load_scene()
+
+    # 三处引用必须一起换（场景对象是按引用共享的）
+    assert win.property_panel.scene is win.scene_panel.scene
+    assert win.gl_widget.scene is win.scene_panel.scene
+    assert win.code_editor._scene is win.scene_panel.scene
+
+    # 选中对象后属性面板必须显示出来，而不是整个收起
+    name = next(
+        n for n in win.scene_panel.scene.objects
+        if not win.scene_panel.scene.is_robot(n)
+    )
+    win.gl_widget.objectSelected.emit(name)
+    assert not win.property_panel.object_scroll.isHidden()
+    assert win.property_panel.current_object == name

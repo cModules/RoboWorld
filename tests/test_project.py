@@ -92,7 +92,9 @@ def _full_project() -> Project:
 def test_schema_and_section_names():
     assert PROJECT_SCHEMA == "orolp.project/1"
     assert PROJECT_EXTENSION == ".orolp"
-    assert SECTION_NAMES == ("scene", "program", "sequence", "cell", "parts", "calibration")
+    assert SECTION_NAMES == (
+        "scene", "program", "programs", "sequence", "cell", "parts", "calibration",
+    )
 
 
 def test_set_get_has_remove():
@@ -307,7 +309,7 @@ def test_describe_reports_missing_sections_honestly():
     p = _full_project()
     text = p.describe()
     assert "demo" in text
-    assert "工程里没有：标定集" in text
+    assert "工程里没有：各机示教程序、标定集" in text
     assert "2 个对象" in text
 
 
@@ -554,7 +556,7 @@ def test_cli_json_output(tmp_path):
     assert payload["schema"] if "schema" in payload else True
     assert payload["name"] == "demo"
     assert set(payload["summary"]) == {"scene", "program", "sequence", "cell", "parts"}
-    assert payload["missing"] == ["calibration"]
+    assert payload["missing"] == ["programs", "calibration"]
 
 
 def test_cli_reports_unreadable_file(tmp_path):

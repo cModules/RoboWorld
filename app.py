@@ -628,6 +628,9 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         #: ``self.renderer`` 仍是"当前那台"（关节滑杆、记录点位等既有单机器人
         #: 调用面都走它），绘制时按名字从本字典取，互不覆盖。
         self.renderers: dict = {}
+        #: 模型不可用的机器人的**专属空渲染器**（键为机器人名）。见
+        #: :meth:`renderer_of`——宁可画不出来，也绝不能借用别人的渲染器。
+        self._empty_renderers: dict = {}
         #: 当前机器人：关节滑杆与关节同步都作用到它（多机必需）
         self.current_robot: str = ROBOT_NAME
         self.camera_dist = 1.2
@@ -640,8 +643,10 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         # 而本视口沿用 URDF 的米，绘制时统一乘 MM_TO_M
         self.scene = None
         self.last_pos = None
-        self.recorded_positions = []
-        self.recorded_ee_positions = []
+        #: 多机：示教点按机器人名分桶。``recorded_positions`` 是当前那台的别名，
+        #: 形态与从前一致（既有调用面都直接读写它），数据却不再串着用。
+        self._recorded_by_robot: dict = {}
+        self._recorded_ee_by_robot: dict = {}
         self.show_path = True
         #: 相机注视点（米）。载入机器人后按模型尺度自动对准，否则小协作臂
         #: 只占画面一角、大臂又超出视野。
@@ -723,7 +728,16 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                                 float(state.joints_deg[i])
                             )
                 return renderer
-        return self.renderer
+        # 走到这里说明这台机器人的模型确实取不到（URDF 丢失、路径相对且已被
+        # 移动过、或场景还没登记它）。**绝不退回 ``self.renderer``**：那会让它
+        # 借用另一台机器人的模型与 ``joint_values``——于是"拖 A 的关节"连 B 一起
+        # 转，而且 B 的位置画出来却是 A 的机身（几何与位形双双张冠李戴）。
+        # 画不出来是诚实的，画错了是灾难：给一台专属的空渲染器。
+        empty = self._empty_renderers.get(name)
+        if empty is None:
+            empty = RobotRenderer()
+            self._empty_renderers[name] = empty
+        return empty
 
     def set_current_robot(self, name) -> None:
         """切换"当前机器人"：关节滑杆与关节同步都作用到它（多机必需）。"""
@@ -865,60 +879,109 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                 return 0.5 * float(np.linalg.norm(extent))
         return 0.0
 
-    def set_joints(self, q):
-        self.renderer.set_joints(q)
+    # ---------------- 示教点：多机按机器人分桶 ---------------- #
+    #
+    # 每台机器人各自一串示教点，混在一个列表里就会"给 A 示教的点被算进 B 的
+    # 程序"。这里按名字分桶；对外仍保留 ``recorded_positions`` 当前引用形体的
+    # plain 属性用法（路径绘制、代码编辑器同步都在读写它），取的是**当前那台**。
+
+    def _recorded_bucket(self, robot: Optional[str] = None) -> list:
+        """取 ``robot``（缺省当前机器人）的示教点列表（不存在就建一个）。"""
+        key = robot or self.current_robot
+        return self._recorded_by_robot.setdefault(key, [])
+
+    def _recorded_ee_bucket(self, robot: Optional[str] = None) -> list:
+        """同上，末端点位列表。"""
+        key = robot or self.current_robot
+        return self._recorded_ee_by_robot.setdefault(key, [])
+
+    @property
+    def recorded_positions(self) -> list:
+        """当前机器人的示教点（多机分桶后与之等价的旧接口）。"""
+        return self._recorded_bucket()
+
+    @recorded_positions.setter
+    def recorded_positions(self, value) -> None:
+        self._recorded_by_robot[self.current_robot] = list(value)
+
+    @property
+    def recorded_ee_positions(self) -> list:
+        """当前机器人的末端点位（同上，旧接口兼容）。"""
+        return self._recorded_ee_bucket()
+
+    @recorded_ee_positions.setter
+    def recorded_ee_positions(self, value) -> None:
+        self._recorded_ee_by_robot[self.current_robot] = list(value)
+
+    def set_joints(self, q, robot: Optional[str] = None):
+        self.renderer_of(robot or self.current_robot).set_joints(q)
         self.update()
 
-    def get_joint_values(self):
-        return dict(self.renderer.joint_values)
+    def get_joint_values(self, robot: Optional[str] = None):
+        return dict(self.renderer_of(robot or self.current_robot).joint_values)
 
-    def set_joint_values(self, joint_dict):
+    def set_joint_values(self, joint_dict, robot: Optional[str] = None):
+        renderer = self.renderer_of(robot or self.current_robot)
         for name, value in joint_dict.items():
-            self.renderer.joint_values[name] = value
+            renderer.joint_values[name] = value
         self.update()
 
-    def record_position(self):
-        pos = self.get_joint_values()
+    def record_position(self, robot: Optional[str] = None) -> int:
+        """记录 ``robot``（缺省当前机器人）当前位形为一个示教点。"""
+        key = robot or self.current_robot
+        pos = self.get_joint_values(key)
         if pos:
-            self.recorded_positions.append(pos)
-            ee_pos = self._compute_end_effector_position()
-            self.recorded_ee_positions.append(ee_pos)
-        return len(self.recorded_positions)
+            self._recorded_bucket(key).append(pos)
+            self._recorded_ee_bucket(key).append(
+                self._compute_end_effector_position(key)
+            )
+        return len(self._recorded_bucket(key))
 
-    def clear_recorded_positions(self):
-        self.recorded_positions.clear()
-        self.recorded_ee_positions.clear()
+    def clear_recorded_positions(self, robot: Optional[str] = None) -> None:
+        """清空 ``robot`` 的示教点；``None`` 表示清空所有机器人。"""
+        if robot is None:
+            self._recorded_by_robot.clear()
+            self._recorded_ee_by_robot.clear()
+        else:
+            self._recorded_by_robot.pop(robot, None)
+            self._recorded_ee_by_robot.pop(robot, None)
 
-    def get_recorded_positions(self):
-        return self.recorded_positions
+    def get_recorded_positions(self, robot: Optional[str] = None) -> list:
+        """取 ``robot`` 的示教点；``None`` 取当前机器人。"""
+        return self._recorded_bucket(robot)
 
-    def set_recorded_positions(self, positions):
-        self.recorded_positions = positions
+    def set_recorded_positions(self, positions, robot: Optional[str] = None) -> None:
+        """导入 ``robot`` 的示教点并重算末端点（路径可视化要用）。"""
+        key = robot or self.current_robot
+        bucket = self._recorded_bucket(key)
+        bucket[:] = list(positions)
         # 重新计算末端执行器位置
-        original_joint_values = dict(self.renderer.joint_values)
-        self.recorded_ee_positions.clear()
+        renderer = self.renderer_of(key)
+        original_joint_values = dict(renderer.joint_values)
+        ee_bucket = self._recorded_ee_bucket(key)
+        ee_bucket.clear()
         for pos in positions:
-            self.set_joint_values(pos)
-            ee_pos = self._compute_end_effector_position()
-            self.recorded_ee_positions.append(ee_pos)
-        self.set_joint_values(original_joint_values)
+            self.set_joint_values(pos, key)
+            ee_bucket.append(self._compute_end_effector_position(key))
+        self.set_joint_values(original_joint_values, key)
 
-    def _compute_end_effector_position(self):
-        """计算末端执行器（TCP）的三维位置，单位米。
+    def _compute_end_effector_position(self, robot: Optional[str] = None):
+        """计算 ``robot``（缺省当前）末端执行器（TCP）的三维位置，单位米。
 
         走 :class:`RobotModel` 的正向运动学——它与 Pinocchio 的对拍误差为 0，
         且严格遵循 URDF 的 ``T·R`` 变换语义。旧实现是手写的 R·T 版本，
         一旦关节带 rpy 就会算错，这里直接换成已验证的实现。
         """
-        if self.renderer.root_link is None:
+        renderer = self.renderer_of(robot or self.current_robot)
+        if renderer.root_link is None:
             return (0.0, 0.0, 0.0)
 
-        poses = self.renderer.link_poses()
+        poses = renderer.link_poses()
         if not poses:
             return (0.0, 0.0, 0.0)
 
         # 末端 = 运动链上最后一个连杆；优先使用 TCP 标记
-        model = self.renderer.model
+        model = renderer.model
         if model is not None:
             chain = model.link_chain()
             target = "tcp" if "tcp" in poses else (chain[-1] if chain else None)
@@ -1062,7 +1125,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
             self._draw_scene()
         self._draw_robot()
 
-        if self.show_path and len(self.recorded_positions) > 1:
+        if self.show_path and self._has_any_path():
             gl.glDisable(gl.GL_LIGHTING)
             self._draw_recorded_path()
             gl.glEnable(gl.GL_LIGHTING)
@@ -1545,26 +1608,80 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
                 gl.glVertex3f(x * zr1, y * zr1, z1)
             gl.glEnd()
 
+    def _path_robots(self) -> list:
+        """有末端路径可画的机器人名（已移除的不算，免得留下幽灵路径）。"""
+        names = []
+        for name, pts in self._recorded_ee_by_robot.items():
+            if len(pts) < 2:
+                continue
+            # 场景里已经没有它了 → 不该再画（否则原点会堆一条无主的线）
+            if self.scene is not None and name not in self.scene.objects:
+                continue
+            names.append(name)
+        return names
+
+    def _has_any_path(self) -> bool:
+        """是否任一机器人有可画的路径。"""
+        return bool(self._path_robots())
+
+    def _path_points_for(self, robot: Optional[str] = None) -> list:
+        """``robot`` 的末端路径点，换算到**世界系米制**。
+
+        记录的末端点是渲染器正向运动学算出来的，处在**机器人自己的基座系**。
+        直接拿来画的话，第二台（以及任何被搬动过/挂上底座的机器人）的路径会
+        全部叠在原点——必须左乘该机器人的世界基座位姿。
+        """
+        key = robot or self.current_robot
+        pts = self._recorded_ee_by_robot.get(key) or []
+        if not pts:
+            return []
+        base = self._robot_base_pose_m(key)
+        if base is None:
+            # 没有场景/基座位姿（独立用法）：沿用基座系，与旧行为一致
+            return [tuple(float(v) for v in p) for p in pts]
+        out = []
+        for p in pts:
+            v = np.array(
+                [float(p[0]), float(p[1]), float(p[2]), 1.0], dtype=np.float64
+            )
+            w = base @ v
+            out.append((float(w[0]), float(w[1]), float(w[2])))
+        return out
+
     def _draw_recorded_path(self):
-        if not self.recorded_ee_positions or len(self.recorded_ee_positions) < 2:
-            return
-        # 绘制路径线
-        gl.glLineWidth(2.0)
-        gl.glColor3f(0.2, 0.8, 0.2)
-        gl.glBegin(GL_LINE_STRIP)
-        for pos in self.recorded_ee_positions:
-            x, y, z = pos
-            gl.glVertex3f(x, y, z)
-        gl.glEnd()
-        
-        # 绘制路径点
-        gl.glPointSize(5.0)
-        gl.glColor3f(1.0, 0.3, 0.3)
-        gl.glBegin(GL_POINTS)
-        for pos in self.recorded_ee_positions:
-            x, y, z = pos
-            gl.glVertex3f(x, y, z)
-        gl.glEnd()
+        """绘制每台机器人**各自**的末端路径。
+
+        路径属于机器人：既不能只画当前那台（别的机器人示教过的路径会凭空
+        消失），也不能都画在原点——末端点是基座系的，得先乘各自的基座位姿。
+        """
+        for name in self._path_robots():
+            pts = self._path_points_for(name)
+            if len(pts) < 2:
+                continue
+            # 当前这台亮、其余压暗：一眼看出"正在编辑谁"
+            is_current = name == self.current_robot
+            if is_current:
+                gl.glLineWidth(2.0)
+                gl.glColor3f(0.2, 0.8, 0.2)
+            else:
+                gl.glLineWidth(1.5)
+                gl.glColor3f(0.25, 0.5, 0.25)
+
+            gl.glBegin(GL_LINE_STRIP)
+            for x, y, z in pts:
+                gl.glVertex3f(x, y, z)
+            gl.glEnd()
+
+            if is_current:
+                gl.glPointSize(5.0)
+                gl.glColor3f(1.0, 0.3, 0.3)
+            else:
+                gl.glPointSize(3.5)
+                gl.glColor3f(0.65, 0.3, 0.3)
+            gl.glBegin(GL_POINTS)
+            for x, y, z in pts:
+                gl.glVertex3f(x, y, z)
+            gl.glEnd()
 
     # ------------------------------------------------------------------ #
     # 插件渲染覆盖层（v1.0.4）
@@ -2237,7 +2354,10 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
 class PathCodeEditor(QtWidgets.QWidget):
     positionRecorded = Signal(int)
-    playbackRequested = Signal(int)
+    #: 参数依次是**点索引 / 这个点归属哪台机器人**。机器人名不能省：全局运行
+    #: 时一行一个主人，只给索引的话主窗口只能拿"当前那台"去顶，表现为 A 的
+    #: 指令把 B 拽着走
+    playbackRequested = Signal(int, str)
     playbackStopped = Signal()
     clearRequested = Signal()
     positionsParsed = Signal()  # 新增：代码解析完成信号
@@ -2248,6 +2368,11 @@ class PathCodeEditor(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.recorded_positions = []
+        #: 与 recorded_positions **一一对应的归属机器人名**；``None`` 表示这段
+        #: 没标归属（旧工程 / 手打的代码）。路径编辑器一份点表里可能同时装
+        #: 着多台机器人的路径——给 B 记点不能把 A 的整段顶掉，"分别执行各台
+        #: 的路径"靠的就是这条平行数组。
+        self.point_robots: List[Optional[str]] = []
         self.joint_names = []  # 存储关节名称顺序
         self.playback_timer = None
         self.current_playback_index = 0
@@ -2255,6 +2380,21 @@ class PathCodeEditor(QtWidgets.QWidget):
         #: 与 recorded_positions 一一对应的工艺语义（PointType）。
         #: 抓取点/放置点会在播放时触发工件吸附与释放，并在生成代码时插入 IO 指令
         self.point_types = []
+        #: 这一串示教点**属于哪台机器人**。路径编辑器只有一份点表，而视口里
+        #: 点选/场景树选中都会切换"当前机器人"却不换点表——播放时必须认这个
+        #: 归属，否则播 A 的程序会把 B 拽着走
+        self.owner_robot = None
+        #: 每条指令的**行号与归属**：``[(行号, 机器人名或 None, 点索引)]``，由
+        #: :meth:`_parse_code_to_positions` 建立。"从第几行起跑""只跑选中那台"
+        #: 全靠它——光有点值序列是定位不了的
+        self._line_map: List[Tuple[int, Optional[str], int]] = []
+        #: 本次播放要走的**点索引序列**（已按"只跑某台 / 从光标行起"筛过）
+        self._playback_seq: List[int] = []
+        #: 走到 :attr:`_playback_seq` 的第几个
+        self._playback_pos: int = 0
+        #: 由主窗口注入的回调：返回**当前选中对象**关联的机器人名（``None``
+        #: 表示没选中或关联不到任何机器人）。编辑器自己看不到视口选中状态
+        self.selection_robot_provider = None
         #: 工作单元场景（由 MainWindow 注入），用于枚举可抓取的工件
         self._scene = None
         #: 工作单元模型（硬件列表 / PLC 程序逻辑共用同一份）
@@ -2263,6 +2403,8 @@ class PathCodeEditor(QtWidgets.QWidget):
         self._robot = None
         self._scene = None
         self._setup_ui()
+        # 光标一动，"从选中行号处运行"的起点就变了，范围提示要跟着更新
+        self.code_edit.cursorPositionChanged.connect(self.refresh_scope)
         self.setPlainText("# OLP Path Code\nmovej([0, -90, 90, -90, 90, 0], vel=0.5)\n")
 
     def _setup_ui(self):
@@ -2317,6 +2459,11 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.pos_count_label = QtWidgets.QLabel("Positions: 0")
         self.pos_count_label.setFont(QFont("Consolas", 9))
 
+        #: 将要执行的范围——按下去之前就该知道跑的是哪台、从哪一行开始
+        self.scope_label = QtWidgets.QLabel("")
+        self.scope_label.setFont(QFont("Consolas", 9))
+        self.scope_label.setStyleSheet("color: #9ad0ff;")
+
         control_layout.addWidget(self.record_btn)
         control_layout.addWidget(self.play_btn)
         control_layout.addWidget(self.pause_btn)
@@ -2324,6 +2471,8 @@ class PathCodeEditor(QtWidgets.QWidget):
         control_layout.addWidget(self.stop_btn)
         control_layout.addWidget(self.clear_btn)
         control_layout.addWidget(self.pos_count_label)
+        control_layout.addWidget(self.scope_label)
+        control_layout.addStretch(1)
 
         # ---- 抓取工艺：点位语义 + 工件选择 ----
         if _HAS_PICKPLACE:
@@ -2446,7 +2595,9 @@ class PathCodeEditor(QtWidgets.QWidget):
         if not pts:
             return []
         try:
-            plan = build_pick_place(pts, self.get_point_types())
+            # 用**全量**语义：pts 取自整份点表（可能含多台的路径），只给"当前
+            # 编辑那台"那段语义会让点数与语义数对不上
+            plan = build_pick_place(pts, self.point_types)
         except Exception as exc:  # pragma: no cover - 示教数据异常时不该崩
             print(f"[warning] 点表校验取程序失败: {exc}")
             return []
@@ -2814,13 +2965,20 @@ class PathCodeEditor(QtWidgets.QWidget):
         # 通知主窗口更新 GLWidget 的路径可视化
         self.positionsParsed.emit()
             
-        if self.playback_timer is None:
-            self.playback_timer = QtCore.QTimer(self)
-            self.playback_timer.timeout.connect(self._on_playback_tick)
+        # 选中了机器人（或挂在它上面的夹爪/工件）→ 只跑这台的路径；
+        # 没选中 → 从代码选中行号处全局运行
+        robot = self._selected_robot()
+        self._playback_seq = self.playback_plan(
+            robot=robot, from_cursor=robot is None
+        )
+        if not self._playback_seq:
+            self._notify(tr("没有可运行的路径点"))
+            return
+        self._ensure_timer()
         if not self.playback_timer.isActive():
-            self.current_playback_index = 0
+            self._playback_pos = 0
             self.playback_timer.start(self.playback_speed)
-            self.playbackRequested.emit(0)
+            self._emit_current()
 
     def _on_stop_clicked(self):
         self._stop_playback()
@@ -2832,6 +2990,22 @@ class PathCodeEditor(QtWidgets.QWidget):
             self.playback_timer = QtCore.QTimer(self)
             self.playback_timer.timeout.connect(self._on_playback_tick)
 
+    def _emit_current(self) -> None:
+        """把当前这一步的**点索引**与**它归属那台**一起发出去。"""
+        index = self._playback_seq[self._playback_pos]
+        self.current_playback_index = index
+        self.playbackRequested.emit(index, self.robot_at(index) or "")
+
+    def _rebuild_seq_if_idle(self) -> None:
+        """还没有播放序列（首次单步/继续）时按当前选中与光标行建一条。"""
+        if self._playback_seq:
+            return
+        robot = self._selected_robot()
+        self._playback_seq = self.playback_plan(
+            robot=robot, from_cursor=robot is None
+        )
+        self._playback_pos = 0
+
     def _on_pause_clicked(self):
         """暂停 / 继续。
 
@@ -2841,11 +3015,12 @@ class PathCodeEditor(QtWidgets.QWidget):
         if not self.recorded_positions:
             return
         self._ensure_timer()
+        self._rebuild_seq_if_idle()
         if self.playback_timer.isActive():
             self.playback_timer.stop()
         else:
-            if self.current_playback_index >= len(self.recorded_positions):
-                self.current_playback_index = 0
+            if self._playback_pos >= len(self._playback_seq):
+                self._playback_pos = 0
             self.playback_timer.start(self.playback_speed)
         self._sync_pause_button()
 
@@ -2856,8 +3031,9 @@ class PathCodeEditor(QtWidgets.QWidget):
         self._ensure_timer()
         if self.playback_timer.isActive():
             self.playback_timer.stop()
-        if self.current_playback_index >= len(self.recorded_positions):
-            self.current_playback_index = 0
+        self._rebuild_seq_if_idle()
+        if self._playback_pos >= len(self._playback_seq):
+            self._playback_pos = 0
         self._on_playback_tick()
         self._sync_pause_button()
 
@@ -2871,12 +3047,13 @@ class PathCodeEditor(QtWidgets.QWidget):
         if self.playback_timer is not None:
             self.playback_timer.stop()
         self.current_playback_index = 0
+        self._playback_pos = 0
         self._sync_pause_button()
 
     def _on_playback_tick(self):
-        if self.current_playback_index < len(self.recorded_positions):
-            self.playbackRequested.emit(self.current_playback_index)
-            self.current_playback_index += 1
+        if self._playback_pos < len(self._playback_seq):
+            self._emit_current()
+            self._playback_pos += 1
         else:
             self._stop_playback()
             self.playbackStopped.emit()
@@ -2884,16 +3061,21 @@ class PathCodeEditor(QtWidgets.QWidget):
     def _on_clear_clicked(self):
         self._stop_playback()
         self.recorded_positions.clear()
+        self.point_robots.clear()
         self.point_types.clear()
+        self._line_map.clear()
         self.pos_count_label.setText("Positions: 0")
         self.code_edit.clear()
         self.code_edit.append("# OLP Path Code\n")
         self.clearRequested.emit()
         self._suggest_next_point_type()
 
-    def record_position(self, joint_values):
+    def record_position(self, joint_values, robot=None):
         if self.record_btn.isChecked():
             self.recorded_positions.append(dict(joint_values))
+            # 归属跟着点一起进表：不记的话这一段就"没主人"，播放时只能退回
+            # 整份归属，多机下会把这台的点驱动到另一台身上
+            self.point_robots.append(robot or self.owner_robot)
             if _HAS_PICKPLACE:
                 self.point_types.append(self.point_type_combo.currentData())
             self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
@@ -2926,12 +3108,26 @@ class PathCodeEditor(QtWidgets.QWidget):
         if len(self.point_types) > n:
             self.point_types = self.point_types[:n]
         while len(self.point_types) < n:
-            self.point_types.append(
-                default_types_for_count(n)[len(self.point_types)]
-            )
+            self.point_types.append(None)
+        # 补默认语义要**按段**来：默认的五点式是每台各一套
+        self._fill_missing_types()
 
-    def get_point_types(self):
+    def get_point_types(self, robot=None):
+        """``robot``（缺省**当前编辑那台**）的工艺语义。
+
+        一份点表里可能装多台的路径，语义只能一段一段地给：直接返回整份会让
+        "切回 A"拿到 A+B 混在一起的语义。``robot`` 解析不到（旧工程没有归属
+        标记）时退回整份，行为与从前一致。
+        """
+        if robot is None:
+            robot = self.owner_robot
+        if robot is not None and robot in self.point_robots:
+            return self.types_of(robot)
         return self.point_types
+
+    def point_type_at(self, index: int):
+        """第 ``index`` 个点（**总表索引**）的工艺语义——播放按行序取值用。"""
+        return self._type_at(index)
 
     def set_scene(self, scene) -> None:
         """注入工作单元场景，用于枚举可抓取的工件。"""
@@ -2972,24 +3168,151 @@ class PathCodeEditor(QtWidgets.QWidget):
             return None
         return self.workpiece_combo.currentData()
 
+    def segments(self) -> List[Tuple[Optional[str], List[int]]]:
+        """点表按归属切成**连续的段**：``[(机器人名或 None, [点索引...])]``。
+
+        出码与按机归档都用它：同一台的点聚成一段，段首写一个 ``# Robot:``
+        头，于是两台机器人的路径在代码里各占一段、一眼分得清。
+        """
+        out: List[Tuple[Optional[str], List[int]]] = []
+        for i, robot in enumerate(self.point_robots):
+            if out and out[-1][0] == robot:
+                out[-1][1].append(i)
+            else:
+                out.append((robot, [i]))
+        return out
+
     def _update_code_with_positions(self):
         self.code_edit.clear()
         self.code_edit.append("# OLP Path Code")
         self.code_edit.append(f"# Recorded positions: {len(self.recorded_positions)}")
-        self.code_edit.append("")
-        for i, pos in enumerate(self.recorded_positions):
-            # 将弧度转换为角度显示
-            joints_str = ", ".join([f"{math.degrees(v):.2f}" for v in pos.values()])
-            self.code_edit.append(f"movej([{joints_str}], vel=0.5)")
+        # 逐段出码：每台机器人一段，段首带归属。整份只写一个 Robot 头时，
+        # 第二台一记点，第一台的路径就从代码里整段消失了——这也是"看不到
+        # 机器人信息"的由来。
+        for robot, indices in self.segments():
+            self.code_edit.append("")
+            if robot:
+                # 归属写进代码：从别处粘贴 / 载入工程时靠这一行认出这串点属于哪台
+                self.code_edit.append(f"# Robot: {robot}")
+            for i in indices:
+                # 将弧度转换为角度显示
+                joints_str = ", ".join(
+                    f"{math.degrees(v):.2f}" for v in self.recorded_positions[i].values()
+                )
+                self.code_edit.append(f"movej([{joints_str}], vel=0.5)")
+        self._update_count_label()
+
+    def _update_count_label(self) -> None:
+        """点数标签带上**各台各多少点**——归属只写在代码注释里太容易看不见。"""
+        n = len(self.recorded_positions)
+        counts: dict = {}
+        for robot in self.point_robots:
+            counts[robot] = counts.get(robot, 0) + 1
+        named = {r: c for r, c in counts.items() if r}
+        if named:
+            detail = " · ".join(f"{r} {c}" for r, c in named.items())
+            self.pos_count_label.setText(f"Positions: {n}（{detail}）")
+        else:
+            self.pos_count_label.setText(f"Positions: {n}")
 
     def get_recorded_positions(self):
         return self.recorded_positions
 
-    def set_recorded_positions(self, positions):
-        self.recorded_positions = list(positions)
+    def set_recorded_positions(self, positions, owner=None):
+        """换上 ``owner`` 的示教点；``owner`` 为空表示整份替换、归属不变。
+
+        只替 ``owner`` **那一段**，其余机器人的段原样保留：编辑器一份点表里
+        同时装着多台的路径，给 B 记点若整表替换，A 的路径就被顶掉了——那既
+        是"看不到机器人信息"，也是后面播放时把 A 的点算到 B 名下的源头。
+        """
+        positions = list(positions)
+        if owner is None:
+            self.recorded_positions = positions
+            self.point_robots = [None] * len(positions)
+        else:
+            new_pos, new_own, new_types = [], [], []
+            old_types = {
+                robot: [self._type_at(i) for i in indices]
+                for robot, indices in self.segments()
+            }
+            placed = False
+            for robot, indices in self.segments():
+                if robot == owner:
+                    if placed:
+                        continue  # 同属的旧段已被新点取代
+                    placed = True
+                    prev = old_types.get(robot) or []
+                    for k, pos in enumerate(positions):
+                        new_pos.append(pos)
+                        new_own.append(owner)
+                        new_types.append(prev[k] if k < len(prev) else None)
+                else:
+                    for i in indices:
+                        new_pos.append(self.recorded_positions[i])
+                        new_own.append(robot)
+                        new_types.append(self._type_at(i))
+            if not placed:  # 这台还没有段：追加到末尾
+                for pos in positions:
+                    new_pos.append(pos)
+                    new_own.append(owner)
+                    new_types.append(None)
+            self.recorded_positions = new_pos
+            self.point_robots = new_own
+            self.point_types = new_types
+            self.owner_robot = owner
+        self._fill_missing_types()
         self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
         self._update_code_with_positions()
         self.update()
+
+    def _type_at(self, index: int):
+        """第 ``index`` 个点的工艺语义；越界返回 ``None``。"""
+        if 0 <= index < len(self.point_types):
+            return self.point_types[index]
+        return None
+
+    def _fill_missing_types(self) -> None:
+        """把 ``point_types`` 里的空位按**各段自己的**默认语义补齐。
+
+        段替换后长度会变，而默认的五点式（接近/抓取/提升/放置/撤离）是**每台
+        机器人各一套**——按总点数取一套默认值的话，第二台拿到的是"续在后面"
+        的那几个（全是途经点），循环里没有抓取点，回放时根本不夹。
+        """
+        if not _HAS_PICKPLACE:
+            return
+        n = len(self.recorded_positions)
+        if len(self.point_types) > n:
+            self.point_types = self.point_types[:n]
+        while len(self.point_types) < n:
+            self.point_types.append(None)
+        for _robot, indices in self.segments():
+            seq = default_types_for_count(len(indices))
+            for k, i in enumerate(indices):
+                if self.point_types[i] is None and seq:
+                    self.point_types[i] = seq[k % len(seq)]
+
+    def points_of(self, robot: Optional[str]) -> List[dict]:
+        """``robot`` 那一段的示教点（按代码里的先后顺序）。"""
+        return [self.recorded_positions[i] for i in self.indices_of(robot)]
+
+    def indices_of(self, robot: Optional[str]) -> List[int]:
+        """``robot`` 那段在总表里的点索引。"""
+        if robot is None:
+            return list(range(len(self.recorded_positions)))
+        return [i for i, r in enumerate(self.point_robots) if r == robot]
+
+    def types_of(self, robot: Optional[str]) -> List:
+        """``robot`` 那段对应的工艺语义。"""
+        return [self._type_at(i) for i in self.indices_of(robot)]
+
+    def set_types_for(self, robot: Optional[str], types) -> None:
+        """给 ``robot`` 那段回填工艺语义（切换机器人时恢复用）。"""
+        types = list(types or [])
+        for k, i in enumerate(self.indices_of(robot)):
+            if k < len(types) and types[k] is not None:
+                if i < len(self.point_types):
+                    self.point_types[i] = types[k]
+        self._fill_missing_types()
 
     def toPlainText(self):
         return self.code_edit.toPlainText()
@@ -3001,51 +3324,152 @@ class PathCodeEditor(QtWidgets.QWidget):
         """设置关节名称顺序，用于解析代码"""
         self.joint_names = list(names)
 
+    #: 段级归属头：出现一次后，其后的指令都归这台，直到下一个 Robot 头出现
+    _ROBOT_HEADER_RE = re.compile(r"^#\s*Robot\s*:\s*(.+?)\s*$")
+
     def _parse_code_to_positions(self):
-        """从代码编辑器中解析路径位置数据"""
+        """从代码编辑器解析点位，**并记下每条指令的行号与归属**。
+
+        只抓出数值是不够的：「从选中行开始跑」「只跑选中那台」都要求知道每条
+        指令在代码里的位置、以及它属于哪台机器人，所以这里逐行扫描，而不是
+        对全文 ``findall``——后者会把位置和归属一起丢掉。
+        """
         code_text = self.code_edit.toPlainText()
         # 语义不在代码文本里，解析会重建位置列表——先存下来，数量一致就沿用它，
         # 否则用户打的「抓取点 / 放置点」标记会在每次 Play 时被抹掉
         old_types = list(self.point_types)
         self.recorded_positions.clear()
+        self.point_robots.clear()
+        self._line_map.clear()
         
         # 匹配 movej([value1, value2, ...], vel=X.X) 格式
         pattern = r'movej\(\s*\[([^\]]+)\]\s*(?:,\s*vel\s*=\s*[\d.]+)?\s*\)'
-        matches = re.findall(pattern, code_text)
         
-        for match in matches:
-            # 解析数值列表（角度）
+        robot = self.owner_robot  # 没有 Robot 头时，整份退回这个归属
+        for line_no, line in enumerate(code_text.splitlines(), start=1):
+            header = self._ROBOT_HEADER_RE.match(line)
+            if header:
+                robot = header.group(1)
+                continue
+            found = re.search(pattern, line)
+            if not found:
+                continue
             try:
-                values = [float(v.strip()) for v in match.split(',')]
+                values = [float(v.strip()) for v in found.group(1).split(',')]
                 # 将角度转换为弧度
                 rad_values = [math.radians(v) for v in values]
                 
                 if self.joint_names and len(values) == len(self.joint_names):
                     # 如果有关节名称，创建字典
-                    pos_dict = {}
-                    for i, name in enumerate(self.joint_names):
-                        pos_dict[name] = rad_values[i]
-                    self.recorded_positions.append(pos_dict)
+                    pos_dict = {
+                        name: rad_values[i] for i, name in enumerate(self.joint_names)
+                    }
                 elif len(values) > 0:
                     # 如果没有关节名称，使用索引作为键
                     pos_dict = {f"joint_{i+1}": rad_values[i] for i in range(len(rad_values))}
-                    self.recorded_positions.append(pos_dict)
+                else:
+                    continue
+                # 行号与归属必须与点值同生共死：它们是"从哪行起跑""跑哪台"的依据
+                self._line_map.append((line_no, robot, len(self.recorded_positions)))
+                self.recorded_positions.append(pos_dict)
+                self.point_robots.append(robot)
             except ValueError:
                 continue
         
-        # 更新位置计数显示
-        self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
+        # 更新位置计数显示（带上各台各多少点）
+        self._update_count_label()
 
         if len(old_types) == len(self.recorded_positions):
             self.point_types = old_types
         else:
+            # 点数变了就重建：默认的五点式是**每台各一套**，按整份点数取会
+            # 让第二台拿到一串途经点，循环里没有抓取点
             self.point_types = []
             self.sync_point_types()
+        self.refresh_scope()
+
+    # ---------------- 播放范围：跑哪台、从哪行起 ---------------- #
+
+    def robot_at(self, index: int) -> Optional[str]:
+        """第 ``index`` 个示教点归属哪台机器人（无映射信息时退回整份归属）。"""
+        if 0 <= index < len(self._line_map):
+            return self._line_map[index][1]
+        if 0 <= index < len(self.point_robots):
+            return self.point_robots[index]
+        return self.owner_robot
+
+    def line_of(self, index: int) -> int:
+        """第 ``index`` 个示教点在代码里的行号（1 起）。"""
+        if 0 <= index < len(self._line_map):
+            return self._line_map[index][0]
+        return index + 1
+
+    def _cursor_line(self) -> int:
+        """代码光标所在行（1 起）——"从选中行号处运行"的行号来源。"""
+        return self.code_edit.textCursor().blockNumber() + 1
+
+    def _selected_robot(self) -> Optional[str]:
+        """**当前选中对象**关联的机器人；没选中或关联不到则 ``None``。"""
+        provider = getattr(self, "selection_robot_provider", None)
+        return provider() if callable(provider) else None
+
+    def playback_plan(self, robot: Optional[str] = None,
+                      from_cursor: bool = False) -> List[int]:
+        """算出这次播放要走的**点索引序列**（顺序与代码行序一致）。
+
+        Args:
+            robot: 只跑这台机器人的指令；``None`` 表示不挑机器人
+            from_cursor: 是否从光标所在行开始——未选中设备时的「全局运行」
+        """
+        seq = list(range(len(self.recorded_positions)))
+        if robot:
+            # 选中了机器人（或挂在它上面的夹爪/工件）：只跑它的指令，其余整段跳过
+            return [i for i in seq if self.robot_at(i) == robot]
+        if from_cursor:
+            line = self._cursor_line()
+            return [i for i in seq if self.line_of(i) >= line]
+        return seq
+
+    def refresh_scope(self) -> None:
+        """刷新「将要执行的范围」——按下 Play 之前就该知道跑的是谁、从哪开始。"""
+        if not hasattr(self, "scope_label"):
+            return
+        total = len(self.recorded_positions)
+        if not total:
+            self.scope_label.setText("")
+            return
+        robot = self._selected_robot()
+        if robot:
+            seq = self.playback_plan(robot=robot)
+            self.scope_label.setText(
+                tr("将运行：{robot} · {n}/{total} 点").format(
+                    robot=robot, n=len(seq), total=total)
+            )
+        else:
+            seq = self.playback_plan(from_cursor=True)
+            self.scope_label.setText(
+                tr("将从第 {line} 行起全局运行（{n}/{total} 点）").format(
+                    line=self._cursor_line(), n=len(seq), total=total)
+            )
+
+    def highlight_line(self, line: int) -> None:
+        """把光标移到第 ``line`` 行并整行选中——报错时指出是哪一行出的问题。"""
+        block = self.code_edit.document().findBlockByNumber(max(0, line - 1))
+        if not block.isValid():
+            return
+        cursor = QtGui.QTextCursor(block)
+        cursor.movePosition(QtGui.QTextCursor.EndOfBlock, QtGui.QTextCursor.KeepAnchor)
+        self.code_edit.setTextCursor(cursor)
 
 
 class DevicePropertyPanel(QtWidgets.QWidget):
     objectChanged = Signal()  # 场景对象属性被编辑后触发视口重绘
-    jointChanged = Signal(str, float)  # 关节滑块改动 → 驱动视口/记录
+    #: 关节滑块改动 → 驱动视口/记录。
+    #:
+    #: 三个参数依次是 **机器人名 / 关节名 / 弧度**。机器人名不能省：单薄的
+    #: ``(关节名, 值)`` 只能落到"当前渲染器"身上，而滑块是按**选中那台**的关节
+    #: 建的——两者错位时，拖 A 的滑块却把值写进了 B，表现为两台一起动。
+    jointChanged = Signal(str, str, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -3066,6 +3490,12 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.axis_sliders = {}
         self.axis_value_labels = {}
         self._renderer = None
+        #: 当前「关节」滑块所属的机器人名——多机时 :attr:`jointChanged` 要据此
+        #: 指名写入，不能再让 MainWindow 猜"当前渲染器"是谁
+        self._active_robot: Optional[str] = None
+        #: 「按机器人名取渲染器」回调，由主窗口注入 ``gl_widget.renderer_of``。
+        #: 没有它，选中 A 也只能沿用一个陈旧渲染器（通常是最后加载那台）。
+        self.renderer_provider = None
         self._setup_ui()
     
     def _setup_ui(self):
@@ -3321,9 +3751,12 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         # 参数（模型参数化）与关节（姿态调节）各归其位：
         # - 机器人：无尺寸参数，关节面板给 6 轴滑块
         # - 组件：参数面板给尺寸参数（已排除轴），关节面板给它的可动轴
-        if is_robot and self._renderer is not None:
+        # 机器人必须按**自己的名字**取渲染器：沿用 :attr:`_renderer`（最后加载
+        # 那台）会让选中 A 时滑块仍是 B 的关节组——多机串扰的源头在这里
+        robot_renderer = self._renderer_for_robot(name) if is_robot else None
+        if is_robot and robot_renderer is not None:
             self._rebuild_param_rows(None, {})
-            self._setup_joint_controls(self._renderer)
+            self._setup_joint_controls(robot_renderer, name)
         else:
             self._rebuild_param_rows(spec, obj.params)
             self._rebuild_axis_rows(spec, obj)
@@ -3382,9 +3815,39 @@ class DevicePropertyPanel(QtWidgets.QWidget):
             row.addWidget(spin, 1)
             self.obj_params_layout.addLayout(row)
 
-    def _setup_joint_controls(self, renderer) -> None:
-        """为机器人在「关节」面板内构建 6 轴滑块。"""
+    def set_renderer_provider(self, fn) -> None:
+        """注入「按机器人名取渲染器」的回调（多机必需）。
+
+        Args:
+            fn: ``Callable[[str], RobotRenderer]``；主窗口传
+                ``gl_widget.renderer_of``
+
+        Note:
+            不注入的话，本面板只能沿用 :attr:`_renderer`（由
+            :meth:`update_robot_info` 写入，通常是**最后加载**那台）。于是选中
+            A 时滑块仍是 B 的关节组——拖动会把值写进别的机器人，两台一起动。
+        """
+        self.renderer_provider = fn
+
+    def _renderer_for_robot(self, name: str):
+        """按名字取该机器人的渲染器；取不到时退回 :attr:`_renderer`。"""
+        if self.renderer_provider is not None:
+            try:
+                return self.renderer_provider(name)
+            except Exception:
+                return None
+        return self._renderer
+
+    def _setup_joint_controls(self, renderer, robot_name: Optional[str] = None) -> None:
+        """为机器人在「关节」面板内构建 6 轴滑块。
+
+        Args:
+            renderer: 渲染器（取关节清单与初值）
+            robot_name: 这台机器人的**名字**。滑块回调要记下来一起发出去——
+                否则 MainWindow 无从判断该把关节值写到哪一台
+        """
         self._renderer = renderer
+        self._active_robot = robot_name
         self._clear_layout(self.obj_joint_layout)
         self.axis_sliders.clear()
         self.axis_value_labels.clear()
@@ -3507,7 +3970,8 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         angle = value / 100.0
         if name in self.value_labels:
             self.value_labels[name].setText(f"{angle:.1f}°")
-        self.jointChanged.emit(name, math.radians(angle))
+        # 带上所属机器人名：多机时 MainWindow 靠它定位该写哪台渲染器
+        self.jointChanged.emit(self._active_robot or "", name, math.radians(angle))
 
     def update_joint_displays(self, joint_values):
         for name, value in joint_values.items():
@@ -3644,6 +4108,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.urdf_path = urdf_path
         #: 供离线编程面板使用的 :class:`orolp.Robot`（含运动学）
         self.olp_robot = None
+        #: 各机器人**抓取的工件**，键为机器人名。理由同上：工件下拉也是全局
+        #: 一份，多机同时回放时不分开就会两台抢同一个工件（A 刚夹起就被 B 抢走）
+        self._workpiece_by_robot: dict = {}
+        #: 各机器人的**示教点语义**（PICK/PLACE…），键为机器人名。
+        #: 路径编辑器一次只显示一台的点表，它的 ``point_types`` 就是"当前那台"
+        #: 的；切换机器人时必须把旧的存进来、新的取出来，否则 B 会顶着 A 的
+        #: 抓取语义出码——B 的程序里根本没有夹爪指令。
+        self._point_types_by_robot: dict = {}
         #: 「真机连接」模式对话框（v1.1.1）：首次打开时创建，之后复用
         self._controller_dialog = None
         self._controller_panel = None
@@ -4134,15 +4606,28 @@ class MainWindow(QtWidgets.QMainWindow):
                 project.set("scene", scene.to_dict())
 
         if hasattr(self, "code_editor"):
+            # 存**整份**语义：代码里装着所有机器人的段，只存"当前编辑那台"
+            # 一段的话，载入时点数对不上，只能全部按默认语义重建（抓取点丢失）
             types = [
                 getattr(t, "value", str(t))
-                for t in (self.code_editor.get_point_types() or [])
+                for t in (self.code_editor.point_types or [])
             ]
             project.set("program", {
                 "code": self.code_editor.toPlainText(),
                 "point_types": types,
                 "joint_names": list(self.code_editor.joint_names or []),
             })
+
+        # 多机：每台机器人**各自**的示教点与抓取语义。上面那段 ``program`` 只
+        # 装得下当前那台（路径编辑器一次只显示一台），多机工程存盘再打开会丢掉
+        # 其余机器人教好的抓取循环——抓取编程必须存得住。
+        if _HAS_PROGRAM and hasattr(self, "program_panel"):
+            snapshot = self.program_panel.robot_snapshot()
+            for name, payload in snapshot.items():
+                # 工件归属一并存：谁抓哪件是工艺的一部分
+                payload["workpiece"] = self._workpiece_by_robot.get(name)
+            if snapshot:
+                project.set("programs", snapshot)
 
         if (
             _HAS_WORLD
@@ -4196,8 +4681,13 @@ class MainWindow(QtWidgets.QMainWindow):
                         alt = _REPO_ROOT / urdf
                         if alt.exists():
                             urdf = str(alt)
+                    # 场景必须先落地：机器人是随场景一起恢复的，认领它要在
+                    # adopt 之后——否则 load_robot 操作的是**旧的**场景，会往
+                    # 里面再追加一台默认名的机器人，多机工程于是凭空多一台
+                    self._adopt_scene(scene)
                     if urdf and Path(urdf).exists():
-                        self.load_robot(urdf)
+                        # 只认领，不追加
+                        self.load_robot(urdf, adopt_existing=True)
                         names = self.gl_widget.renderer.actuated_names()
                         joints = getattr(scene, "_robot_joints_deg", []) or []
                         if getattr(scene, "has_robot", False) and len(joints) == len(names):
@@ -4208,9 +4698,11 @@ class MainWindow(QtWidgets.QMainWindow):
                         issues.append(
                             tr("场景里的机器人模型找不到：{urdf}（场景仍已载入）").format(urdf=urdf)
                         )
-                    self._adopt_scene(scene)
                     if _HAS_PROGRAM and hasattr(self, "program_panel"):
                         self.program_panel.set_scene(scene)
+                        # 场景里**每台**机器人都要登记：只登记主机器人的话，
+                        # 其余机器人的抓取程序就成了没有主人的孤儿
+                        self._restore_robot_programs(scene)
 
         # ---- 示教程序（含代码文本里没有的工艺语义） ---- #
         payload = project.get("program")
@@ -4242,6 +4734,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 positions = self.code_editor.get_recorded_positions()
                 self.gl_widget.set_recorded_positions(positions)
                 self._sync_program_points()
+
+        # ---- 多机：每台机器人各自的示教点与抓取语义 ---- #
+        payload = project.get("programs")
+        if payload is not None:
+            if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+                issues.append(tr("多机示教点段已跳过：离线编程模块不可用"))
+            else:
+                self.program_panel.restore_robots(payload)
+                for name, data in payload.items():
+                    data = data or {}
+                    if data.get("workpiece"):
+                        self._workpiece_by_robot[name] = data["workpiece"]
+                    positions = data.get("positions") or []
+                    if positions:
+                        # 视口也要按名回填：路径可视化与各台的点表都从它读
+                        self.gl_widget.set_recorded_positions(positions, name)
 
         # ---- 工艺时序 ---- #
         payload = project.get("sequence")
@@ -4773,6 +5281,15 @@ class MainWindow(QtWidgets.QMainWindow):
             validate_prog.setShortcut("F7")
             validate_prog.triggered.connect(self.validate_program)
             view_menu.addAction(validate_prog)
+            # 多机时一台一台切过去按 F7 太笨：一键把全部机器人校完并汇总
+            validate_all_prog = QAction(tr("校验全部机器人"), self)
+            validate_all_prog.setShortcut("Shift+F7")
+            validate_all_prog.triggered.connect(self.validate_all_programs)
+            view_menu.addAction(validate_all_prog)
+            grasp_wizard = QAction(tr("抓取向导…"), self)
+            grasp_wizard.setShortcut("Ctrl+Shift+G")
+            grasp_wizard.triggered.connect(self.open_grasp_wizard)
+            view_menu.addAction(grasp_wizard)
 
         if _HAS_PLUGINS:
             view_menu.addSeparator()
@@ -4864,10 +5381,20 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.setSpacing(2)
         
         self.code_editor = PathCodeEditor()
+        # 编辑器看不到视口选中状态：把"选中对象关联到哪台"的解析交给它，
+        # 「只跑选中机器人」与「从选中行号处全局运行」这两个分支才做得出来
+        self.code_editor.selection_robot_provider = self._robot_for_selection
         self.code_editor.playbackRequested.connect(self.on_playback_requested)
         self.code_editor.playbackStopped.connect(self.on_playback_stopped)
         self.code_editor.clearRequested.connect(self.on_clear_requested)
         self.code_editor.positionsParsed.connect(self.on_positions_parsed)
+        # 工件下拉是全局一份，但"谁抓哪件"是**每台机器人**的事。选中的当下就
+        # 记进本机名下——只在切换机器人时补记是不够的：用户给 A 选完工件若没
+        # 切走过，A 名下就是空的，多机回放时两台会去抢同一件工件。
+        if hasattr(self.code_editor, "workpiece_combo"):
+            self.code_editor.workpiece_combo.currentIndexChanged.connect(
+                self._on_workpiece_combo_changed
+            )
 
         if _HAS_ROBOT_LIBRARY:
             # 机器人库（eCatalog）与路径代码编辑器共用一个标签页容器
@@ -4893,6 +5420,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 # 轨迹编辑器（v0.2.4）改动示教点 → 回写路径代码编辑器
                 self.program_panel.taughtPointsChanged.connect(
                     self.on_taught_points_changed
+                )
+                # 面板顶部「机器人」下拉换了人 → 视口/示教点显示同步到那台
+                self.program_panel.activeRobotChanged.connect(
+                    self._on_program_robot_changed
                 )
 
             # ---- 左：双 Tab（① 场景设备库 ② 设备树）----
@@ -4922,6 +5453,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.property_panel = DevicePropertyPanel()
         self.property_panel.jointChanged.connect(self.on_joint_changed)
         self.property_panel.jointChanged.connect(self.on_joint_changed_for_record)
+        # 多机：给属性面板「按名字取渲染器」的能力。不给它，选中 A 时面板只能
+        # 沿用最后加载那台的关节组——拖 A 的滑块却驱动 B（两台一起动）。
+        self.property_panel.set_renderer_provider(self.gl_widget.renderer_of)
 
         # ---- 右：可折叠多功能标签页（核心输出区）----
         # 一次只展开一个标签 → 界面无冗余信息；属性在前，选中对象时可自动切到它。
@@ -4937,6 +5471,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 场景改动需要触发视口重绘，此连接必须等 gl_widget 建好后才能做
         if _HAS_WORLD and hasattr(self, "scene_panel"):
             self.scene_panel.sceneChanged.connect(self.gl_widget.update)
+            # 「加载场景」整体替换场景引用时统一接管：视口/属性面板/工件下拉
+            # 各持一份引用，漏掉任何一处都会出现"树里是新的、别处还是旧的"
+            self.scene_panel.sceneReplaced.connect(self._adopt_scene)
             # 视口右键拾取/拖动选中对象时，同步到左侧场景面板树形选择
             self.gl_widget.objectSelected.connect(self.scene_panel._select_object)
             # 左键拖拽摆放完成（v1.1.7）：把"落在谁上面"说给状态栏听
@@ -4958,6 +5495,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     setattr(self.gl_widget, "selected_object", n),
                     self.gl_widget.set_current_robot(n),
                     self.gl_widget.update(),
+                    # 选中一变，"跑哪台"就变了，范围提示要跟着换
+                    self.code_editor.refresh_scope(),
                 )
             )
             # 右面板编辑对象属性后重绘视口
@@ -4981,6 +5520,8 @@ class MainWindow(QtWidgets.QMainWindow):
             # 刻意只挂这四条粗粒度信号——细粒度（每个对象位姿变化）噪声太大，
             # 会把标记变成常亮的装饰。
             self.scene_panel.sceneChanged.connect(self._set_project_dirty)
+            # 机器人被移出场景 → 它的程序/轨迹/示教点/渲染器一并清除
+            self.scene_panel.robotRemoved.connect(self._on_robot_removed)
             self.scene_panel.sequence_editor.sequenceChanged.connect(self._set_project_dirty)
             self.code_editor.code_edit.textChanged.connect(self._set_project_dirty)
 
@@ -4992,6 +5533,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._setup_status_bar()
         if _HAS_PROGRAM and hasattr(self, "program_panel"):
             self.program_panel.reportReady.connect(self._on_report_ready)
+            # 一键校验全部完成 → 出汇总
+            if hasattr(self.program_panel, "allValidated"):
+                self.program_panel.allValidated.connect(self._show_validation_summary)
+            # 抓取向导写完点 → 按机器人名回灌视口
+            if hasattr(self.program_panel, "graspCycleApplied"):
+                self.program_panel.graspCycleApplied.connect(
+                    self._on_grasp_cycle_applied
+                )
 
         self.statusBar().showMessage("Ready")
     
@@ -5002,16 +5551,24 @@ class MainWindow(QtWidgets.QMainWindow):
         if file_path:
             self.load_robot(file_path)
     
-    def _register_robot_in_scene(self, path) -> str:
+    def _register_robot_in_scene(self, path, adopt_existing: bool = False) -> str:
         """把机器人登记进工作单元场景：**已有机器人时追加**，返回其名字。
 
         回归：此前一律走 ``Scene.set_robot``，名字固定为 ``ROBOT_NAME``，于是
         "再增加一台机器人"实际是把已有的那台顶掉。
 
+        Args:
+            path: URDF 路径
+            adopt_existing: ``True`` 表示**认领**场景里已有的机器人（工程载入
+                用），不再追加。工程载入时机器人已经随场景一起恢复了，再追加
+                一台就会凭空多出一个默认名的机器人
+
         Returns:
             场景中的机器人名
         """
         scene = self.scene_panel.scene
+        if scene.robot_names and adopt_existing:
+            return scene.robot_names[0]
         if scene.robot_names:
             # 追加并沿 X 错开基座，避免两台叠在一起（随后可自行拖放到位）
             idx = len(scene.robot_names)
@@ -5023,17 +5580,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scene_panel.set_robot(str(path))
         return scene.robot_names[0] if scene.robot_names else ROBOT_NAME
 
-    def load_robot(self, path):
+    def load_robot(self, path, adopt_existing: bool = False):
         """加载 URDF 到 3D 视口，并同步属性面板。
 
         若该文件属于机器人库中的某个型号，属性面板会回显负载、臂展等完整规格。
+
+        Args:
+            path: URDF 路径
+            adopt_existing: ``True`` 表示机器人**已在场景里**（工程载入），只
+                认领不再追加
         """
-        # 先决定"追加还是替换"：场景已有机器人时必须用 add_robot（唯一名），
+        # 先决定"追加、认领还是替换"：场景已有机器人时必须用 add_robot（唯一名），
         # 否则 set_robot 的固定名 ROBOT_NAME 会把已有那台顶掉——"再加一台"
         # 就变成了"替换"。名字要先定，渲染器才能登记到对应名下。
         robot_name = ROBOT_NAME
         if _HAS_WORLD and hasattr(self, "scene_panel"):
-            robot_name = self._register_robot_in_scene(path)
+            robot_name = self._register_robot_in_scene(path, adopt_existing)
 
         if not self.gl_widget.load_robot(path, robot_name):
             QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load URDF: {path}")
@@ -5083,7 +5645,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 from orolp import Robot as OrolpRobot
 
                 self.olp_robot = OrolpRobot(str(path), Path(path).stem)
-                self.program_panel.set_robot(self.olp_robot, joint_names)
+                # 必须按**场景里的机器人名**登记：多机同型号时 URDF 文件名相同
+                # （都是 ur5e），按它做键会把两台的程序合并成一份。
+                self.program_panel.set_robot(
+                    self.olp_robot, joint_names, name=robot_name
+                )
                 # 「代码生成 → 机器人子程序」需要同样的真实机器人
                 self.code_editor.set_robot(self.olp_robot, joint_names)
                 self.program_panel.set_scene(
@@ -5096,18 +5662,211 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.gl_widget.update()
 
-    def _sync_program_points(self) -> None:
-        """把路径代码编辑器里的示教点同步给离线编程面板。
+    def _register_robot_for_programming(self, name: str, urdf: str) -> bool:
+        """把场景里**已有**的 ``name`` 登记进离线编程面板（**不碰场景**）。
 
-        工艺语义（抓取/放置点）一并传过去：程序面板据此在对应位置插入
-        gripper() 指令，回放动画与出码共用同一份抓取时序（S3）。
+        工程载入时机器人已经在场景里了，此时不能走 :meth:`load_robot`——它会调
+        ``_register_robot_in_scene`` 再加一台，固定名 ``ROBOT_NAME`` 还会把已有
+        那台顶掉。这里只做"登记"，不改动场景。
+
+        Returns:
+            登记成功 ``True``；模型不可用或未启用编程模块返回 ``False``
+        """
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            return False
+        if not urdf or not Path(urdf).exists():
+            return False
+        try:
+            from orolp import Robot as OrolpRobot
+
+            robot = OrolpRobot(str(urdf), Path(urdf).stem)
+        except Exception as exc:  # pragma: no cover - 模型损坏时不能带崩载入
+            print(f"[warning] 无法为 {name} 准备运动学: {exc}")
+            return False
+        # 渲染器按名懒加载：取不到会给它一台专属空渲染器，绝不借用别人的
+        renderer = self.gl_widget.renderer_of(name)
+        joint_names = (
+            list(renderer.joints.keys())
+            if renderer is not None and getattr(renderer, "joints", None)
+            else list(robot.joint_names)
+        )
+        self.program_panel.set_robot(robot, joint_names, name=name)
+        return True
+
+    def _restore_robot_programs(self, scene) -> None:
+        """工程载入：把场景里每台机器人登记进编程面板。
+
+        只登记主机器人是不够的——多机工程里第二台若没登记，它的抓取程序就
+        "没有主人"，既不能校验也不能出码。
         """
         if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
             return
-        types = self.code_editor.get_point_types() if _HAS_PICKPLACE else None
-        self.program_panel.set_taught_points(
-            self.code_editor.get_recorded_positions(), types
+        for name in scene.robot_names:
+            state = scene.robots.get(name)
+            urdf = getattr(state, "urdf", None) if state is not None else None
+            if urdf and not Path(urdf).exists():
+                alt = _REPO_ROOT / urdf
+                if alt.exists():
+                    urdf = str(alt)
+            self._register_robot_for_programming(name, urdf or "")
+
+    def _sync_program_points(self, robot: Optional[str] = None) -> None:
+        """把某台机器人（缺省当前）的示教点同步给离线编程面板。
+
+        工艺语义（抓取/放置点）一并传过去：程序面板据此在对应位置插入
+        ``gripper()`` 指令，回放动画与出码共用同一份抓取时序（S3）。
+
+        Args:
+            robot: 机器人名；``None`` 取当前机器人。给**当前**这台同步时沿用
+                路径代码编辑器的数据（轨迹编辑器改点后先回写到它那里），其余
+                机器读视口里各自那一串——这样给 A 示教的点不会算进 B 的程序。
+        """
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            return
+        current = getattr(self.gl_widget, "current_robot", None)
+        key = robot or current
+        if key == current:
+            # 只给这台自己那一段：点表里可能还装着别的机器人的路径，全拿过去
+            # 会让 A 的程序里混进 B 的点
+            positions, types = self._editor_points_for(key)
+            # 顺手归档本机语义：路径编辑器那份随时会被别的机器人顶掉，只在
+            # "切换时"补记的话，用户给 A 示教完就直接「导出全部」，A 名下还是空的
+            if types and len(types) == len(positions):
+                self._point_types_by_robot[key] = list(types)
+        else:
+            # 非当前那台：读它自己那份语义（切换时存进 _point_types_by_robot 的）
+            positions = self.gl_widget.get_recorded_positions(key)
+            types = (
+                list(self._point_types_by_robot.get(key) or [])
+                if _HAS_PICKPLACE
+                else None
+            ) or None
+        if types is not None and len(types) != len(positions):
+            types = None
+        self.program_panel.set_taught_points(positions, types, robot=key)
+
+    def _editor_points_for(self, key: Optional[str]):
+        """路径编辑器里属于 ``key`` 的点与语义。
+
+        旧工程 / 单机器人那份点表没有归属标记（``point_robots`` 全是 ``None``），
+        此时整份都算当前这台的——与改归属之前的行为一致。
+        """
+        ed = self.code_editor
+        if key and key in ed.point_robots:
+            return ed.points_of(key), (ed.types_of(key) if _HAS_PICKPLACE else None)
+        if any(r is not None for r in ed.point_robots):
+            return [], ([] if _HAS_PICKPLACE else None)  # 已分段，这台名下没有点
+        return list(ed.recorded_positions), (
+            list(ed.point_types) if _HAS_PICKPLACE else None
         )
+
+    def _on_robot_removed(self, name: str) -> None:
+        """机器人被移出场景：把属于它的**全部**派生状态清掉。
+
+        只从场景里删对象会留下一堆孤儿状态：离线编程面板还挂着这台的程序
+        （照样能校验、能出码，却已经没有对应的机器人）、视口还留着它的渲染器
+        与示教点、路径可能还在画。这里一并收回。
+
+        Args:
+            name: 被移除的机器人名
+        """
+        if not name:
+            return
+        if _HAS_PROGRAM and hasattr(self, "program_panel"):
+            self.program_panel.remove_robot(name)
+
+        # 视口：渲染器与示教点（路径可视化也会随之消失，见 _path_robots）
+        self.gl_widget.renderers.pop(name, None)
+        self.gl_widget._empty_renderers.pop(name, None)
+        self.gl_widget.clear_recorded_positions(name)
+        self._point_types_by_robot.pop(name, None)
+        self._workpiece_by_robot.pop(name, None)
+
+        if self.gl_widget.current_robot == name:
+            # 编辑视角还停在被删那台上：挪到剩下的一台，并清空路径编辑器——
+            # 它显示的是已经不存在的机器人的点
+            remaining = []
+            if _HAS_WORLD and hasattr(self, "scene_panel"):
+                remaining = self.scene_panel.scene.robot_names
+            if remaining:
+                self.gl_widget.set_current_robot(remaining[0])
+            self.code_editor.set_recorded_positions([])
+            self.code_editor.pos_count_label.setText("Positions: 0")
+            self.code_editor._update_code_with_positions()
+
+        self.gl_widget.update()
+
+    def _workpiece_for(self, robot: Optional[str] = None) -> Optional[str]:
+        """``robot``（缺省当前）这台机器人抓的工件；没指定过则退回下拉当前值。
+
+        工件下拉是全局一份，两台机器人各抓各的。回放/吸附时**必须**按机器人
+        解析，不能直接用"下拉里当前显示的那件"——否则 A 的夹紧事件会把 B 选中
+        的工件抓起来，看起来就是"两台抢同一件"。
+        """
+        key = robot or getattr(self.gl_widget, "current_robot", None)
+        if key is not None and key in self._workpiece_by_robot:
+            return self._workpiece_by_robot.get(key)
+        return self.code_editor.get_workpiece() if _HAS_PICKPLACE else None
+
+    def _on_workpiece_combo_changed(self, _index: int) -> None:
+        """工件下拉换了件：记到**当前机器人**名下。
+
+        切换机器人时也会走这里（下拉被回填成那台的工件），此时写回的是同一个
+        值——幂等，不会把刚取出来的覆盖成错的。
+        """
+        if not _HAS_PICKPLACE or not hasattr(self.code_editor, "workpiece_combo"):
+            return
+        key = getattr(self.gl_widget, "current_robot", None)
+        if not key:
+            return
+        self._workpiece_by_robot[key] = self.code_editor.workpiece_combo.currentData()
+
+    def _on_program_robot_changed(self, name: str) -> None:
+        """离线编程面板切换了机器人：视口与示教点显示都跟到那台上去。
+
+        不同步就会出现"在 A 名下编辑、视口却跟着 B 动"——下拉只是换了数据槽，
+        视口的当前机器人、路径编辑器里显示的点位都得一起换。
+        """
+        if not name:
+            return
+        # 切走之前先把**原来那台**的抓取语义存起来——路径编辑器的语义是按段
+        # 存的，不归档就会被新那台的段顶掉
+        prev = self.gl_widget.current_robot
+        if prev and prev != name:
+            self._point_types_by_robot[prev] = list(
+                self.code_editor.get_point_types(prev) or []
+            )
+            self._workpiece_by_robot[prev] = self.code_editor.get_workpiece()
+        self.gl_widget.set_current_robot(name)
+        if (
+            _HAS_WORLD
+            and hasattr(self, "scene_panel")
+            and name in self.scene_panel.scene.objects
+        ):
+            self.gl_widget.selected_object = name
+            if hasattr(self, "property_panel"):
+                self.property_panel.set_object(name)
+
+        # 换成这台自己的示教点**与抓取语义**：只替它那一段，别的机器人的
+        # 路径留在表里（都显示在代码预览里，各带自己的 Robot 头）
+        positions = self.gl_widget.get_recorded_positions(name)
+        self.code_editor.set_recorded_positions(positions, name)
+        saved = self._point_types_by_robot.get(name)
+        if saved is not None:
+            self.code_editor.set_types_for(name, saved)
+        # 抓取对象同样换成本台的（存过才动，没存过沿用当前选择）
+        if name in self._workpiece_by_robot:
+            combo = getattr(self.code_editor, "workpiece_combo", None)
+            if combo is not None:
+                idx = combo.findData(self._workpiece_by_robot[name])
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+        # 长度要与示教点对齐，多退少补（缺的按默认语义补）
+        self.code_editor.sync_point_types()
+        self.code_editor.pos_count_label.setText(f"Positions: {len(positions)}")
+        self.code_editor._update_code_with_positions()
+        self._sync_program_points(name)
+        self.gl_widget.update()
 
     def on_taught_points_changed(self, positions, types, motions) -> None:
         """轨迹编辑器改动示教点后回写路径代码编辑器（v0.2.4）。
@@ -5128,8 +5887,148 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if hasattr(self, "right_tabs"):
             self.right_tabs.setCurrentWidget(self.program_panel)
+        # 校验的是**视口当前正在看的那台**：否则会出现"选了 B、却校了 A"
+        current = getattr(self.gl_widget, "current_robot", None)
+        if current and current in self.program_panel.robot_names:
+            self.program_panel.set_active_robot(current)
         self._sync_program_points()
         self.program_panel.validate_program()
+
+    def validate_all_programs(self) -> None:
+        """一键校验**全部**机器人（Shift+F7）。
+
+        多机时一台一台切过去按 F7 太笨——切走就把上一台的报告刷掉了，前面几台
+        校出问题等于没看见。这里逐台校完再汇总。
+        """
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            QtWidgets.QMessageBox.information(self, tr("程序校验"), tr("离线编程模块不可用。"))
+            return
+        if not getattr(self.program_panel, "validate_all", None):
+            QtWidgets.QMessageBox.information(self, tr("程序校验"), tr("当前版本不支持批量校验。"))
+            return
+        if hasattr(self, "right_tabs"):
+            self.right_tabs.setCurrentWidget(self.program_panel)
+        self._sync_program_points()
+        reports = self.program_panel.validate_all()
+        if not reports:
+            QtWidgets.QMessageBox.information(
+                self, tr("校验全部机器人"),
+                tr("还没有登记任何机器人——请先载入机器人型号。"),
+            )
+
+    def _show_validation_summary(self, reports: dict) -> None:
+        """一键校验全部的汇总：每台一行，哪台有问题一眼看见。
+
+        汇总只给结论，详情仍走编程面板——点「看这台」切过去并显示它的报告。
+        """
+        if not reports:
+            return
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(tr("校验全部机器人"))
+        dlg.setMinimumSize(560, 320)
+        layout = QtWidgets.QVBoxLayout(dlg)
+
+        table = QtWidgets.QTableWidget(len(reports), 5, dlg)
+        table.setHorizontalHeaderLabels(
+            [tr("机器人"), tr("结果"), tr("错误"), tr("警示"), tr("节拍 (s)")]
+        )
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.horizontalHeader().setStretchLastSection(True)
+
+        red = QtGui.QColor("#ff6b6b")
+        green = QtGui.QColor("#6fdc6f")
+        orange = QtGui.QColor("#ffb86b")
+        names = list(reports)
+        for row, name in enumerate(names):
+            report = reports[name]
+            cells = [name]
+            if report is None:
+                cells += [tr("没程序（未示教）"), "—", "—", "—"]
+                color = orange
+            elif report.ok:
+                cells += [tr("通过"), "0", str(len(report.warnings)),
+                          f"{report.cycle_time:.2f}" if report.cycle_time is not None else "—"]
+                color = green if not report.warnings else orange
+            else:
+                cells += [tr("不通过"), str(len(report.errors)), str(len(report.warnings)),
+                          f"{report.cycle_time:.2f}" if report.cycle_time is not None else "—"]
+                color = red
+            for col, text in enumerate(cells):
+                item = QtWidgets.QTableWidgetItem(text)
+                if col == 1:
+                    item.setForeground(color)
+                table.setItem(row, col, item)
+        table.resizeColumnsToContents()
+        table.selectRow(0)
+        layout.addWidget(table, 1)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_view = QtWidgets.QPushButton(tr("看这台"))
+        btn_close = QtWidgets.QPushButton(tr("关闭"))
+        btn_row.addWidget(btn_view)
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+        def goto() -> None:
+            row = table.currentRow()
+            if row < 0:
+                return
+            name = names[row]
+            # 报告已经算好了，切过去显示即可——不必再校一遍
+            self.program_panel.focus_report(name)
+            dlg.accept()
+
+        btn_view.clicked.connect(goto)
+        btn_close.clicked.connect(dlg.reject)
+        table.doubleClicked.connect(lambda _idx: goto())
+        dlg.exec()
+
+    def open_grasp_wizard(self) -> None:
+        """抓取向导（Ctrl+Shift+G）：由抓取点/放置点自动生成接近/提升/撤离点。"""
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            QtWidgets.QMessageBox.information(
+                self, tr("抓取向导"), tr("离线编程模块不可用。")
+            )
+            return
+        if not getattr(self.program_panel, "open_grasp_wizard", None):
+            QtWidgets.QMessageBox.information(
+                self, tr("抓取向导"), tr("当前版本不支持抓取向导。")
+            )
+            return
+        if hasattr(self, "right_tabs"):
+            self.right_tabs.setCurrentWidget(self.program_panel)
+        self._sync_program_points()
+        self.program_panel.open_grasp_wizard()
+
+    def _on_grasp_cycle_applied(self, name: str) -> None:
+        """抓取向导写完示教点：把点位回灌**那一台**的视口与路径编辑器。
+
+        否则向导生成的点只躺在编程面板里——视口的路径可视化还画着旧的那串，
+        用户会以为向导没生效。按名字回灌是多机的安全底线：写错桶等于把这台
+        的点画到另一台身上。
+        """
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            return
+        getter = getattr(self.program_panel, "get_taught_points", None)
+        if getter is None:
+            return
+        current = getattr(self.gl_widget, "current_robot", None)
+        key = name or current
+        positions, types, _motions = getter(key)
+        self.gl_widget.set_recorded_positions(list(positions), key)
+        self.gl_widget.update()
+        if key == current:
+            self.code_editor.set_recorded_positions(list(positions), key)
+            if _HAS_PICKPLACE and types is not None:
+                self.code_editor.point_types = list(types)
+                self._point_types_by_robot[key] = list(types)
+            self.code_editor.sync_point_types()
+            self.code_editor.pos_count_label.setText(f"Positions: {len(positions)}")
+            self.code_editor._update_code_with_positions()
+            self._sync_program_points(key)
 
     # ------------------------------------------------------------------ #
     # 真机连接（v1.1.1）：SocketLink 的界面化
@@ -5199,46 +6098,82 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             self.statusBar().showMessage(tr("回读关节应用失败：{exc}").format(exc=exc))
             return
-        # 与回放帧同一通路：视口 + 属性面板 + 场景同步 + 重绘
+        # 与回放帧同一通路：视口 + 属性面板 + 场景同步 + 重绘。
+        # 必须带上机器人名——否则真机的关节会被套到别的机器人身上。
         self.on_playback_frame(
-            {name: math.radians(v) for name, v in zip(names, vals)}
+            getattr(self.gl_widget, "current_robot", "") or "",
+            {name: math.radians(v) for name, v in zip(names, vals)},
         )
         self.statusBar().showMessage(tr("已按真机位形摆好视口"))
 
-    def on_playback_frame(self, joint_values: dict) -> None:
-        """回放帧：按插补后的密集轨迹驱动视口，而不是在示教点之间瞬移。"""
-        self.gl_widget.set_joint_values(joint_values)
-        if hasattr(self, "property_panel"):
+    def on_playback_frame(self, robot_name: str, joint_values: dict) -> None:
+        """回放帧：按插补后的密集轨迹驱动**指定机器人**，而不是在示教点之间瞬移。
+
+        Args:
+            robot_name: 这一帧属于哪台机器人。多机回放时每帧都必须落对口，
+                否则两台会跟着同一条轨迹一起抖（看起来像"联动故障"）
+            joint_values: ``{关节名: 弧度}``
+        """
+        robot = robot_name or getattr(self.gl_widget, "current_robot", None)
+        self.gl_widget.set_joint_values(joint_values, robot)
+        # 面板只跟着"正在被查看的那台"刷新，避免递给 A 的帧去拉动 B 的滑块
+        if hasattr(self, "property_panel") and (
+            self.property_panel.current_object == robot
+        ):
             self.property_panel.update_joint_displays(joint_values)
-        self._sync_scene_joints()
+        self._sync_scene_joints(robot)
         self.gl_widget.update()
 
-    def on_joint_changed(self, name, value):
-        self.gl_widget.renderer.joint_values[name] = value
-        self._sync_scene_joints()
+    def on_joint_changed(self, robot_name, name, value):
+        """关节滑块 → 视口：值写进**发信号那台**的渲染器，而不是"当前"那台。
+
+        Args:
+            robot_name: 滑块所属机器人名（属性面板的 :attr:`_active_robot`）；
+                空串表示老调用方——退回当前机器人
+            name: 关节名
+            value: 弧度
+
+        Note:
+            多机的关键就在这一个参数：不带名字时只能写 ``gl_widget.renderer``，
+            而"当前渲染器"未必是"滑块所属那台"（选中与加载顺序会错位），于是
+            拖 A 的滑块让 B 转起来——这就是"两台一起动"。
+        """
+        renderer = (
+            self.gl_widget.renderer_of(robot_name) if robot_name else self.gl_widget.renderer
+        )
+        renderer.joint_values[name] = value
+        self._sync_scene_joints(robot_name or None)
         self.gl_widget.update()
 
-    def _sync_scene_joints(self) -> None:
-        """把**当前机器人**的渲染关节同步给场景，让干涉检查/法兰反映实时位形。
+    def _sync_scene_joints(self, robot: Optional[str] = None) -> None:
+        """把某台机器人的渲染关节同步给场景，让干涉检查/法兰反映实时位形。
 
-        必须指名道姓：``set_robot_joints`` 默认只作用于主机器人，多机时会把
-        "拖 A 的关节"写到 B 身上——表现为两台一起动、或挂在 A 上的工具离开法兰。
+        Args:
+            robot: 目标机器人名；``None`` 取当前机器人
+
+        Note:
+            必须指名道姓：``set_robot_joints`` 默认只作用于主机器人，多机时会把
+            "拖 A 的关节"写到 B 身上——表现为两台一起动、或挂在 A 上的工具离开法兰。
         """
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             return
         scene = self.scene_panel.scene
         if not scene.has_robot:
             return
-        robot = getattr(self.gl_widget, "current_robot", None) or ROBOT_NAME
-        if robot not in scene.robots:
-            robot = scene.robot_names[0]
-        renderer = self.gl_widget.renderer_of(robot)
+        target = robot or getattr(self.gl_widget, "current_robot", None) or ROBOT_NAME
+        if target not in scene.robots:
+            target = scene.robot_names[0]
+        renderer = self.gl_widget.renderer_of(target)
         # 必须用 actuated_names() 而非 joints.keys()：后者含 fixed 关节
         # （KR16 是 7 个 joints / 6 个可动），多传一个会让 FK 直接抛错
         names = list(renderer.actuated_names())
+        if not names:
+            # 这台模型不可用（退化渲染器）：写空列表会把场景里已有的关节角清空，
+            # 让法兰/干涉检查掉回零位——宁可不同步，也不要把好数据抹成坏数据。
+            return
         self.scene_panel.update_robot_joints(
             [math.degrees(renderer.joint_values.get(n, 0.0)) for n in names],
-            name=robot,
+            name=target,
         )
 
     def check_collisions(self) -> None:
@@ -5259,51 +6194,121 @@ class MainWindow(QtWidgets.QMainWindow):
                 else "color:#a5d6a7; padding:0 8px; font-size:11px;"
             )
 
-    def on_joint_changed_for_record(self, name, value):
-        self.gl_widget.renderer.joint_values[name] = value
+    def on_joint_changed_for_record(self, robot_name, name, value):
+        """同 :meth:`on_joint_changed`，并顺带把位形记成示教点。"""
+        renderer = (
+            self.gl_widget.renderer_of(robot_name) if robot_name else self.gl_widget.renderer
+        )
+        renderer.joint_values[name] = value
         self.gl_widget.update()
         if self.code_editor.record_btn.isChecked():
-            # 当记录模式开启时，调用 GLWidget 的记录方法
-            count = self.gl_widget.record_position()
-            # 同步到 PathCodeEditor
-            self.code_editor.recorded_positions = self.gl_widget.get_recorded_positions()
-            # 上面是直接改写列表，语义列表要跟着补，否则长度不一致
-            self.code_editor.sync_point_types()
-            self.code_editor.pos_count_label.setText(f"Positions: {count}")
-            self.code_editor._update_code_with_positions()
-            self._sync_program_points()
+            # 记到**发信号那台**名下：多机时不指定就会把 B 的位形记成 A 的点
+            key = robot_name or self.gl_widget.current_robot
+            count = self.gl_widget.record_position(key)
+            # 同步到 PathCodeEditor：只换**这台**那一段，其余机器人的路径留在
+            # 表里。整表替换的话，给 B 记第一个点就把 A 的路径全抹了
+            self.code_editor.set_recorded_positions(
+                self.gl_widget.get_recorded_positions(key), key
+            )
+            self._sync_program_points(key)
 
-    def on_playback_requested(self, index):
+    def _robot_for_selection(self) -> Optional[str]:
+        """**选中对象**关联到哪台机器人；没选中 / 关联不到返回 ``None``。
+
+        选中夹爪、被夹住的工件同样算选中了那台——它们本来就挂在法兰上，路径
+        是那台的，挂载件随法兰一起动。台面、地上没被夹住的工件关联不到任何
+        机器人，返回 ``None``，走"从代码选中行号处全局运行"。
+        """
+        scene = getattr(self.gl_widget, "scene", None)
+        selected = getattr(self.gl_widget, "selected_object", None)
+        if scene is None or not selected:
+            return None
+        if scene.is_robot(selected):
+            return selected
+        return scene.mounted_robot(selected)
+
+    def _robot_usable(self, name: Optional[str]) -> bool:
+        """这台机器人现在**真的驱动得动**吗——在场景里、且有运动学链。
+
+        URDF 失效时场景里会留一个"壳"：名字还在、也选得中，但没有运动学，
+        驱动它没有意义。
+        """
+        scene = getattr(self.gl_widget, "scene", None)
+        if not name or scene is None or not scene.is_robot(name):
+            return False
+        return scene.kinematics_of(name) is not None
+
+    def _halt_playback(self, robot: Optional[str], index: int) -> None:
+        """归属机器人已不在场景里：立刻停表，并把是哪一行说清楚。"""
+        self.code_editor._stop_playback()
+        self.code_editor.playbackStopped.emit()
+        line = self.code_editor.line_of(index)
+        self.statusBar().showMessage(
+            tr("第 {line} 行：机器人“{robot}”已不在场景中，已停止运行").format(
+                line=line, robot=robot or tr("（未指定）")),
+            8000,
+        )
+        self.code_editor.highlight_line(line)
+
+    def on_playback_requested(self, index, robot=None):
         positions = self.code_editor.get_recorded_positions()
         if 0 <= index < len(positions):
-            self.gl_widget.set_joint_values(positions[index])
-            self.property_panel.update_joint_displays(positions[index])
+            # 播的是**这条指令归属的那台**：全局运行时一行一个主人，只认
+            # 整份归属或"当前选中"都会把这台的程序拽到别台身上
+            target = robot or self.code_editor.owner_robot or getattr(
+                self.gl_widget, "current_robot", None
+            )
+            # 归属那台已不在场景里（工程载入后被删掉）：停下来报错。硬跑下去只是
+            # 画面不动却显示"运行中"，比当场报错难排查得多
+            if not self._robot_usable(target):
+                self._halt_playback(target, index)
+                return
+            self.gl_widget.set_joint_values(positions[index], target)
+            # 面板只跟着"正在被查看的那台"刷新，避免递给 A 的帧去拉动 B 的滑块
+            if hasattr(self, "property_panel") and (
+                self.property_panel.current_object == target
+            ):
+                self.property_panel.update_joint_displays(positions[index])
             # 必须同步到场景：视口渲染器与工作单元场景是两套状态。只更新渲染器
             # 的话场景机器人永远停在初始位形，法兰不动，挂在法兰上的夹爪与
             # 被吸附的工件都不会跟着走（干涉检查也会按错误位形算）。
-            self._sync_scene_joints()
-            self._apply_pick_event(index)
-            self._update_io_status(index)
+            self._sync_scene_joints(target)
+            self._apply_pick_event(index, target)
+            self._update_io_status(index, target)
             self.gl_widget.update()
 
-    def _update_io_status(self, index: int) -> None:
-        """常驻状态栏显示当前工位的 IO 动作——演示时能一眼看到夹爪在干嘛。"""
+    def _update_io_status(self, index: int, robot: Optional[str] = None) -> None:
+        """常驻状态栏显示当前工位的 IO 动作——演示时能一眼看到夹爪在干嘛。
+
+        Args:
+            robot: 这条动作属于哪台机器人；``None`` 取当前那台。多机时 A 的夹紧
+                不能显示成 B 的工件
+        """
         if not hasattr(self, "status_io"):
             return
         action = tr("保持")
         if _HAS_PICKPLACE:
-            types = self.code_editor.get_point_types()
-            t = types[index] if index < len(types) else None
+            # 按**总表索引**取语义：播放是按代码行序走的点序列，而
+            # get_point_types() 给的是"当前编辑那台"的一段，索引对不上
+            t = self.code_editor.point_type_at(index)
             action = {PointType.PICK: tr("夹紧"), PointType.PLACE: tr("松开")}.get(t, tr("保持"))
-        wp = self.code_editor.get_workpiece()
+        wp = self._workpiece_for(robot)
         self.status_io.setText(f"IO {action}" + (f" · {wp}" if wp else ""))
 
-    def _apply_pick_event(self, index: int) -> None:
+    def _apply_pick_event(self, index: int, robot: Optional[str] = None) -> None:
         """播放到某个示教点时，按工艺语义挂载/释放工件。
 
-        工件被「吸附」的实现就是把它挂到机器人下（``parent=ROBOT_NAME``）——
-        复用与夹爪挂载完全相同的父子机制，于是它自动跟随法兰运动。
-        释放即解除挂载，并把当前世界位姿写回局部 pose，工件原地留下。
+        工件被「吸附」的实现就是把它挂到机器人下——复用与夹爪挂载完全相同的
+        父子机制，于是它自动跟随法兰运动。释放即解除挂载，并把当前世界位姿
+        写回局部 pose，工件原地留下。
+
+        Args:
+            robot: 这一帧属于哪台机器人；``None`` 取当前那台。逐点回放时传
+                **点表归属**，否则会拿 A 的抓取去挂 B 手里的工件
+
+        Note:
+            挂给**谁**必须取当前机器人。写死主机器人 ``ROBOT_NAME`` 时，多机
+            场景下 B 的抓取会把工件挂到 A 的法兰上——工件横穿整个工位飞过去。
         """
         if not _HAS_PICKPLACE or not _HAS_WORLD:
             return
@@ -5313,18 +6318,27 @@ class MainWindow(QtWidgets.QMainWindow):
         if scene is None:
             return
 
-        types = self.code_editor.get_point_types()
-        if index >= len(types):
+        # 总表索引取语义：点表是多台混排的，按"当前那台的一段"取值会错位
+        t = self.code_editor.point_type_at(index)
+        if t is None:
             return
-        t = types[index]
-        workpiece = self.code_editor.get_workpiece()
+        workpiece = self._workpiece_for(robot)
         if not workpiece or workpiece not in scene.objects:
             return
+        current = robot or self.gl_widget.current_robot
+        holder = (
+            current
+            if current in scene.robots
+            else (scene.robot_names[0] if scene.robot_names else ROBOT_NAME)
+        )
 
         try:
             if t is PointType.PICK:
-                scene.attach(workpiece, ROBOT_NAME, keep_world=True)
+                scene.attach(workpiece, holder, keep_world=True)
             elif t is PointType.PLACE:
+                # 只释放**自己**夹着的：别的机器人手里的工件不能被这台摘掉
+                if scene.objects[workpiece].parent != holder:
+                    return
                 scene.detach(workpiece)
             else:
                 return
@@ -5334,8 +6348,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, "scene_panel"):
             self.scene_panel._refresh_tree()
 
-    def on_gripper_state_changed(self, action: str) -> None:
+    def on_gripper_state_changed(self, robot_name: str, action: str) -> None:
         """程序级回放到夹爪指令时，吸附/释放工件（S3 抓取动画）。
+
+        Args:
+            robot_name: 这条夹爪指令属于哪台机器人——多机回放时 A 夹紧不能把
+                工件挂到 B 的法兰上
+            action: ``"close"`` / ``"open"`` / ``""``
 
         与示教点回放（:meth:`_apply_pick_event`）共用同一机制：把工件
         ``attach`` 到机器人下并保持世界位姿——被夹住的瞬间停在原地，之后
@@ -5349,17 +6368,23 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if scene is None:
             return
-        workpiece = self.code_editor.get_workpiece()
+        # 抓的是**这台机器人**的工件，而不是"下拉里当前显示的那件"：多机回放
+        # 时 A/B 会交替发夹爪事件，共用一份选择就会互相抢工件
+        workpiece = self._workpiece_for(robot_name)
         if not workpiece or workpiece not in scene.objects:
             return
         obj = scene.objects.get(workpiece)
         if obj is None:
             return
+        # 夹这件东西的那双手：多机时必须是指定的那台，不能再写死主机器人
+        holder = robot_name or (
+            scene.robot_names[0] if scene.robot_names else ROBOT_NAME
+        )
         try:
             if action == "close":
-                if obj.parent != ROBOT_NAME:
-                    scene.attach(workpiece, ROBOT_NAME, keep_world=True)
-            elif obj.parent == ROBOT_NAME:  # "open" 或回放复位（""）
+                if obj.parent != holder:
+                    scene.attach(workpiece, holder, keep_world=True)
+            elif obj.parent == holder:  # "open" 或回放复位（""）
                 scene.detach(workpiece)
             else:
                 return  # 状态未变，不必刷新
@@ -5378,16 +6403,34 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage("Playback finished")
 
     def on_positions_parsed(self):
-        """当路径代码解析完成后，更新 GLWidget 的路径可视化"""
+        """当路径代码解析完成后，更新 GLWidget 的路径可视化。
+
+        按**每条指令的归属**分桶回写：整份按 ``current_robot`` 写回时，选中
+        B 播一次就会把编辑器里 A 的点复制到 B 名下，B 自己的路径被顶掉——
+        用户看到的就是"选了第二台，第一台的路径被复制过去替换了"。
+        """
         positions = self.code_editor.get_recorded_positions()
         if positions:
-            self.gl_widget.set_recorded_positions(positions)
+            by_robot: dict = {}
+            for i, pos in enumerate(positions):
+                key = self.code_editor.robot_at(i) or self.gl_widget.current_robot
+                by_robot.setdefault(key, []).append(pos)
+            for key, pts in by_robot.items():
+                self.gl_widget.set_recorded_positions(pts, key)
+            # 语义同样按段归档，否则导出程序的夹爪时序会串到别的机器人上
+            for key in by_robot:
+                self._point_types_by_robot[key] = self.code_editor.types_of(key)
             self.gl_widget.update()
         self._sync_program_points()
 
     def on_clear_requested(self):
-        self.gl_widget.clear_recorded_positions()
-        self._sync_program_points()
+        # 路径属于机器人：清的是**当前这台**的——不能把别的机器人示教的一并抹掉
+        key = self.gl_widget.current_robot
+        self.gl_widget.clear_recorded_positions(key)
+        self.code_editor.set_recorded_positions([], key)
+        self.code_editor.pos_count_label.setText("Positions: 0")
+        self.code_editor._update_code_with_positions()
+        self._sync_program_points(key)
         self.statusBar().showMessage("Recorded positions cleared")
 
     def save_path_code(self):

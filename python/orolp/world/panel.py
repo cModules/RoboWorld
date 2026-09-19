@@ -97,12 +97,21 @@ class ScenePanel(QtWidgets.QWidget):
         sceneChanged: 场景内容发生变化
         statusMessage(str): 需要显示到状态栏的提示
         collisionResult(int): 碰撞检查结果（干涉对数）
+        robotRemoved(str): 某台机器人被移出场景（删除对象 / 清空场景）。
+            主窗口据此把它的程序、轨迹、示教点、渲染器一并清除——否则会留下
+            "能校验能出码、却没有对应机器人"的孤儿状态
+        sceneReplaced(object): 场景引用被**整体替换**（加载场景文件）。
+            视口、属性面板、工件下拉各持一份场景引用，替换必须让主窗口
+            统一接管（_adopt_scene），否则各处引用错开，选中对象在属性面板
+            里查不到（面板整个收起，看似"内容弄丢了"）
     """
 
     sceneChanged = QtCore.Signal()
+    sceneReplaced = QtCore.Signal(object)
     statusMessage = QtCore.Signal(str)
     collisionResult = QtCore.Signal(int)
     objectSelected = QtCore.Signal(str)  # 当前树选中对象名（None 表示清除）
+    robotRemoved = QtCore.Signal(str)
 
     def __init__(self, scene: Optional[Scene] = None, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
@@ -324,12 +333,18 @@ class ScenePanel(QtWidgets.QWidget):
     def _remove_selected(self) -> None:
         if not self._selected:
             return
-        self.scene.remove(self._selected)
+        name = self._selected
+        # 「是不是机器人」必须在 remove **之前**取：remove 会把它从
+        # ``scene.robots`` 里摘掉，之后再问就永远是 False 了
+        was_robot = self.scene.is_robot(name)
+        self.scene.remove(name)
         self._selected = None
         self._refresh_tree()
         self.sceneChanged.emit()
         self.objectSelected.emit(None)
         self.statusMessage.emit(tr("已删除对象"))
+        if was_robot:
+            self.robotRemoved.emit(name)
 
     def _clear_scene(self) -> None:
         ret = QtWidgets.QMessageBox.question(
@@ -337,12 +352,17 @@ class ScenePanel(QtWidgets.QWidget):
         )
         if ret != QtWidgets.QMessageBox.Yes:
             return
+        # ``clear()`` 会把机器人一并摘掉（对象壳保留，但不再算机器人）——
+        # 名字要先记下来，否则清空后就无从通知"谁的程序该清掉了"
+        gone = list(self.scene.robots)
         self.scene.clear()
         self._selected = None
         self._refresh_tree()
         self.sceneChanged.emit()
         self.objectSelected.emit(None)
         self.statusMessage.emit(tr("场景已清空"))
+        for name in gone:
+            self.robotRemoved.emit(name)
 
     # --------------------------- 碰撞检查 --------------------------- #
 
@@ -402,12 +422,14 @@ class ScenePanel(QtWidgets.QWidget):
         if not path:
             return
         try:
-            self.scene = Scene.load(path)
+            new_scene = Scene.load(path)
         except (OSError, ValueError) as exc:
             QtWidgets.QMessageBox.critical(self, tr("加载失败"), str(exc))
             return
-        self._selected = None
-        self._refresh_tree()
+        # 换引用要走统一入口（内部换引用 + 刷新树），再把"替换"广播给主窗口——
+        # 视口 / 属性面板 / 代码编辑器的场景引用都靠它一起换掉
+        self.set_scene(new_scene)
+        self.sceneReplaced.emit(new_scene)
         self.sceneChanged.emit()
         self.statusMessage.emit(tr("场景已加载: {name}（{n} 个对象）").format(name=Path(path).name, n=len(self.scene)))
 

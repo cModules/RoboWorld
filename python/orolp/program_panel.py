@@ -15,14 +15,22 @@
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .planner import ProgramReport, SEVERITY_ERROR, TrajectoryPlanner
-from .pickplace import PointType, gripper_action_for
+from .pickplace import (
+    PointType,
+    default_types_for_count,
+    gripper_action_for,
+)
 from .program import Program, ProgramBuilder
+from .pose import Pose
+from .kinematics import KinematicsError
 from .post import get_post_processor, list_post_processors
 from .world.animation import GraspAnimator
 from .link import FileLink
@@ -64,65 +72,220 @@ QSpinBox { background-color: #1e1e1e; border: 1px solid #555; padding: 3px; }
 """
 
 
+@dataclass
+class RobotProgram:
+    """一台机器人的**私有**离线编程状态。
+
+    面板的所有既有方法（``build_program`` / ``validate_program`` /
+    ``start_playback`` …）写的都是"当前机器人的数据"。以前这些数据直接是
+    面板的字段，多机时第二台会把第一台顶掉——现在每台各占一个本类的实例，
+    面板按 :attr:`ProgramPanel._active` 取用。
+    """
+
+    robot: Optional["Robot"] = None
+    joint_names: List[str] = field(default_factory=list)
+    taught: List[Dict[str, float]] = field(default_factory=list)
+    point_types: Optional[List[PointType]] = None
+    point_motions: List[str] = field(default_factory=list)
+    build_notes: List[str] = field(default_factory=list)
+    trajectory: Optional["Trajectory"] = None
+    report: Optional[ProgramReport] = None
+    planner: Optional[TrajectoryPlanner] = None
+    gripper_animator: Optional[GraspAnimator] = None
+    last_gripper_state: str = ""
+    point_issue_level: Dict[int, str] = field(default_factory=dict)
+    last_point_count: Optional[int] = None
+    last_code: str = ""
+    playhead: float = 0.0
+
+
 class ProgramPanel(QtWidgets.QWidget):
     """离线编程面板。
 
     Signals:
         statusMessage(str): 适合放进状态栏的提示
-        playbackFrame(dict): 回放帧，``{关节名: 弧度}``
+        playbackFrame(str, dict): 回放帧，``(机器人名, {关节名: 弧度})``。
+            机器人名不能省——多机时帧必须落在对应那台身上
         playbackFinished(): 回放结束
-        gripperStateChanged(str): 夹爪状态变化（``"close"/"open"/""``，
-            空串表示回放复位、未夹持），供主窗口驱动工件吸附/释放
+        gripperStateChanged(str, str): 夹爪状态变化，
+            ``(机器人名, "close"/"open"/"")``；空串表示回放复位、未夹持，
+            供主窗口把工件吸附/释放到**对应那台**机器人上
         reportReady(object): :class:`ProgramReport`，供其他面板复用
+        allValidated(dict): 一键校验全部完成，
+            ``{机器人名: ProgramReport 或 None}``；``None`` 表示那台条件不足
+            （没型号/没示教点）或校验本身出错。供主窗口出汇总
     """
 
     statusMessage = QtCore.Signal(str)
-    playbackFrame = QtCore.Signal(dict)
+    #: 回放帧：``(机器人名, {关节名: 弧度})``。机器人名不能省——多机时否则
+    #: 帧会被套到"当前"那台身上，两台一起抖
+    playbackFrame = QtCore.Signal(str, dict)
     playbackFinished = QtCore.Signal()
-    gripperStateChanged = QtCore.Signal(str)
+    #: 夹爪状态变化：``(机器人名, "close"/"open"/"")``
+    gripperStateChanged = QtCore.Signal(str, str)
     reportReady = QtCore.Signal(object)
     #: 轨迹编辑器改动示教点后广播：``(positions, types, motions)``
     #: positions 为 ``{关节名: 弧度}`` 字典列表；types 为工艺语义（可为 ``None``）；
     #: motions 为与点位对齐的运动类型（``"J"``/``"L"``）。主窗口据此把改动
     #: 回写到路径代码编辑器，保持两条编辑通路数据一致
     taughtPointsChanged = QtCore.Signal(list, list, list)
+    #: 面板顶部的「机器人」下拉换了人。主窗口据此把当前机器人、示教点显示
+    #: 同步到被选中的那台——否则"编辑的是 A、示范的是 B"
+    activeRobotChanged = QtCore.Signal(str)
+    #: 一键校验全部完成：``{机器人名: ProgramReport 或 None}``
+    allValidated = QtCore.Signal(dict)
+    #: 抓取向导写完示教点：**带机器人名**。主窗口据此把点位回灌视口——面板
+    #: 里改了点，视口的路径可视化却还画着旧的那串，用户会以为向导没生效。
+    #: 不复用 :attr:`taughtPointsChanged`：那个不带机器人名，多机时会把这台
+    #: 的点写进另一台的视口桶
+    graspCycleApplied = QtCore.Signal(str)
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self.setStyleSheet(PANEL_STYLE)
 
-        self._robot: Optional["Robot"] = None
+        #: 工作单元场景——所有机器人共用同一台 Scene（干涉检查看的是一个工位）
         self._scene: Optional["Scene"] = None
-        self._joint_names: List[str] = []
-        self._taught: List[Dict[str, float]] = []
-        #: 与 ``_taught`` 对齐的示教点工艺语义（PICK/PLACE…）；``None`` 表示无语义
-        self._point_types: Optional[List[PointType]] = None
-        #: 与 ``_taught`` 对齐的运动类型（``"J"``=moveJ / ``"L"``=moveL /
-        #: ``"C"``=moveC 圆弧）。轨迹编辑器（v0.2.4）允许逐点切换运动类型，
-        #: v1.1.5 起支持圆弧
-        self._point_motions: List[str] = []
-        #: 最近一次构建程序时的降级说明（圆弧缺前驱点/相邻冲突等）——
-        #: 绝不静默改变几何，构建过程里发生的事都要能被界面说出来
-        self._build_notes: List[str] = []
-        self._trajectory: Optional["Trajectory"] = None
-        self._report: Optional[ProgramReport] = None
-        #: 最近一次校验的规划器——保留 IO 事件映射所需的指令→时间区间
-        self._planner: Optional[TrajectoryPlanner] = None
-        #: 抓取动画驱动器（按轨迹时间给出夹爪状态）
-        self._gripper_animator: Optional[GraspAnimator] = None
-        self._last_gripper_state: str = ""
-        #: 校验报告映射到路点的最严重问题级别（``{路点序号: "error"/"warning"}``）
-        self._point_issue_level: Dict[int, str] = {}
-        #: 上一次导入的示教点数量——点数变化时旧报告作废
-        self._last_point_count: Optional[int] = None
+        #: 每台机器人各一份私有状态，键为机器人名
+        self._states: Dict[str, RobotProgram] = {}
+        #: 当前正在编辑/回放哪一台
+        self._active: Optional[str] = None
+        #: 还没登记任何机器人时的临时槽，让读路径不必处处判空
+        self._scratch: RobotProgram = RobotProgram()
 
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(PLAYBACK_INTERVAL_MS)
         self._timer.timeout.connect(self._on_tick)
-        self._playhead = 0.0
-        self._last_code: str = ""
+        #: 正在回放的机器人名；空列表表示没在播（多机锁步时会有多个）
+        self._playing: List[str] = []
 
         self._build_ui()
+
+    # ---------------- 状态槽代理 ---------------- #
+    # 既有的一千行逻辑（build_program / validate_program / 轨迹编辑 / 回放）
+    # 都是按"当前机器人只有一份数据"写的。把它们逐个改成查字典要动上千行，
+    # 风险远大于收益——这里用同名属性代理到当前机器人的 :class:`RobotProgram`
+    # 槽：读写形态一字不改，数据却按机器人各自隔开。
+
+    def _state(self, name: Optional[str] = None) -> RobotProgram:
+        """取 ``name`` 的状态槽；``None`` 取当前机器人。"""
+        key = name if name is not None else self._active
+        if key is not None and key in self._states:
+            return self._states[key]
+        return self._scratch
+
+    @contextmanager
+    def _using_robot(self, name: Optional[str]):
+        """临时切到 ``name`` 的状态槽（``None``/未登记则不动）。
+
+        批量处理多台机器人（出码/导出全部）时要逐个取它们的程序，但不能把
+        用户正在编辑的那台换掉——于是 Borrow-and-Restore。
+        """
+        prev = self._active
+        if name and name in self._states and name != prev:
+            self._active = name
+            try:
+                yield self._states[name]
+            finally:
+                self._active = prev
+        else:
+            yield self._state(name)
+
+    def _ensure_state(self, name: str) -> RobotProgram:
+        """确保 ``name`` 有状态槽并返回它（多机：每台按需建立）。"""
+        if name not in self._states:
+            self._states[name] = RobotProgram()
+        return self._states[name]
+
+    @property
+    def _robot(self): return self._state().robot
+
+    @_robot.setter
+    def _robot(self, v): self._state().robot = v
+
+    @property
+    def _joint_names(self): return self._state().joint_names
+
+    @_joint_names.setter
+    def _joint_names(self, v): self._state().joint_names = v
+
+    @property
+    def _taught(self): return self._state().taught
+
+    @_taught.setter
+    def _taught(self, v): self._state().taught = v
+
+    @property
+    def _point_types(self): return self._state().point_types
+
+    @_point_types.setter
+    def _point_types(self, v): self._state().point_types = v
+
+    @property
+    def _point_motions(self): return self._state().point_motions
+
+    @_point_motions.setter
+    def _point_motions(self, v): self._state().point_motions = v
+
+    @property
+    def _build_notes(self): return self._state().build_notes
+
+    @_build_notes.setter
+    def _build_notes(self, v): self._state().build_notes = v
+
+    @property
+    def _trajectory(self): return self._state().trajectory
+
+    @_trajectory.setter
+    def _trajectory(self, v): self._state().trajectory = v
+
+    @property
+    def _report(self): return self._state().report
+
+    @_report.setter
+    def _report(self, v): self._state().report = v
+
+    @property
+    def _planner(self): return self._state().planner
+
+    @_planner.setter
+    def _planner(self, v): self._state().planner = v
+
+    @property
+    def _gripper_animator(self): return self._state().gripper_animator
+
+    @_gripper_animator.setter
+    def _gripper_animator(self, v): self._state().gripper_animator = v
+
+    @property
+    def _last_gripper_state(self): return self._state().last_gripper_state
+
+    @_last_gripper_state.setter
+    def _last_gripper_state(self, v): self._state().last_gripper_state = v
+
+    @property
+    def _point_issue_level(self): return self._state().point_issue_level
+
+    @_point_issue_level.setter
+    def _point_issue_level(self, v): self._state().point_issue_level = v
+
+    @property
+    def _last_point_count(self): return self._state().last_point_count
+
+    @_last_point_count.setter
+    def _last_point_count(self, v): self._state().last_point_count = v
+
+    @property
+    def _last_code(self): return self._state().last_code
+
+    @_last_code.setter
+    def _last_code(self, v): self._state().last_code = v
+
+    @property
+    def _playhead(self): return self._state().playhead
+
+    @_playhead.setter
+    def _playhead(self, v): self._state().playhead = v
 
     # ---------------------------- 界面 ---------------------------- #
 
@@ -141,6 +304,17 @@ class ProgramPanel(QtWidgets.QWidget):
 
         root = QtWidgets.QVBoxLayout(inner)
         root.setContentsMargins(6, 6, 6, 6)
+
+        # --- 多机器人选择：出码/校验/回放全部按这里选中的那台走 ---
+        robot_row = QtWidgets.QHBoxLayout()
+        robot_row.addWidget(QtWidgets.QLabel(tr("机器人")))
+        self.combo_robot = QtWidgets.QComboBox()
+        self.combo_robot.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.combo_robot.currentIndexChanged.connect(self._on_robot_combo_changed)
+        robot_row.addWidget(self.combo_robot, 1)
+        root.addLayout(robot_row)
 
         # --- 节拍与规模 ---
         box = QtWidgets.QGroupBox(tr("程序概览"))
@@ -183,6 +357,29 @@ class ProgramPanel(QtWidgets.QWidget):
         self.btn_stop.clicked.connect(self.stop_playback)
         self.btn_stop.setEnabled(False)
         btn_row.addWidget(self.btn_stop)
+        # 多机才有意义：所有机器人按各自时间轴锁步同播（看协同是否打架）
+        self.btn_play_all = QtWidgets.QPushButton(tr("全部回放"))
+        self.btn_play_all.setToolTip(
+            tr("所有已校验的机器人同时回放——检查多机协同是否撞车")
+        )
+        self.btn_play_all.clicked.connect(self.start_playback_all)
+        self.btn_play_all.setEnabled(False)
+        self.btn_play_all.setVisible(False)
+        btn_row.addWidget(self.btn_play_all)
+        self.btn_validate_all = QtWidgets.QPushButton(tr("校验全部"))
+        self.btn_validate_all.setToolTip(
+            tr("逐台校验所有机器人并汇总结果——不必一台一台切过去按 F7")
+        )
+        self.btn_validate_all.clicked.connect(lambda: self.validate_all())
+        self.btn_validate_all.setVisible(False)
+        btn_row.addWidget(self.btn_validate_all)
+        # 单机也要有：示教是逐台做的活，跟有几台机器人无关
+        self.btn_grasp_wizard = QtWidgets.QPushButton(tr("抓取向导…"))
+        self.btn_grasp_wizard.setToolTip(
+            tr("由抓取点/放置点自动生成接近、提升、撤离点——不必逐个手动示教")
+        )
+        self.btn_grasp_wizard.clicked.connect(lambda: self.open_grasp_wizard())
+        btn_row.addWidget(self.btn_grasp_wizard)
         ops_layout.addLayout(btn_row)
         root.addWidget(ops)
 
@@ -284,6 +481,15 @@ class ProgramPanel(QtWidgets.QWidget):
         self.btn_export.clicked.connect(self.export_program)
         self.btn_export.setEnabled(False)
         gen_row.addWidget(self.btn_export)
+        # 多机才有意义：一次把所有机器人按品牌落成交控制器文件
+        self.btn_generate_all = QtWidgets.QPushButton(tr("导出全部…"))
+        self.btn_generate_all.setToolTip(
+            tr("为每一台机器人各生成一份程序并导出到同一个目录（多机出码）")
+        )
+        self.btn_generate_all.clicked.connect(self.export_all_programs)
+        self.btn_generate_all.setEnabled(False)
+        self.btn_generate_all.setVisible(False)
+        gen_row.addWidget(self.btn_generate_all)
         comm_layout.addLayout(gen_row)
 
         self.code_preview = QtWidgets.QTextEdit()
@@ -313,49 +519,173 @@ class ProgramPanel(QtWidgets.QWidget):
 
     # ---------------------------- 外部注入 ---------------------------- #
 
-    def set_robot(self, robot: Optional["Robot"], joint_names: Optional[Sequence[str]] = None) -> None:
-        """设置当前机器人。
+    def set_robot(
+        self,
+        robot: Optional["Robot"],
+        joint_names: Optional[Sequence[str]] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        """登记一台机器人：**按名字各自留存**，多机不再互相顶掉。
 
         Args:
-            robot: 机器人实例；``None`` 表示卸载
+            robot: 机器人实例；``None`` 表示卸载 ``name``（或当前这台）
             joint_names: 示教点字典里用的关节名（视口渲染器的命名，可能比
                 可驱动关节多——URDF 里的 ``fixed`` 关节，如 ``tcp_joint``，
                 也会被渲染器登记）。为 ``None`` 时取 ``robot.joint_names``
+            name: 场景里的机器人名。缺省取 ``robot.name``。登记后自动切到它，
+                这样示教/校验/出码/回放都作用在刚加进来的那台上
 
         Note:
             这里必须把关节名过滤到**可驱动**的那些。渲染器会把 fixed 关节
             一并登记，照单全收的话 ``moveJ`` 会收到多出来的分量，直接被
-            自由度校验拒掉——表现为tr("每条指令都失败")，极难排查。
+            自由度校验拒掉——表现为"每条指令都失败"，极难排查。
         """
-        self._robot = robot
-        self.stop_playback()
-        self._trajectory = None
-        self._report = None
-        self.issue_list.clear()
         if robot is None:
-            self._joint_names = []
-            self.lbl_status.setText(tr("未加载机器人"))
-            self.lbl_status.setObjectName("bad")
-            self.btn_validate.setEnabled(False)
-            self.btn_play.setEnabled(False)
-            self.btn_generate.setEnabled(False)
-            self.btn_export.setEnabled(False)
-            self._clear_metrics()
-        else:
-            source = list(joint_names or robot.joint_names)
-            actuated = list(robot.joint_names)
-            known = set(actuated)
-            filtered = [n for n in source if n in known]
-            # 命名对不上时宁可退回权威列表，也不要留下长度不匹配的隐患
-            self._joint_names = filtered if len(filtered) == len(actuated) else actuated
-            self.lbl_status.setText(tr("{name} · 就绪").format(name=robot.name))
-            self.lbl_status.setObjectName("ok")
-            self.btn_generate.setEnabled(True)
-            # 「一键导出」的门槛与「生成代码」完全相同——它内部自己构建程序
-            # （见 export_program 的文档），不该逼用户先点一次「生成代码」才亮。
-            self.btn_export.setEnabled(True)
+            self.remove_robot(name or self._active)
+            return
+
+        key = name or robot.name
+        # 必须先把「当前」指过去：下面的赋值都经由代理属性落到这一台的槽里
+        self._active = key
+        state = self._ensure_state(key)
+
+        self.stop_playback()
+        state.trajectory = None
+        state.report = None
+        state.point_issue_level = {}
+        state.build_notes = []
+        self.issue_list.clear()
+
+        source = list(joint_names or robot.joint_names)
+        actuated = list(robot.joint_names)
+        known = set(actuated)
+        filtered = [n for n in source if n in known]
+        # 命名对不上时宁可退回权威列表，也不要留下长度不匹配的隐患
+        state.joint_names = filtered if len(filtered) == len(actuated) else actuated
+        self._robot = robot
+        self.btn_generate.setEnabled(True)
+        # 「一键导出」的门槛与「生成代码」完全相同——它内部自己构建程序
+        # （见 export_program 的文档），不该逼用户先点一次「生成代码」才亮。
+        self.btn_export.setEnabled(True)
+        self.lbl_status.setText(tr("{name} · 就绪").format(name=key))
+        self.lbl_status.setObjectName("ok")
         # 重新套用样式表，objectName 改变后需手动刷新
         self.lbl_status.style().polish(self.lbl_status)
+        self._refresh_robot_combo(key)
+
+    # ---------------------------- 多机器人 ---------------------------- #
+
+    @property
+    def active_robot(self) -> Optional[str]:
+        """当前正在编辑/回放的机器人名。"""
+        return self._active
+
+    @property
+    def robot_names(self) -> List[str]:
+        """已登记的机器人名（插入顺序）。"""
+        return list(self._states)
+
+    def set_active_robot(self, name: Optional[str]) -> bool:
+        """切换当前编辑的机器人，界面随之回填**它自己**的数据。
+
+        Returns:
+            切换成功 ``True``；名字未登记返回 ``False``
+        """
+        if not name or name not in self._states:
+            return False
+        if name != self._active:
+            self.stop_playback()
+        self._active = name
+        self._refresh_robot_combo(name)
+        self._display_active()
+        return True
+
+    def remove_robot(self, name: Optional[str]) -> None:
+        """注销一台机器人（场景里删掉它时调用），遗留状态一并清理。"""
+        if not name or name not in self._states:
+            return
+        if name == self._active:
+            self.stop_playback()
+        self._states.pop(name, None)
+        self._refresh_robot_combo()
+        if name == self._active:
+            self._active = next(iter(self._states), None)
+            self._display_active()
+
+    def _display_active(self) -> None:
+        """按当前机器人的状态回填整个界面（点表 / 报告 / 代码 / 按钮可用性）。"""
+        state = self._state()
+        self._refresh_point_list()
+        self.code_preview.setPlainText(state.last_code)
+
+        if state.report is None:
+            self.issue_list.clear()
+            self._clear_metrics()
+        else:
+            self._show_report(state.report)
+            self._apply_point_colors(state.report)
+
+        self.btn_validate.setEnabled(state.robot is not None and bool(state.taught))
+        self.btn_play.setEnabled(
+            bool(state.trajectory and len(state.trajectory.waypoints) > 1)
+        )
+        # 「全部回放」只要有一台能播就该能点
+        if getattr(self, "btn_play_all", None) is not None:
+            self.btn_play_all.setEnabled(bool(self._playable()))
+        self.btn_generate.setEnabled(state.robot is not None)
+        self.btn_export.setEnabled(state.robot is not None)
+        # 「导出全部」看的是全局：任何一台有程序就该能点（它会跳过没示教的）
+        if getattr(self, "btn_generate_all", None) is not None:
+            self.btn_generate_all.setEnabled(
+                any(s.robot is not None and s.taught for s in self._states.values())
+            )
+
+        if state.robot is None:
+            self.lbl_status.setText(tr("未加载机器人"))
+            self.lbl_status.setObjectName("bad")
+        else:
+            self.lbl_status.setText(tr("{name} · 就绪").format(name=self._active))
+            self.lbl_status.setObjectName("ok")
+        self.lbl_status.style().polish(self.lbl_status)
+
+    def _refresh_robot_combo(self, selected: Optional[str] = None) -> None:
+        """把已登记的机器人名填进下拉，并选中 ``selected``（或当前这台）。
+
+        重建时必须屏蔽信号：填项过程会让 ``currentIndex`` 跳来跳去，触发
+        ``_on_robot_combo_changed`` 会在回填途中反复切换机器人。
+        """
+        if getattr(self, "combo_robot", None) is None:
+            return
+        target = selected or self._active
+        self.combo_robot.blockSignals(True)
+        self.combo_robot.clear()
+        for name in self._states:
+            self.combo_robot.addItem(name, name)
+        if target is not None:
+            idx = self.combo_robot.findData(target)
+            if idx >= 0:
+                self.combo_robot.setCurrentIndex(idx)
+        self.combo_robot.blockSignals(False)
+        # 只有一台时下拉没什么可挑，藏起来保持单机界面的样子；「导出全部」
+        # 同理——单机没必要多一个按钮
+        multi = len(self._states) > 1
+        self.combo_robot.setVisible(multi)
+        self.btn_generate_all.setVisible(multi)
+        self.btn_play_all.setVisible(multi)
+        # 「校验全部」同理：单机时按一次 F7 就够，不必多一个按钮
+        if getattr(self, "btn_validate_all", None) is not None:
+            self.btn_validate_all.setVisible(multi)
+            self.btn_validate_all.setEnabled(len(self._states) > 0)
+        if getattr(self, "btn_grasp_wizard", None) is not None:
+            self.btn_grasp_wizard.setEnabled(bool(self._states))
+
+    def _on_robot_combo_changed(self, _index: int) -> None:
+        """下拉换人：切到对应机器人，并广播给主窗口同步示教点/视口。"""
+        name = self.combo_robot.currentData()
+        if not name or name == self._active:
+            return
+        self.set_active_robot(name)
+        self.activeRobotChanged.emit(name)
 
     def set_scene(self, scene: Optional["Scene"]) -> None:
         """绑定工作单元场景；给出后校验会包含沿路径干涉检查。"""
@@ -366,6 +696,7 @@ class ProgramPanel(QtWidgets.QWidget):
         positions: Sequence[Dict[str, float]],
         types: Optional[Sequence[PointType]] = None,
         motions: Optional[Sequence[str]] = None,
+        robot: Optional[str] = None,
     ) -> None:
         """导入示教点（``{关节名: 弧度}``）。
 
@@ -377,43 +708,354 @@ class ProgramPanel(QtWidgets.QWidget):
             motions: 与示教点对齐的运动类型（``"J"``/``"L"``/``"C"``）。
                 为 ``None`` 且数量不变时沿用当前逐点运动类型（轨迹编辑器
                 的改动不被外部同步覆盖），否则重置为全 moveJ
+            robot: 写到哪台机器人的名下；``None`` 表示当前这台。给非当前机器人
+                喂数据时界面不会跟着跳（主窗口批量同步多台时要这个语义）
         """
-        self._taught = [dict(p) for p in positions]
-        self._point_types = list(types) if types is not None else None
-        # 长度必须对齐：语义少了会漏动作，多了会错位
-        if self._point_types is not None and len(self._point_types) != len(self._taught):
-            self._point_types = None
-        if motions is not None and len(motions) == len(self._taught):
-            self._point_motions = [
-                k if k in ("L", "C") else "J"
-                for k in (str(m).upper() for m in motions)
-            ]
-        elif len(self._point_motions) != len(self._taught):
-            self._point_motions = ["J"] * len(self._taught)
-        n = len(self._taught)
-        # 点数变了，旧报告的节拍明细/着色不再对得上号——直接作废
-        if getattr(self, "_last_point_count", None) != n:
-            self._report = None
-            self._point_issue_level = {}
-            self._last_point_count = n
+        # 喂给非当前那台时临时切过去写，写完切换回来——界面不能跟着跳
+        hidden = robot is not None and robot in self._states and robot != self._active
+        prev = self._active
+        if hidden:
+            self._active = robot
+        try:
+            self._taught = [dict(p) for p in positions]
+            self._point_types = list(types) if types is not None else None
+            # 长度必须对齐：语义少了会漏动作，多了会错位
+            if self._point_types is not None and len(self._point_types) != len(self._taught):
+                self._point_types = None
+            if motions is not None and len(motions) == len(self._taught):
+                self._point_motions = [
+                    k if k in ("L", "C") else "J"
+                    for k in (str(m).upper() for m in motions)
+                ]
+            elif len(self._point_motions) != len(self._taught):
+                self._point_motions = ["J"] * len(self._taught)
+            n = len(self._taught)
+            # 点数变了，旧报告的节拍明细/着色不再对得上号——直接作废
+            if getattr(self, "_last_point_count", None) != n:
+                self._report = None
+                self._point_issue_level = {}
+                self._last_point_count = n
+        finally:
+            self._active = prev
+
+        if hidden:
+            return
         self.statusMessage.emit(tr("导入 {n} 个示教点").format(n=n))
         self._refresh_point_list()
         if self._robot is not None:
             self.btn_validate.setEnabled(n >= 1)
 
+    # ---------------------------- 抓取向导 ---------------------------- #
+
+    def grasp_cycle_points(
+        self,
+        pick_index: int,
+        place_index: Optional[int] = None,
+        approach_mm: float = 50.0,
+        lift_mm: float = 50.0,
+        retract_mm: float = 50.0,
+        robot: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, float]], List[PointType], List[str]]:
+        """由一个**抓取点**（加可选放置点）生成完整的抓取循环点位。
+
+        用户只需把机器人摆到"要抓的地方"和"要放的地方"各示教一次，接近 / 提升 /
+        撤离这些安全高度点由向导按竖直偏移算出来——这是示教里最费时间、也最容
+        易教歪的一步（手抖一下，接近点就可能离工件太远或撞上去）。
+
+        偏移沿**世界竖直方向（+Z）**、单位毫米：接近点在抓取点上方
+        ``approach_mm``，提升点在抓取点上方 ``lift_mm``，撤离点在放置点上方
+        ``retract_mm``。
+
+        Args:
+            pick_index: 抓取点在当前示教点里的下标（0 起）
+            place_index: 放置点下标；``None`` 表示只生成抓取侧（接近/抓取/提升）
+            approach_mm / lift_mm / retract_mm: 竖直偏移，毫米
+            robot: 算哪台机器人的；``None`` 表示当前这台
+
+        Returns:
+            ``(positions, types, motions)``——positions 为 ``{关节名: 弧度}``，
+            types 为对应的 :class:`PointType`，motions 为运动类型
+            （竖直升降段用 moveL，转运段用 moveJ）
+
+        Raises:
+            KinematicsError: 条件不足，或某个偏移点逆解失败（超出工作空间 /
+                奇异位形）。**不返回残缺序列**——少一个点就不是完整的抓取循环，
+                宁可让用户把高度调小重试，也不要给一串看着完整、实则缺动作的
+                示教点
+        """
+        with self._using_robot(robot) as state:
+            if state.robot is None or not state.joint_names:
+                raise KinematicsError(tr("还没有载入机器人，无法计算抓取点位"))
+            taught = state.taught
+            names = state.joint_names
+            if not taught:
+                raise KinematicsError(
+                    tr("还没有示教点——请先把机器人摆到抓取位并记录一个点")
+                )
+            if not (0 <= pick_index < len(taught)):
+                raise KinematicsError(
+                    tr("抓取点下标 {i} 超出示教点范围（共 {n} 个）").format(
+                        i=pick_index, n=len(taught)
+                    )
+                )
+            if place_index is not None and not (0 <= place_index < len(taught)):
+                raise KinematicsError(
+                    tr("放置点下标 {i} 超出示教点范围（共 {n} 个）").format(
+                        i=place_index, n=len(taught)
+                    )
+                )
+
+            def joints_at(index: int) -> List[float]:
+                """第 ``index`` 个示教点的关节值（度）。"""
+                return [math.degrees(float(taught[index].get(n, 0.0))) for n in names]
+
+            def lifted(index: int, dz: float, guess: List[float],
+                       label: str) -> List[float]:
+                """把第 ``index`` 个示教点的 TCP 沿世界 +Z 抬高 ``dz`` 后逆解。
+
+                以 ``guess`` 为初值（这里传抓取/放置位形本身）：目标就在正上方，
+                解出来自然与示教位形同构，不会翻腕翻到另一个姿态去。
+                """
+                pose = state.robot.forward_kinematics(joints_at(index))
+                target = pose.matrix.copy()
+                target[2, 3] += float(dz)
+                try:
+                    return [float(v) for v in
+                            state.robot.inverse_kinematics(Pose(target), guess=guess)]
+                except KinematicsError as exc:
+                    raise KinematicsError(
+                        tr("{label}（抬高 {dz:.0f} mm）逆解失败：{msg}").format(
+                            label=label, dz=dz, msg=exc
+                        )
+                    ) from exc
+
+            pick_q = joints_at(pick_index)
+
+            def merged(source_index: int, q: List[float]) -> Dict[str, float]:
+                """把解出的可动轴覆盖到来源示教点上，其余关节沿用示教值。
+
+                末端工具轴（``tcp_joint``）这类非驱动关节不在 ``names`` 里，只按
+                可动轴重建字典就会把它们整条丢掉——生成的点与用户示教的点结构
+                对不上，写回场景时工具的关节值被悄悄抹成 0。
+                """
+                out = {n: float(v) for n, v in taught[source_index].items()}
+                out.update(
+                    {n: math.radians(float(q[i])) for i, n in enumerate(names)}
+                )
+                return out
+
+            sequence = [
+                (pick_index, lifted(pick_index, approach_mm, pick_q, tr("接近点")),
+                 PointType.APPROACH, "J"),
+                (pick_index, pick_q, PointType.PICK, "L"),
+                (pick_index, lifted(pick_index, lift_mm, pick_q, tr("提升点")),
+                 PointType.LIFT, "L"),
+            ]
+            if place_index is not None:
+                place_q = joints_at(place_index)
+                sequence += [
+                    (place_index, place_q, PointType.PLACE, "J"),
+                    (place_index,
+                     lifted(place_index, retract_mm, place_q, tr("撤离点")),
+                     PointType.RETRACT, "L"),
+                ]
+
+            positions = [merged(src, q) for src, q, _t, _m in sequence]
+            return (
+                positions,
+                [t for _src, _q, t, _m in sequence],
+                [m for _src, _q, _t, m in sequence],
+            )
+
+    def apply_grasp_cycle(
+        self,
+        pick_index: int,
+        place_index: Optional[int] = None,
+        approach_mm: float = 50.0,
+        lift_mm: float = 50.0,
+        retract_mm: float = 50.0,
+        replace: bool = False,
+        robot: Optional[str] = None,
+    ) -> int:
+        """生成抓取循环并写入 ``robot`` 的示教点。
+
+        Args:
+            replace: ``True`` 用生成的序列**替换**原有示教点；``False``（默认）
+                **追加**到末尾。默认追加：原有示教点是用户一个个摆出来的，凭
+                一次向导就抹掉太可惜——真要替换得由用户明确勾选
+            robot: 写到哪台；``None`` 表示当前这台
+
+        Returns:
+            写入后的示教点总数
+
+        Raises:
+            KinematicsError: 点位算不出来（见 :meth:`grasp_cycle_points`）。
+                此时**不改动**任何示教点
+        """
+        new_pos, new_types, new_motions = self.grasp_cycle_points(
+            pick_index, place_index, approach_mm, lift_mm, retract_mm, robot
+        )
+        with self._using_robot(robot) as state:
+            cur = [dict(p) for p in state.taught]
+            if replace or not cur:
+                positions, types, motions = new_pos, new_types, new_motions
+            else:
+                cur_types = state.point_types
+                if cur_types is None or len(cur_types) != len(cur):
+                    # 语义缺失或长度对不上时按默认补齐——宁可给用户一份能跑的
+                    # 猜测，也不要让追加后整串语义错位
+                    cur_types = default_types_for_count(len(cur))
+                cur_motions = (
+                    list(state.point_motions)
+                    if len(state.point_motions) == len(cur)
+                    else ["J"] * len(cur)
+                )
+                positions = cur + new_pos
+                types = list(cur_types) + new_types
+                motions = cur_motions + new_motions
+            self.set_taught_points(positions, types, motions, robot=robot)
+            name = robot or self._active
+        # 面板内部的编辑广播不带机器人名（多机会串台），故走专用信号；当前这台
+        # 额外走一次既有广播，让路径代码编辑器同步（与轨迹编辑器改点同一条路）
+        self.graspCycleApplied.emit(name or "")
+        if name == self._active:
+            self._emit_taught_changed()
+        self.statusMessage.emit(
+            tr("抓取向导已生成 {n} 个点（{seq}）").format(
+                n=len(new_pos),
+                seq=" → ".join(t.label for t in new_types),
+            )
+        )
+        return len(positions)
+
+    def open_grasp_wizard(self, robot: Optional[str] = None) -> bool:
+        """弹出抓取向导对话框，按用户给的两个示教点生成完整抓取循环。
+
+        Args:
+            robot: 对哪台机器人用向导；``None`` 表示当前这台
+
+        Returns:
+            确实写入了点位 ``True``；用户取消或算不出来 ``False``
+        """
+        with self._using_robot(robot) as state:
+            taught = state.taught
+            name = robot or self._active
+        if not taught:
+            QtWidgets.QMessageBox.information(
+                self, tr("抓取向导"),
+                tr("请先记录至少一个示教点——把机器人摆到要抓的位置，点「记录」"),
+            )
+            return False
+        if state.robot is None:
+            QtWidgets.QMessageBox.information(
+                self, tr("抓取向导"), tr("还没有载入机器人，无法计算抓取点位")
+            )
+            return False
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(tr("抓取向导"))
+        form = QtWidgets.QFormLayout(dlg)
+
+        def point_label(i: int) -> str:
+            return tr("P{n}").format(n=i + 1)
+
+        combo_pick = QtWidgets.QComboBox()
+        combo_place = QtWidgets.QComboBox()
+        for i in range(len(taught)):
+            combo_pick.addItem(point_label(i), i)
+            combo_place.addItem(point_label(i), i)
+        combo_place.addItem(tr("（不生成放置侧）"), -1)
+        # 默认：抓取点取当前选中行，放置点默认不选（多数人先只想把抓取侧做出来）
+        selected = self._selected_index()
+        combo_pick.setCurrentIndex(selected if selected is not None else len(taught) - 1)
+        combo_place.setCurrentIndex(len(taught))  # 最后一项 = 不生成
+
+        spin_approach = QtWidgets.QDoubleSpinBox()
+        spin_lift = QtWidgets.QDoubleSpinBox()
+        spin_retract = QtWidgets.QDoubleSpinBox()
+        for spin, value in ((spin_approach, 50.0), (spin_lift, 50.0),
+                            (spin_retract, 50.0)):
+            spin.setRange(0.0, 2000.0)
+            spin.setDecimals(1)
+            spin.setSuffix(" mm")
+            spin.setValue(value)
+        spin_retract.setEnabled(False)
+
+        check_replace = QtWidgets.QCheckBox(tr("替换原有示教点（默认追加到末尾）"))
+
+        preview = QtWidgets.QLabel(tr("接近点 → 抓取点 → 提升点"))
+        preview.setWordWrap(True)
+
+        def refresh_preview() -> None:
+            spin_retract.setEnabled(combo_place.currentData() != -1)
+            seq = [tr("接近点"), tr("抓取点"), tr("提升点")]
+            if combo_place.currentData() != -1:
+                seq += [tr("放置点"), tr("撤离点")]
+            preview.setText(tr("将生成 {n} 个点：{seq}").format(
+                n=len(seq), seq=" → ".join(seq)
+            ))
+
+        combo_place.currentIndexChanged.connect(lambda _i: refresh_preview())
+        refresh_preview()
+
+        form.addRow(tr("抓取点"), combo_pick)
+        form.addRow(tr("放置点"), combo_place)
+        form.addRow(tr("接近高度（抓取点上方）"), spin_approach)
+        form.addRow(tr("提升高度（抓取点上方）"), spin_lift)
+        form.addRow(tr("撤离高度（放置点上方）"), spin_retract)
+        form.addRow(check_replace)
+        form.addRow(preview)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.button(QtWidgets.QDialogButtonBox.Ok).setText(tr("生成"))
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText(tr("取消"))
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+
+        if not dlg.exec():
+            return False
+
+        place = combo_place.currentData()
+        try:
+            self.apply_grasp_cycle(
+                pick_index=int(combo_pick.currentData()),
+                place_index=None if place == -1 else int(place),
+                approach_mm=spin_approach.value(),
+                lift_mm=spin_lift.value(),
+                retract_mm=spin_retract.value(),
+                replace=check_replace.isChecked(),
+                robot=name,
+            )
+        except KinematicsError as exc:
+            # 逆解失败不能悄无声息：告诉用户是哪个点、抬了多少，让他调小高度重试
+            QtWidgets.QMessageBox.warning(
+                self, tr("抓取向导"),
+                tr("点位算不出来，示教点未改动：\n{msg}").format(msg=exc),
+            )
+            return False
+        return True
+
     # ---------------------------- 轨迹编辑器 ---------------------------- #
 
-    def get_taught_points(self) -> tuple:
-        """读取当前示教点数据（供外部同步与测试）。
+    def get_taught_points(self, robot: Optional[str] = None) -> tuple:
+        """读取示教点数据（供外部同步与测试）。
+
+        Args:
+            robot: 读哪台的；``None`` 表示当前这台。抓取向导写完点后主窗口要
+                按名字把点位回灌视口，故支持指定机器人
 
         Returns:
             ``(positions, types, motions)``——positions 为
             ``{关节名: 弧度}`` 字典列表的拷贝；types 可为 ``None``；
             motions 为 ``"J"/"L"/"C"`` 列表
         """
-        positions = [dict(p) for p in self._taught]
-        types = list(self._point_types) if self._point_types is not None else None
-        return positions, types, list(self._point_motions)
+        with self._using_robot(robot) as state:
+            positions = [dict(p) for p in state.taught]
+            types = list(state.point_types) if state.point_types is not None else None
+            return positions, types, list(state.point_motions)
 
     def _selected_index(self) -> Optional[int]:
         """当前选中行号；未选中返回 ``None``。"""
@@ -789,6 +1431,15 @@ class ProgramPanel(QtWidgets.QWidget):
         反向映射指令→路点；指向中间点的指令把着色落在**圆弧终点**那一行——问题实际
         出在圆弧段上，落在被并入的那一行最容易被看见。
         """
+        self._point_issue_level = self._point_levels(report)
+        self._refresh_point_list()
+
+    def _point_levels(self, report: "ProgramReport") -> Dict[int, str]:
+        """报告里每个路点的最严重问题级别——**只算，不刷界面**。
+
+        映射规则同 :meth:`_apply_point_colors`，但不碰列表控件：一键校验全部
+        时要逐台算完存进各自的状态槽，界面从头到尾只显示当前那台。
+        """
         levels: Dict[int, str] = {}
         plan, _notes = self.motion_plan()
         instruction_to_point = {
@@ -799,8 +1450,7 @@ class ProgramPanel(QtWidgets.QWidget):
             level = "error" if issue.severity == SEVERITY_ERROR else "warning"
             if levels.get(point_index) != "error":
                 levels[point_index] = level
-        self._point_issue_level = levels
-        self._refresh_point_list()
+        return levels
 
     # ---------------------------- 业务逻辑 ---------------------------- #
 
@@ -814,7 +1464,18 @@ class ProgramPanel(QtWidgets.QWidget):
         """最近一次校验报告。"""
         return self._report
 
-    def build_program(self) -> Optional[Program]:
+    def build_program(self, robot: Optional[str] = None) -> Optional[Program]:
+        """组装**指定机器人**（默认当前这台）的程序。
+
+        Args:
+            robot: 机器人名；``None`` 表示当前正在编辑的那台。批量出全部機器人
+                的代码时逐个指名即可，界面不会跟着切走
+        """
+        with self._using_robot(robot):
+            return self._build_program_impl()
+
+    def _build_program_impl(self) -> Optional[Program]:
+        # 实际装配：调用方已把当前槽切到目标机器人
         """把示教点组装成程序。
 
         示教点内部以弧度保存，:class:`Motion` 期望角度。
@@ -948,6 +1609,8 @@ class ProgramPanel(QtWidgets.QWidget):
 
         # 有轨迹就能回放——即使校验没通过，也允许用户看看走到哪儿崩的
         self.btn_play.setEnabled(bool(self._trajectory and len(self._trajectory.waypoints) > 1))
+        if getattr(self, "btn_play_all", None) is not None:
+            self.btn_play_all.setEnabled(bool(self._playable()))
         message = tr("校验完成：{res}").format(
             res=tr("通过") if report.ok else tr("{n} 处错误").format(n=len(report.errors))
         )
@@ -958,6 +1621,97 @@ class ProgramPanel(QtWidgets.QWidget):
                 self.statusMessage.emit(tr("⚠ {note}").format(note=note))
         self.statusMessage.emit(message)
         return report
+
+    def validate_all(self) -> Dict[str, Optional["ProgramReport"]]:
+        """逐台校验**所有**已登记的机器人（一键校验全部）。
+
+        装配与规划和 :meth:`validate_program` 完全一致，区别在于**不逐台刷界面**
+        ——界面始终显示当前那台。否则问题列表会被一遍遍刷掉，用户只看见最后
+        一台的结论，前面几台校出问题等于没看见。每台的结果（轨迹 / 报告 /
+        夹爪时序）各存进自己的状态槽，随后「全部回放」直接复用这些轨迹。
+
+        Returns:
+            ``{机器人名: ProgramReport}``；没型号、没示教点或校验本身出错的那台
+            对应 ``None``——"没结果"和"通过"是两回事，不混为一谈
+        """
+        reports: Dict[str, Optional["ProgramReport"]] = {}
+        for name in list(self._states):
+            state = self._states.get(name)
+            if state is None or state.robot is None:
+                continue
+            with self._using_robot(name):
+                program = self._build_program_impl()
+                if program is None:
+                    reports[name] = None  # 这台还没教过程序
+                    continue
+                try:
+                    report = program.validate(scene=self._scene)
+                    planner = TrajectoryPlanner(self._robot, scene=self._scene)
+                    state.trajectory = planner.plan(program)
+                except Exception as exc:
+                    # 一台崩了不能带崩全部：如实记下来，继续校其余的
+                    state.trajectory = None
+                    state.report = None
+                    reports[name] = None
+                    self.statusMessage.emit(
+                        tr("{name} 校验异常：{kind}: {msg}").format(
+                            name=name, kind=type(exc).__name__, msg=exc
+                        )
+                    )
+                    continue
+                state.planner = planner
+                state.gripper_animator = GraspAnimator(program, planner)
+                state.report = report
+                state.point_issue_level = self._point_levels(report)
+                reports[name] = report
+
+        # 当前这台若也校过了，顺手把它的结论刷进界面——用户正看着它
+        active = self._active
+        if active in reports and reports[active] is not None:
+            self._show_report(reports[active])
+            self._apply_point_colors(reports[active])
+        if getattr(self, "btn_play_all", None) is not None:
+            self.btn_play_all.setEnabled(bool(self._playable()))
+
+        passed = [n for n, r in reports.items() if r is not None and r.ok]
+        failed = [n for n, r in reports.items() if r is not None and not r.ok]
+        skipped = [n for n, r in reports.items() if r is None]
+        parts = []
+        if passed:
+            parts.append(tr("{n} 台通过").format(n=len(passed)))
+        if failed:
+            parts.append(tr("{n} 台有问题").format(n=len(failed)))
+        if skipped:
+            parts.append(tr("{n} 台没程序").format(n=len(skipped)))
+        self.statusMessage.emit(
+            tr("校验全部：{res}").format(
+                res="、".join(parts) or tr("没有可校验的机器人")
+            )
+        )
+        self.allValidated.emit(reports)
+        return reports
+
+    def focus_report(self, name: Optional[str] = None) -> bool:
+        """切到 ``name`` 并把它**已存的**校验报告刷进界面。
+
+        汇总对话框里点「看这台」走这里：报告已经算过了，不必重校一遍。
+
+        Returns:
+            有报告并已显示 ``True``；这台还没校过返回 ``False``
+        """
+        key = name or self._active
+        state = self._state(key)
+        if state is None or state.report is None:
+            self.statusMessage.emit(
+                tr("{name} 还没有校验结果").format(name=key or tr("这台"))
+            )
+            return False
+        self.set_active_robot(key)
+        self._show_report(state.report)
+        self._apply_point_colors(state.report)
+        # 视口与示教点显示也要跟过去——否则"看的是 A 的报告，画的是 B"
+        self.activeRobotChanged.emit(key)
+        return True
 
     # ---------------------------- 设备联调 ---------------------------- #
 
@@ -971,10 +1725,11 @@ class ProgramPanel(QtWidgets.QWidget):
             self.statusMessage.emit(tr("请先加载机器人并示教至少一个点"))
             return
         choice = self.combo_post.currentData()  # None = 自动（按机器人品牌推断）
+        # 程序名用**场景里的机器人名**而不是 URDF 文件名：多机同型号时后者会
+        # 重名，落出 second.src / second.src 互相覆盖
+        prog_name = self._active or (self._robot.name if self._robot else "program")
         try:
-            code = program.to_post(
-                choice, metadata={"program_name": self._robot.name or "program"}
-            )
+            code = program.to_post(choice, metadata={"program_name": prog_name})
         except Exception as exc:
             self._last_code = ""
             self.btn_export.setEnabled(False)
@@ -1008,13 +1763,24 @@ class ProgramPanel(QtWidgets.QWidget):
             return
         self.export_program_to(program, dest)
 
-    def export_program_to(self, program: Program, dest: str) -> bool:
+    def export_program_to(
+        self, program: Program, dest: str, robot: Optional[str] = None
+    ) -> bool:
         """把 ``program`` 导出到 ``dest`` 目录（无 UI 逻辑，供测试复用）。
+
+        Args:
+            program: 已构建好的程序
+            dest: 目标目录
+            robot: 这台机器人的名字（决定文件名与其槽位写入）；``None`` 取当前
 
         Returns:
             成功 ``True``；后处理/落盘失败 ``False``（状态栏带原因）
         """
-        name = self._robot.name or "program"
+        with self._using_robot(robot):
+            return self._export_impl(program, dest)
+
+    def _export_impl(self, program: Program, dest: str) -> bool:
+        name = self._active or (self._robot.name if self._robot else "program")
         try:
             link = FileLink(dest)
             link.connect()
@@ -1032,6 +1798,115 @@ class ProgramPanel(QtWidgets.QWidget):
         note = tr("（{note}）").format(note=deployment.notes) if deployment.notes else ""
         self.statusMessage.emit(tr("已导出：{handle}{note}").format(handle=deployment.handle, note=note))
         return True
+
+    # ---------------------------- 存盘 / 恢复 ---------------------------- #
+
+    def robot_snapshot(self) -> Dict[str, dict]:
+        """各台机器人的示教点与抓取语义快照，供工程存盘。
+
+        工程里原先只有一份 ``program`` 段（来自只显示当前那台的路径编辑器），
+        多机工程存盘再打开会丢掉其余机器人教好的抓取循环——这段就是为此加的。
+
+        Returns:
+            ``{机器人名: {"joint_names": [...], "positions": [{关节名: 弧度}],
+            "point_types": [...]}}``
+        """
+        out: Dict[str, dict] = {}
+        for name, st in self._states.items():
+            if st.robot is None:
+                continue
+            out[name] = {
+                "joint_names": list(st.joint_names),
+                "positions": [
+                    {k: float(v) for k, v in p.items()} for p in st.taught
+                ],
+                "point_types": [
+                    getattr(t, "value", None) for t in (st.point_types or [])
+                ],
+            }
+        return out
+
+    def restore_robots(self, data: Optional[dict]) -> None:
+        """把 :meth:`robot_snapshot` 的快照灌回各台机器人。
+
+        场景里已经没有的机器人直接跳过——存档比场景多是正常的（用户删过机器
+        人），不该为它凭空造一个条目出来。语义数量对不上时按默认语义重建，
+        绝不猜哪个是抓取点。
+        """
+        for name, payload in (data or {}).items():
+            if name not in self._states:
+                continue
+            positions = payload.get("positions") or []
+            if not positions:
+                continue
+            raw = payload.get("point_types") or []
+            types = None
+            if raw and len(raw) == len(positions):
+                try:
+                    types = [PointType(t) for t in raw]
+                except ValueError:
+                    types = None
+            self.set_taught_points(positions, types, robot=name)
+
+    # ---------------------------- 多机出码 ---------------------------- #
+
+    def generate_all_code(self) -> Dict[str, str]:
+        """给**每一台**机器人各生成一份目标控制器代码。
+
+        后处理器统一用下拉里选的那个（``None`` = 各自按品牌推断），这样一次按钮
+        就能拿到"整条产线"的程序，而不是逐台点一遍。
+
+        Returns:
+            ``{机器人名: 代码}``；某台生成失败时不进结果，原因已广播到状态栏
+        """
+        codes: Dict[str, str] = {}
+        if not self._states:
+            self.statusMessage.emit(tr("请先加载机器人并示教至少一个点"))
+            return codes
+        choice = self.combo_post.currentData()
+        for name in list(self._states):
+            program = self.build_program(name)
+            if program is None:
+                self.statusMessage.emit(tr("{name}：无示教点，已跳过").format(name=name))
+                continue
+            try:
+                codes[name] = program.to_post(choice, metadata={"program_name": name})
+            except Exception as exc:
+                self.statusMessage.emit(
+                    tr("{name} 生成失败：{exc}").format(name=name, exc=exc)
+                )
+        # 预览仍保持当前这台：点了"导出全部"就把预览换成别人家的代码，很容易
+        # 让人以为当前编辑的那份丢了
+        if self._active in codes:
+            self._last_code = codes[self._active]
+            self.code_preview.setPlainText(codes[self._active])
+        if codes:
+            self.statusMessage.emit(tr("已生成 {n} 台机器人的代码").format(n=len(codes)))
+        return codes
+
+    def export_all_programs(self) -> None:
+        """把**所有**机器人的程序一次导出到同一个目录（每台一个文件）。"""
+        codes = self.generate_all_code()
+        if not codes:
+            self.statusMessage.emit(tr("没有可导出的机器人程序"))
+            return
+        dest = QtWidgets.QFileDialog.getExistingDirectory(
+            self, tr("选择导出目录"), str(Path.cwd())
+        )
+        if not dest:
+            return
+        ok = 0
+        for name in list(codes):
+            program = self.build_program(name)
+            if program is None:
+                continue
+            if self.export_program_to(program, dest, robot=name):
+                ok += 1
+        self.statusMessage.emit(
+            tr("已导出 {n}/{total} 个机器人程序到 {dest}").format(
+                n=ok, total=len(codes), dest=dest
+            )
+        )
 
     def _show_report(self, report: ProgramReport) -> None:
         """把报告填进界面。"""
@@ -1066,28 +1941,69 @@ class ProgramPanel(QtWidgets.QWidget):
 
     # ---------------------------- 回放 ---------------------------- #
 
-    def start_playback(self) -> None:
-        """从轨迹起点开始回放。"""
-        traj = self._trajectory
-        if traj is None or len(traj.waypoints) < 2:
+    def start_playback(self, robots: Optional[Sequence[str]] = None) -> None:
+        """从轨迹起点开始回放。
+
+        Args:
+            robots: 要回放的机器人名序列；``None`` 表示当前这台。
+                多台时**各自按自己的时间轴**推进但共用同一个定时器——这就是
+                多机协同回放：能直观看出两台是否会抢同一个工位
+        """
+        wanted = list(robots) if robots is not None else self._playable()
+        names = [n for n in wanted if self._playable(n)]
+        if not names:
             # 不用模态弹窗：无头/自动化场景下会永久阻塞，且"还没校验"只是
             # 普通状态提示，不值得打断用户
             self.statusMessage.emit(tr("请先校验程序以生成轨迹，再回放"))
             return
-        self._playhead = float(traj.waypoints[0].timestamp)
+
+        for name in names:
+            state = self._states[name]
+            traj = state.trajectory
+            state.playhead = float(traj.waypoints[0].timestamp)
+            # 回放从头开始：夹爪状态复位为未夹持，主窗口会据此放下工件
+            if state.gripper_animator is not None:
+                state.gripper_animator.reset()
+            self._set_gripper_for(name, "")
+
+        self._playing = names
         self.btn_play.setEnabled(False)
         self.btn_stop.setEnabled(True)
-        # 回放从头开始：夹爪状态复位为未夹持，主窗口会据此放下工件
-        if self._gripper_animator is not None:
-            self._gripper_animator.reset()
-        self._set_gripper_state("")
         self._timer.start()
-        self.statusMessage.emit(tr("轨迹回放中…"))
+        if len(names) > 1:
+            self.statusMessage.emit(tr("多机回放中…（{n} 台）").format(n=len(names)))
+        else:
+            self.statusMessage.emit(tr("轨迹回放中…"))
+
+    def start_playback_all(self) -> None:
+        """所有已校验过的机器人**锁步同播**（多机回放）。"""
+        if not self._playable():
+            self.statusMessage.emit(tr("没有已生成轨迹的机器人——请先校验程序"))
+            return
+        self.start_playback(self._playable())
+
+    def _playable(self, name: Optional[str] = None) -> List[str]:
+        """可回放的机器人名——必须已校验出多于一个路点的轨迹。
+
+        Args:
+            name: 只看这台；``None`` 看全部
+        """
+        keys = [name] if name is not None else list(self._states)
+        out = []
+        for key in keys:
+            state = self._states.get(key)
+            if state is None:
+                continue
+            traj = state.trajectory
+            if traj is not None and len(traj.waypoints) > 1 and state.joint_names:
+                out.append(key)
+        return out
 
     def stop_playback(self) -> None:
         """停止回放。"""
         was_running = self._timer.isActive()
         self._timer.stop()
+        self._playing = []
         self.btn_stop.setEnabled(False)
         if self._trajectory and len(self._trajectory.waypoints) > 1:
             self.btn_play.setEnabled(True)
@@ -1095,46 +2011,71 @@ class ProgramPanel(QtWidgets.QWidget):
             self.playbackFinished.emit()
 
     def _on_tick(self) -> None:
-        """推进播放头并发射关节帧。"""
-        traj = self._trajectory
-        if traj is None or not self._joint_names:
+        """推进所有在播机器人的播放头并发射关节帧。"""
+        if not getattr(self, "_playing", None):
             self.stop_playback()
             return
+        # 到终点的机器人自己退出；全部到点后整体收尾
+        self._playing = [name for name in self._playing if self._tick_one(name)]
+        if not self._playing:
+            self.stop_playback()
+
+    def _tick_one(self, name: str) -> bool:
+        """推进 ``name`` 一帧并发给它自己的视口；未到终点返回 ``True``。"""
+        state = self._states.get(name)
+        traj = state.trajectory if state is not None else None
+        if traj is None or not state.joint_names:
+            return False
 
         # 用定时器标称间隔推进（按速度百分比缩放）。定时器本身有抖动，
         # 但对"看一遍路径怎么走"这个目的足够，不值得引入实时时钟补偿的复杂度
         scale = 100.0 / max(self.spin_speed.value(), 1)
-        self._playhead += (PLAYBACK_INTERVAL_MS / 1000.0) / scale
+        state.playhead += (PLAYBACK_INTERVAL_MS / 1000.0) / scale
 
         t_end = float(traj.waypoints[-1].timestamp)
-        if self._playhead >= t_end:
-            self._emit_frame(traj.waypoints[-1].joints)
+        done = state.playhead >= t_end
+        if done:
             # 终点处的事件（程序以 gripper 收尾）也要应用
-            if self._gripper_animator is not None:
-                self._set_gripper_state(
-                    self._gripper_animator.state_at(t_end) or ""
+            self._emit_one(name, traj.waypoints[-1].joints)
+            if state.gripper_animator is not None:
+                self._set_gripper_for(
+                    name, state.gripper_animator.state_at(t_end) or ""
                 )
-            self.stop_playback()
-            return
+            return False
 
-        waypoint = traj.interpolate(self._playhead)
-        self._emit_frame(waypoint.joints)
-        # 越过关爪事件时刻时通知主窗口吸附/释放工件
-        if self._gripper_animator is not None:
-            self._set_gripper_state(
-                self._gripper_animator.state_at(self._playhead) or ""
+        waypoint = traj.interpolate(state.playhead)
+        self._emit_one(name, waypoint.joints)
+        # 越过夹爪事件时刻时通知主窗口吸附/释放工件
+        if state.gripper_animator is not None:
+            self._set_gripper_for(
+                name, state.gripper_animator.state_at(state.playhead) or ""
             )
+        return True
+
+    def _emit_one(self, name: str, joints_deg: Sequence[float]) -> None:
+        """把 ``name`` 这一帧的关节角（度）换算为弧度发给它自己的机器人。"""
+        state = self._states[name]
+        values = {}
+        for i, joint in enumerate(state.joint_names):
+            if i < len(joints_deg):
+                values[joint] = math.radians(float(joints_deg[i]))
+        self.playbackFrame.emit(name, values)
 
     def _emit_frame(self, joints_deg: Sequence[float]) -> None:
-        """把关节角（度）换算为弧度并发射给视口。"""
-        values = {}
-        for i, name in enumerate(self._joint_names):
-            if i < len(joints_deg):
-                values[name] = math.radians(float(joints_deg[i]))
-        self.playbackFrame.emit(values)
+        """兼容旧调用面：给**当前**机器人发一帧。"""
+        if self._active is not None and self._active in self._states:
+            self._emit_one(self._active, joints_deg)
+
+    def _set_gripper_for(self, name: str, action: str) -> None:
+        """广播 ``name`` 这台机器人的夹爪状态（去重，避免每帧刷屏）。"""
+        state = self._states.get(name)
+        if state is None:
+            return
+        if action != state.last_gripper_state:
+            state.last_gripper_state = action
+            self.gripperStateChanged.emit(name, action)
 
     def _set_gripper_state(self, action: str) -> None:
-        """夹爪状态去重后广播（避免每帧重复发射刷屏）。"""
-        if action != self._last_gripper_state:
-            self._last_gripper_state = action
-            self.gripperStateChanged.emit(action)
+        """兼容旧调用面：给**当前**机器人设夹爪状态。"""
+        if self._active is not None:
+            self._set_gripper_for(self._active, action)

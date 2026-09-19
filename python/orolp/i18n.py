@@ -302,12 +302,69 @@ _CATALOG_EN: dict[str, str] = {
     "未加载机器人": "No robot loaded",
     "还没校验": "Not validated yet",
     "通过": "Pass",
+    "不通过": "Failed",
+    "结果": "Result",
+    "错误": "Errors",
+    "警示": "Warnings",
+    "节拍 (s)": "Cycle (s)",
+    "没程序（未示教）": "No program (nothing taught yet)",
+    "看这台": "Show this one",
+    "校验全部机器人": "Validate all robots",
+    "还没有登记任何机器人——请先载入机器人型号。":
+        "No robot registered yet — load a robot model first.",
+    "当前版本不支持批量校验。":
+        "This version does not support batch validation.",
     "每条指令都失败": "Every motion failed",
     "{n} 处错误": "{n} error(s)",
     "{w} 个 / {m} 条指令": "{w} points / {m} motions",
     "{name} · 就绪": "{name} · Ready",
     "校验完成：{res}": "Validation finished: {res}",
     "校验异常：{kind}: {msg}": "Validation error: {kind}: {msg}",
+    "{name} 校验异常：{kind}: {msg}": "Validation error on {name}: {kind}: {msg}",
+    "校验全部": "Validate all",
+    "逐台校验所有机器人并汇总结果——不必一台一台切过去按 F7":
+        "Validate every robot and summarize — no need to switch one by one and press F7",
+    "校验全部：{res}": "Validate all: {res}",
+    "{n} 台通过": "{n} passed",
+    "{n} 台有问题": "{n} have problems",
+    "{n} 台没程序": "{n} have no program",
+    "没有可校验的机器人": "No robot to validate",
+    "{name} 还没有校验结果": "{name} has no validation result yet",
+    "这台": "This robot",
+    "抓取向导": "Grasp wizard",
+    "抓取向导…": "Grasp wizard…",
+    "由抓取点/放置点自动生成接近、提升、撤离点——不必逐个手动示教":
+        "Generate approach / lift / retract points from the pick and place poses — no need to teach them one by one",
+    "当前版本不支持抓取向导。": "This version does not support the grasp wizard.",
+    "请先记录至少一个示教点——把机器人摆到要抓的位置，点「记录」":
+        "Record at least one taught point first — jog the robot to the grasp pose and press Record",
+    "还没有载入机器人，无法计算抓取点位":
+        "No robot loaded — cannot compute grasp points",
+    "还没有示教点——请先把机器人摆到抓取位并记录一个点":
+        "No taught point yet — jog to the grasp pose and record one",
+    "抓取点下标 {i} 超出示教点范围（共 {n} 个）":
+        "Pick index {i} is out of range ({n} taught points)",
+    "放置点下标 {i} 超出示教点范围（共 {n} 个）":
+        "Place index {i} is out of range ({n} taught points)",
+    "接近点": "Approach",
+    "抓取点": "Pick",
+    "提升点": "Lift",
+    "放置点": "Place",
+    "撤离点": "Retract",
+    "{label}（抬高 {dz:.0f} mm）逆解失败：{msg}":
+        "Inverse kinematics failed for {label} (raised {dz:.0f} mm): {msg}",
+    "抓取向导已生成 {n} 个点（{seq}）":
+        "Grasp wizard generated {n} points ({seq})",
+    "P{n}": "P{n}",
+    "（不生成放置侧）": "(no place side)",
+    "接近高度（抓取点上方）": "Approach height (above pick)",
+    "提升高度（抓取点上方）": "Lift height (above pick)",
+    "撤离高度（放置点上方）": "Retract height (above place)",
+    "替换原有示教点（默认追加到末尾）": "Replace existing taught points (default: append)",
+    "将生成 {n} 个点：{seq}": "Will generate {n} points: {seq}",
+    "点位算不出来，示教点未改动：\n{msg}":
+        "Could not compute the points; taught points are unchanged:\n{msg}",
+    "取消": "Cancel",
     "没有示教点可供校验——请先记录若干关节位形": "No taught points to validate — record some joint poses first",
     "请先加载机器人并示教至少一个点": "Load a robot and teach at least one point first",
     "请先校验程序以生成轨迹，再回放": "Validate the program to generate a trajectory before playback",
@@ -1161,6 +1218,14 @@ _CATALOG_EN: dict[str, str] = {
     ),
     "RobotWorld 工程 (*.orolp);;所有文件 (*)": "RobotWorld project (*.orolp);;All Files (*)",
     "示教程序": "Teach program",
+    "各机示教程序": "Per-robot teach programs",
+    "各机示教程序段必须是对象": "Per-robot teach programs section must be an object",
+    "各机示教程序段：{name} 的内容必须是对象":
+        "Per-robot teach programs: {name} must be an object",
+    "各机示教程序段：{name} 的 positions 必须是数组":
+        "Per-robot teach programs: positions of {name} must be an array",
+    "多机示教点段已跳过：离线编程模块不可用":
+        "Per-robot teach points skipped: offline programming module unavailable",
     "工艺时序": "Process sequence",
     "设备点表": "Device IO table",
     "零件库来源": "Parts sources",
@@ -1191,6 +1256,7 @@ _CATALOG_EN: dict[str, str] = {
     "工程里没有任何可识别的段": "No recognizable section in this project",
     "{title}：{n} 个对象 ｜ {r} 台机器人（{name}）": "{title}: {n} object(s) | {r} robot(s) ({name})",
     "{title}：{n} 行 ｜ {p} 个示教点（抓取 {k} / 放置 {v}）": "{title}: {n} line(s) | {p} taught point(s) (pick {k} / place {v})",
+    "{title}：{r} 台机器人 ｜ 合计 {p} 个示教点（抓取 {k} / 放置 {v}）": "{title}: {r} robot(s) | {p} taught point(s) in total (pick {k} / place {v})",
     "{title}：{n} 个工步 ｜ 驻留合计 {d}s": "{title}: {n} step(s) | dwell total {d}s",
     "{title}：{n} 台设备 ｜ {s} 个已映射信号": "{title}: {n} device(s) | {s} mapped signal(s)",
     "{title}：{n} 个零件库文件": "{title}: {n} parts-library file(s)",

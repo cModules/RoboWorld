@@ -52,19 +52,26 @@ def main() -> int:
     QtWidgets.QMessageBox.__init__ = _NoDialog.__init__
     QtWidgets.QMessageBox.exec = _NoDialog.exec
 
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+    # 变量名不能叫 ``app``：它会遮蔽模块 ``app``（MainWindow 的所在），
+    # 于是 ``app.MainWindow()`` 变成在 QApplication 上找属性——必然 AttributeError
+    qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     window = app.MainWindow()
     window.show()
 
     frames = []
     gripper_states = []
-    window.program_panel.playbackFrame.connect(frames.append)
-    window.program_panel.gripperStateChanged.connect(gripper_states.append)
+    # 多机改造后这两个信号都带上了机器人名：``(机器人名, 载荷)``
+    window.program_panel.playbackFrame.connect(
+        lambda _robot, values: frames.append(values)
+    )
+    window.program_panel.gripperStateChanged.connect(
+        lambda _robot, action: gripper_states.append(action)
+    )
 
     # 触发一键入口
     window.load_grasping_workstation_demo()
     for _ in range(30):
-        app.processEvents()
+        qapp.processEvents()
 
     problems = []
 
@@ -91,7 +98,7 @@ def main() -> int:
     timer.timeout.connect(lambda: done.update(flag=True))
     timer.start(3000)
     while not done["flag"]:
-        app.processEvents()
+        qapp.processEvents()
     if len(frames) < 10:
         problems.append(f"回放帧过少: {len(frames)}")
     else:

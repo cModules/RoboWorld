@@ -75,6 +75,9 @@ PROJECT_FILTER = tr("RobotWorld 工程 (*.orolp);;所有文件 (*)")
 SECTION_TITLES: Dict[str, str] = {
     "scene": tr("场景"),
     "program": tr("示教程序"),
+    #: 多台机器人**各自**的示教程序。``program`` 只装得下"当前那台"（路径
+    #: 编辑器一次只显示一台），多机工程要靠这段才不会丢程序
+    "programs": tr("各机示教程序"),
     "sequence": tr("工艺时序"),
     "cell": tr("设备点表"),
     "parts": tr("零件库来源"),
@@ -209,6 +212,22 @@ def describe_section(section: str, payload: Any) -> str:
         return tr("{title}：{n} 行 ｜ {p} 个示教点（抓取 {k} / 放置 {v}）").format(
             title=title, n=lines, p=len(types), k=picks, v=places
         )
+    if section == "programs":
+        if not isinstance(payload, dict):
+            return tr("{title}：格式异常").format(title=title)
+        total = 0
+        picks = places = 0
+        for item in payload.values():
+            if not isinstance(item, dict):
+                continue
+            types = item.get("point_types")
+            types = types if isinstance(types, list) else []
+            total += len(types)
+            picks += sum(1 for t in types if t == "pick")
+            places += sum(1 for t in types if t == "place")
+        return tr("{title}：{r} 台机器人 ｜ 合计 {p} 个示教点（抓取 {k} / 放置 {v}）").format(
+            title=title, r=len(payload), p=total, k=picks, v=places
+        )
     if section == "sequence":
         if not isinstance(payload, dict):
             return tr("{title}：格式异常").format(title=title)
@@ -275,6 +294,16 @@ def _section_problem(section: str, payload: Any) -> str:
         types = payload.get("point_types")
         if types is not None and not isinstance(types, list):
             return tr("示教程序段的 point_types 必须是数组")
+        return ""
+    if section == "programs":
+        if not isinstance(payload, dict):
+            return tr("各机示教程序段必须是对象")
+        for name, item in payload.items():
+            if not isinstance(item, dict):
+                return tr("各机示教程序段：{name} 的内容必须是对象").format(name=name)
+            positions = item.get("positions")
+            if positions is not None and not isinstance(positions, list):
+                return tr("各机示教程序段：{name} 的 positions 必须是数组").format(name=name)
         return ""
     if section == "sequence":
         if not isinstance(payload, dict):
