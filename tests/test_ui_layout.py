@@ -6,7 +6,9 @@ PRD §6 的六条验收标准在这里变成可执行的断言——它此前只
 依然是绿的。
 
 覆盖：
-* 左侧双 Tab「场景设备库 / 设备树」、右侧三标签「属性 / 代码预览 / 导出打包」
+* 左侧双 Tab「场景设备库 / 代码预览」、右侧三标签「属性 / 设备树 / 导出打包」
+  （2026-09-19 换序：输入区集中到左手——挑设备与改代码都紧贴视口；
+  结构（设备树）跟属性同侧，树上选中、当场改位姿）
 * 旧标签（「场景」「动作与从属」「资源库」）不再存在
 * 代码预览内部的四个子标签仍在（改版只搬位置，不删能力）
 * 任一标签页在窗口缩到最小时内容不被裁切（内容更高的部分由滚动容器承接）
@@ -20,6 +22,7 @@ PRD §6 的六条验收标准在这里变成可执行的断言——它此前只
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -31,13 +34,15 @@ for _p in (REPO_ROOT, REPO_ROOT / "python"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-#: 改版后左侧标签（顺序即界面顺序）
-LEFT_TABS = ["场景设备库", "设备树"]
-#: 改版后右侧标签（顺序即界面顺序）
-RIGHT_TABS = ["属性", "代码预览", "导出打包"]
+#: 改版后左侧标签（顺序即界面顺序）：设备库挑设备 + 代码预览改点位，都贴着视口
+LEFT_TABS = ["场景设备库", "代码预览"]
+#: 改版后右侧标签（顺序即界面顺序）：属性与设备树同侧，编排层级与改参数不分家
+RIGHT_TABS = ["属性", "设备树", "导出打包"]
 #: 改版前的旧标签名，任何一个再出现都说明回退了
 LEGACY_TABS = ["场景", "动作与从属", "资源库", "机器人库"]
-#: 代码预览内部的子标签（搬位置时最容易丢的东西）
+#: 代码预览内部的子标签（搬位置时最容易丢的东西）。
+#: 这里跑在全功能档下（features 对 pytest 的默认）——MVP 档会隐藏「硬件列表」，
+#: 那是 features 的事；这里守的是"能力还在，只是可能被藏起来"。
 CODE_SUBTABS = ["路径示教", "硬件列表", "PLC 程序逻辑", "机器人子程序"]
 
 
@@ -85,7 +90,7 @@ def test_legacy_tabs_are_gone(window):
 
 
 def test_code_preview_subtabs_intact(window):
-    """改版只把「路径代码」搬进右侧「代码预览」，子能力一个都不能少。"""
+    """改版只把「路径代码」搬进左侧「代码预览」，子能力一个都不能少。"""
     assert _titles(window.code_editor.sub_tabs) == CODE_SUBTABS
 
 
@@ -189,9 +194,9 @@ def test_one_click_demo_keeps_buttons_live(window, monkeypatch):
     panel = window.program_panel
     assert panel.point_list.count() >= 5, "示例示教点没进列表"
     for btn, label in (
-        (panel.btn_validate, "校验"),
+        (panel.btn_validate_all, "校验全部"),
         (panel.btn_generate, "生成代码"),
-        (panel.btn_export, "导出"),
+        (panel.btn_export_all, "导出全部"),
     ):
         assert btn.isEnabled(), f"「{label}」按钮在演示就绪后仍不可用"
     panel.stop_playback()
@@ -214,3 +219,79 @@ def test_window_title_carries_library_version(window):
     import orolp
 
     assert orolp.__version__ in window.windowTitle()
+
+
+# --------------------------------------------------------------------------- #
+# 界面文案：全中文（品牌/型号/技术词除外）+ 能塞进侧栏
+# --------------------------------------------------------------------------- #
+
+#: 允许留在中文界面上的"技术词/品牌型号"：机器人型号名、指令名、单位、快捷键
+_TECH_OK = re.compile(
+    r"^(move[jlJC]?|F\d+|Shift\+F\d+|Ctrl\+[A-Z]|"
+    r"[A-Za-z0-9_.]+\.(script|src|mod|tp|py|txt|urdf|json)|"
+    r"(mm|kg|s|%|N·m)|(UR|KUKA|ABB|FANUC|JAKA|URScript|TCP|DOF|IO|IP|PLC|SCL)|"
+    r"[A-Z]{2,}[-_/][A-Z0-9./-]*|(Zu|KR|IRB|ER|M-|R-|LBR|iiwa)\b)"
+)
+
+#: 文件路径、版本号这类"数据"不是界面文案
+_DATA_OK = re.compile(r"^(/|[A-Za-z]:\\\\|\d+\s+/|v?\d+(\.\d+)*$)")
+
+#: 型号代号：字母开头、带数字、无汉字（Zu 3 / KR 6 R900 / ER20-1780 / IRB 4600-20/250…）
+_MODEL_OK = re.compile(r"^[A-Za-z][A-Za-z0-9 ./\-_]*\d[A-Za-z0-9 ./\-_]*$")
+
+
+def test_ui_text_is_chinese(window):
+    """界面上不该再有"纯英文"的可见文案（中英文混用，2026-09-21 用户提出）。
+
+    产品型号（Zu 3 / KR 6 R900…）、指令名（movej）、单位（mm）、快捷键、文件
+    路径这些是**数据或专有名词**，不算混用，放行。
+    """
+    offenders = []
+    for kid in window.findChildren(QtWidgets.QWidget):
+        getter = getattr(kid, "text", None)
+        if getter is None:
+            continue
+        try:
+            text = (getter() or "").replace("&", "").strip()
+        except Exception:
+            continue
+        if not text or _DATA_OK.match(text) or _TECH_OK.match(text):
+            continue
+        if _MODEL_OK.match(text):  # 机器人型号代号
+            continue
+        if re.search(r"[一-鿿]", text):
+            continue
+        if re.search(r"[A-Za-z]", text):
+            offenders.append((type(kid).__name__, text))
+
+    assert offenders == [], f"界面文案漏中文化：{offenders[:6]}"
+
+
+def test_playback_button_rows_fit_the_side_bar(window):
+    """代码预览的播放按钮按行摆得下（左侧栏只有 280–400px）。
+
+    回归：一行塞 6 个按钮时 Qt 不会换行，只会把每个压成色块（2026-09-21 体检）。
+    """
+    ed = window.code_editor
+    window.layout().activate()
+
+    grid = None
+    for lay in ed.findChildren(QtWidgets.QGridLayout):
+        if lay.count() >= 6:
+            grid = lay
+            break
+    assert grid is not None, "播放按钮的网格布局不见了"
+
+    rows = {}
+    for i in range(grid.count()):
+        w = grid.itemAt(i).widget()
+        if w is not None:
+            rows.setdefault(grid.getItemPosition(i)[0], []).append(w)
+
+    limit = window.left_tabs.maximumWidth()
+    for row, widgets in rows.items():
+        need = sum(w.minimumSizeHint().width() for w in widgets)
+        need += grid.horizontalSpacing() * (len(widgets) - 1)
+        assert need <= limit, (
+            f"第 {row} 行按钮需要 {need}px，左栏只有 {limit}px——会被压扁"
+        )

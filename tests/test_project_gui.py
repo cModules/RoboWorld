@@ -97,10 +97,18 @@ def _teach(window, points=None, types=None):
 
 
 def _file_menu_actions(window) -> list:
+    """「文件」菜单的条目。
+
+    菜单标题已中文化（2026-09-21 界面体检）——按 **当前语言的译文** 找，
+    别再写死 "File"。
+    """
+    from orolp.i18n import tr
+
+    wanted = tr("文件(&F)").replace("&", "")
     for action in window.menuBar().actions():
-        if action.menu() is not None and action.text().replace("&", "") == "File":
+        if action.menu() is not None and action.text().replace("&", "") == wanted:
             return [a.text().replace("&", "") for a in action.menu().actions()]
-    raise AssertionError("没有 File 菜单")
+    raise AssertionError(f"没有「{wanted}」菜单")
 
 
 def test_project_actions_present_with_tooltips(window):

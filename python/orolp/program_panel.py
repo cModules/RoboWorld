@@ -34,6 +34,7 @@ from .kinematics import KinematicsError
 from .post import get_post_processor, list_post_processors
 from .world.animation import GraspAnimator
 from .link import FileLink
+from .features import enabled as _feature_enabled
 from .i18n import tr
 
 if TYPE_CHECKING:  # 仅类型标注
@@ -70,6 +71,30 @@ QLabel#ok { color: #6fdc6f; font-weight: bold; }
 QLabel#bad { color: #ff8080; font-weight: bold; }
 QSpinBox { background-color: #1e1e1e; border: 1px solid #555; padding: 3px; }
 """
+
+
+def _button_grid(buttons, columns=2):
+    """把按钮排成**等宽网格**——侧栏里的按钮组一律用它，不要再用单行 QHBoxLayout。
+
+    这个面板在右侧栏里只有 260–360px。一行摆 4–5 个按钮时 ``QHBoxLayout`` 不会
+    换行，只会把每个按钮压到 minimumSize 以下（文字被截成几个字甚至只剩色块），
+    并且——更糟的——它会把内容**撑到比可视区更宽**（实测最小内容宽约 400px），
+    于是右侧一整列被裁到看不见，用户看到的就是"控件重叠/显示不全"。
+    网格让它按列数自己排，窄面板里也保持可读。
+
+    :param columns: 每行几个；末行只剩一个时自动跨满整行，不留半边空白。
+    """
+    grid = QtWidgets.QGridLayout()
+    grid.setHorizontalSpacing(4)
+    grid.setVerticalSpacing(4)
+    span_all = len(buttons) % columns == 1
+    for i, btn in enumerate(buttons):
+        btn.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        row, col = divmod(i, columns)
+        # 末行落单的那个跨满整行
+        last = i == len(buttons) - 1
+        grid.addWidget(btn, row, col, 1, columns if (last and span_all) else 1)
+    return grid
 
 
 @dataclass
@@ -132,6 +157,11 @@ class ProgramPanel(QtWidgets.QWidget):
     #: 面板顶部的「机器人」下拉换了人。主窗口据此把当前机器人、示教点显示
     #: 同步到被选中的那台——否则"编辑的是 A、示范的是 B"
     activeRobotChanged = QtCore.Signal(str)
+    #: **要点：校验/回放前请主窗口按这个名字回灌一次最新示教点**。
+    #: 面板自己的数据槽是上次同步时的快照——比如先在 A 名下教点、再把下拉切到
+    #: B，B 那一槽可能还没灌过点；不先回灌就点校验，等于拿空数据校了个寂寞
+    #: （按钮看着像没反应）。主窗口持有最新的点表，由它回灌最可靠。
+    syncRequested = QtCore.Signal(str)
     #: 一键校验全部完成：``{机器人名: ProgramReport 或 None}``
     allValidated = QtCore.Signal(dict)
     #: 抓取向导写完示教点：**带机器人名**。主窗口据此把点位回灌视口——面板
@@ -152,6 +182,9 @@ class ProgramPanel(QtWidgets.QWidget):
         self._active: Optional[str] = None
         #: 还没登记任何机器人时的临时槽，让读路径不必处处判空
         self._scratch: RobotProgram = RobotProgram()
+        #: 主窗口注入的"视口里选中了哪台"探针（``() -> str | None``）。
+        #: 「生成代码」按回放同一套口径：选中设备 → 出那台的；没选 → 出全部。
+        self.selection_robot_provider: Optional[callable] = None
 
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(PLAYBACK_INTERVAL_MS)
@@ -345,42 +378,42 @@ class ProgramPanel(QtWidgets.QWidget):
         speed_row.addWidget(self.spin_speed, 1)
         ops_layout.addLayout(speed_row)
 
-        btn_row = QtWidgets.QHBoxLayout()
-        self.btn_validate = QtWidgets.QPushButton(tr("校验程序 (F7)"))
-        self.btn_validate.clicked.connect(self.validate_program)
-        btn_row.addWidget(self.btn_validate)
-        self.btn_play = QtWidgets.QPushButton(tr("回放"))
-        self.btn_play.clicked.connect(self.start_playback)
-        self.btn_play.setEnabled(False)
-        btn_row.addWidget(self.btn_play)
-        self.btn_stop = QtWidgets.QPushButton(tr("停止"))
-        self.btn_stop.clicked.connect(self.stop_playback)
-        self.btn_stop.setEnabled(False)
-        btn_row.addWidget(self.btn_stop)
-        # 多机才有意义：所有机器人按各自时间轴锁步同播（看协同是否打架）
-        self.btn_play_all = QtWidgets.QPushButton(tr("全部回放"))
-        self.btn_play_all.setToolTip(
-            tr("所有已校验的机器人同时回放——检查多机协同是否撞车")
-        )
-        self.btn_play_all.clicked.connect(self.start_playback_all)
-        self.btn_play_all.setEnabled(False)
-        self.btn_play_all.setVisible(False)
-        btn_row.addWidget(self.btn_play_all)
+        # 「校验程序 / 回放」这组**单机**按钮删掉了：和「校验全部 / 全部回放」
+        # 完全重复——只有一台时"全部"就是那一台，两排按钮只会让人疑惑该点哪个
+        # （2026-09-21 用户反馈）。F7 / Shift+F7 快捷键保留，走主窗口菜单。
+        # 顺序按用户要求：校验全部 → 全部回放 → 停止 → 抓取向导。
         self.btn_validate_all = QtWidgets.QPushButton(tr("校验全部"))
         self.btn_validate_all.setToolTip(
             tr("逐台校验所有机器人并汇总结果——不必一台一台切过去按 F7")
         )
         self.btn_validate_all.clicked.connect(lambda: self.validate_all())
-        self.btn_validate_all.setVisible(False)
-        btn_row.addWidget(self.btn_validate_all)
+        self.btn_play_all = QtWidgets.QPushButton(tr("全部回放"))
+        self.btn_play_all.setToolTip(
+            tr("所有已校验的机器人同时回放——检查多机协同是否撞车")
+        )
+        # ``clicked`` 带一个 bool 参数：**不能**直接连到带可选参数的槽——
+        # ``start_playback_all()`` 这类槽一律无参，或用 lambda 吃掉 checked。
+        self.btn_play_all.clicked.connect(self.start_playback_all)
+        self.btn_play_all.setEnabled(False)
+        self.btn_stop = QtWidgets.QPushButton(tr("停止"))
+        self.btn_stop.clicked.connect(self.stop_playback)
+        self.btn_stop.setEnabled(False)
         # 单机也要有：示教是逐台做的活，跟有几台机器人无关
         self.btn_grasp_wizard = QtWidgets.QPushButton(tr("抓取向导…"))
         self.btn_grasp_wizard.setToolTip(
             tr("由抓取点/放置点自动生成接近、提升、撤离点——不必逐个手动示教")
         )
         self.btn_grasp_wizard.clicked.connect(lambda: self.open_grasp_wizard())
-        btn_row.addWidget(self.btn_grasp_wizard)
-        ops_layout.addLayout(btn_row)
+        ops_layout.addLayout(
+            _button_grid(
+                [
+                    self.btn_validate_all,
+                    self.btn_play_all,
+                    self.btn_stop,
+                    self.btn_grasp_wizard,
+                ]
+            )
+        )
         root.addWidget(ops)
 
         # --- 轨迹编辑器（v0.2.4）：路点增删移改 + 运动类型切换 ---
@@ -395,46 +428,31 @@ class ProgramPanel(QtWidgets.QWidget):
         )
         editor_layout.addWidget(self.point_list, 1)
 
-        edit_btn_row = QtWidgets.QHBoxLayout()
         self.btn_insert_point = QtWidgets.QPushButton(tr("插入"))
         self.btn_insert_point.setToolTip(tr("在选中点之后插入一个路点（复制其关节值）"))
-        self.btn_insert_point.clicked.connect(self.insert_point)
-        edit_btn_row.addWidget(self.btn_insert_point)
+        # 同 btn_play：把 ``clicked`` 的 bool 吃掉，否则 False 会被当成第 0 行
+        self.btn_insert_point.clicked.connect(lambda _checked=False: self.insert_point())
         self.btn_delete_point = QtWidgets.QPushButton(tr("删除"))
-        self.btn_delete_point.clicked.connect(self.delete_point)
-        edit_btn_row.addWidget(self.btn_delete_point)
+        self.btn_delete_point.clicked.connect(lambda _checked=False: self.delete_point())
         self.btn_edit_point = QtWidgets.QPushButton(tr("编辑位姿…"))
         self.btn_edit_point.setToolTip(tr("修改选中路点的关节角（度）与运动类型（双击同效）"))
         self.btn_edit_point.clicked.connect(self.edit_selected_point)
-        edit_btn_row.addWidget(self.btn_edit_point)
-        editor_layout.addLayout(edit_btn_row)
-
-        move_btn_row = QtWidgets.QHBoxLayout()
-        self.btn_move_up = QtWidgets.QPushButton(tr("上移"))
-        self.btn_move_up.clicked.connect(lambda: self.shift_selected_point(-1))
-        move_btn_row.addWidget(self.btn_move_up)
-        self.btn_move_down = QtWidgets.QPushButton(tr("下移"))
-        self.btn_move_down.clicked.connect(lambda: self.shift_selected_point(1))
-        move_btn_row.addWidget(self.btn_move_down)
-        self.btn_motion_j = QtWidgets.QPushButton(tr("设为 moveJ"))
-        self.btn_motion_j.setToolTip(tr("选中点改为关节运动（走平滑关节插值，不保证直线）"))
-        self.btn_motion_j.clicked.connect(lambda: self.set_selected_motion("J"))
-        move_btn_row.addWidget(self.btn_motion_j)
-        self.btn_motion_l = QtWidgets.QPushButton(tr("设为 moveL"))
-        self.btn_motion_l.setToolTip(tr("选中点改为直线运动（TCP 沿直线，走 IK 插补）"))
-        self.btn_motion_l.clicked.connect(lambda: self.set_selected_motion("L"))
-        move_btn_row.addWidget(self.btn_motion_l)
-        self.btn_motion_c = QtWidgets.QPushButton(tr("设为 moveC"))
-        self.btn_motion_c.setToolTip(
-            tr(
-                "选中点改为圆弧运动：以上一点为中间点、再上一点为起点画圆弧到达本点。\n"
-                "中间点不再单独出指令（它只是一段圆弧的途经点），因此 P1/P2 不能设为圆弧，\n"
-                "相邻两行也不能同为圆弧，抓取/放置点不能当中间点。"
+        editor_layout.addLayout(
+            _button_grid(
+                [self.btn_insert_point, self.btn_delete_point, self.btn_edit_point]
             )
         )
-        self.btn_motion_c.clicked.connect(lambda: self.set_selected_motion("C"))
-        move_btn_row.addWidget(self.btn_motion_c)
-        editor_layout.addLayout(move_btn_row)
+
+        self.btn_move_up = QtWidgets.QPushButton(tr("上移"))
+        self.btn_move_up.clicked.connect(lambda: self.shift_selected_point(-1))
+        self.btn_move_down = QtWidgets.QPushButton(tr("下移"))
+        self.btn_move_down.clicked.connect(lambda: self.shift_selected_point(1))
+        # 运动类型（moveJ/moveL/moveC）**不在这里改**——面板只留位置调整。
+        # 要改指令类型去「编辑位姿…」对话或直接在路径代码里改：放在列表旁一排
+        # 按钮反而容易误点，且与代码里的 ``movej`` 行两处可改、互不一致。
+        editor_layout.addLayout(
+            _button_grid([self.btn_move_up, self.btn_move_down])
+        )
 
         hint = QtWidgets.QLabel(
             tr(
@@ -471,26 +489,21 @@ class ProgramPanel(QtWidgets.QWidget):
         pp_row.addWidget(self.combo_post, 1)
         comm_layout.addLayout(pp_row)
 
-        gen_row = QtWidgets.QHBoxLayout()
         self.btn_generate = QtWidgets.QPushButton(tr("生成代码"))
         self.btn_generate.clicked.connect(self.generate_code)
         self.btn_generate.setEnabled(False)
-        gen_row.addWidget(self.btn_generate)
-        self.btn_export = QtWidgets.QPushButton(tr("一键导出…"))
-        self.btn_export.setToolTip(tr("一步构建程序并按品牌导出（UR .script / KUKA .src / ABB .mod / FANUC .tp）"))
-        self.btn_export.clicked.connect(self.export_program)
-        self.btn_export.setEnabled(False)
-        gen_row.addWidget(self.btn_export)
-        # 多机才有意义：一次把所有机器人按品牌落成交控制器文件
-        self.btn_generate_all = QtWidgets.QPushButton(tr("导出全部…"))
-        self.btn_generate_all.setToolTip(
-            tr("为每一台机器人各生成一份程序并导出到同一个目录（多机出码）")
+        # 「一键导出…」（只导当前那台）去掉了：实际产线是多台的，逐个点太笨
+        # （2026-09-21 用户反馈）。导出入口统一为「导出全部…」：每台机器人
+        # 各落一份**独立程序文件**——各自的品牌扩展名、各自的机器人名，
+        # 不是拼成一个大文件。
+        self.btn_export_all = QtWidgets.QPushButton(tr("导出全部…"))
+        self.btn_export_all.setToolTip(
+            tr("为每一台机器人各落一份独立程序文件到同一目录"
+               "（UR .script / KUKA .src / ABB .mod / FANUC .tp）")
         )
-        self.btn_generate_all.clicked.connect(self.export_all_programs)
-        self.btn_generate_all.setEnabled(False)
-        self.btn_generate_all.setVisible(False)
-        gen_row.addWidget(self.btn_generate_all)
-        comm_layout.addLayout(gen_row)
+        self.btn_export_all.clicked.connect(self.export_all_programs)
+        self.btn_export_all.setEnabled(False)
+        comm_layout.addLayout(_button_grid([self.btn_generate, self.btn_export_all]))
 
         self.code_preview = QtWidgets.QTextEdit()
         self.code_preview.setReadOnly(True)
@@ -502,20 +515,21 @@ class ProgramPanel(QtWidgets.QWidget):
         self.code_preview.setPlaceholderText(tr("生成的控制器代码将显示在这里"))
         comm_layout.addWidget(self.code_preview)
 
-        future_row = QtWidgets.QHBoxLayout()
-        self.btn_upload = QtWidgets.QPushButton(tr("上传真机"))
-        self.btn_upload.setEnabled(False)
-        self.btn_upload.setToolTip(tr("预留：接入 ControllerLink 后支持直连控制器上传"))
-        future_row.addWidget(self.btn_upload)
-        self.btn_verify = QtWidgets.QPushButton(tr("真机验证"))
-        self.btn_verify.setEnabled(False)
-        self.btn_verify.setToolTip(tr("预留：接入 ControllerLink.read_joints 后做真机回读比对"))
-        future_row.addWidget(self.btn_verify)
-        comm_layout.addLayout(future_row)
+        # 「上传真机 / 真机验证」：从未上过真机验证，MVP 档**藏掉**而不是置灰
+        # ——灰色按钮同样会被当成产品能力（2026-09-21 用户反馈：等 MVP 做完
+        # 再开启）。OROLP_FEATURES=full 或放开清单即恢复。
+        if _feature_enabled("real_machine_upload"):
+            self.btn_upload = QtWidgets.QPushButton(tr("上传真机"))
+            self.btn_upload.setEnabled(False)
+            self.btn_upload.setToolTip(tr("预留：接入 ControllerLink 后支持直连控制器上传"))
+            self.btn_verify = QtWidgets.QPushButton(tr("真机验证"))
+            self.btn_verify.setEnabled(False)
+            self.btn_verify.setToolTip(
+                tr("预留：接入 ControllerLink.read_joints 后做真机回读比对")
+            )
+            comm_layout.addLayout(_button_grid([self.btn_upload, self.btn_verify]))
 
         root.addWidget(comm)
-
-        self.btn_validate.setEnabled(False)
 
     # ---------------------------- 外部注入 ---------------------------- #
 
@@ -564,9 +578,9 @@ class ProgramPanel(QtWidgets.QWidget):
         state.joint_names = filtered if len(filtered) == len(actuated) else actuated
         self._robot = robot
         self.btn_generate.setEnabled(True)
-        # 「一键导出」的门槛与「生成代码」完全相同——它内部自己构建程序
-        # （见 export_program 的文档），不该逼用户先点一次「生成代码」才亮。
-        self.btn_export.setEnabled(True)
+        # 「导出全部」的门槛与「生成代码」完全相同——它内部自己构建程序
+        # （见 export_all_programs 的文档），不该逼用户先点一次「生成代码」才亮。
+        self._refresh_export_all_enabled()
         self.lbl_status.setText(tr("{name} · 就绪").format(name=key))
         self.lbl_status.setObjectName("ok")
         # 重新套用样式表，objectName 改变后需手动刷新
@@ -625,20 +639,15 @@ class ProgramPanel(QtWidgets.QWidget):
             self._show_report(state.report)
             self._apply_point_colors(state.report)
 
-        self.btn_validate.setEnabled(state.robot is not None and bool(state.taught))
-        self.btn_play.setEnabled(
-            bool(state.trajectory and len(state.trajectory.waypoints) > 1)
-        )
+        # 「校验全部」只要登记过机器人就能点（没示教的那台会被跳过并如实说明）
+        if getattr(self, "btn_validate_all", None) is not None:
+            self.btn_validate_all.setEnabled(bool(self._states))
         # 「全部回放」只要有一台能播就该能点
         if getattr(self, "btn_play_all", None) is not None:
             self.btn_play_all.setEnabled(bool(self._playable()))
         self.btn_generate.setEnabled(state.robot is not None)
-        self.btn_export.setEnabled(state.robot is not None)
         # 「导出全部」看的是全局：任何一台有程序就该能点（它会跳过没示教的）
-        if getattr(self, "btn_generate_all", None) is not None:
-            self.btn_generate_all.setEnabled(
-                any(s.robot is not None and s.taught for s in self._states.values())
-            )
+        self._refresh_export_all_enabled()
 
         if state.robot is None:
             self.lbl_status.setText(tr("未加载机器人"))
@@ -666,16 +675,15 @@ class ProgramPanel(QtWidgets.QWidget):
             if idx >= 0:
                 self.combo_robot.setCurrentIndex(idx)
         self.combo_robot.blockSignals(False)
-        # 只有一台时下拉没什么可挑，藏起来保持单机界面的样子；「导出全部」
-        # 同理——单机没必要多一个按钮
+        # 只有一台时下拉没什么可挑，藏起来保持单机界面的样子。
+        # 「校验全部 / 全部回放」**单机也显示**：它们就是校验/回放入口本身，
+        # 只有依据"有几台"决定藏不藏会让单机用户找不到按钮
         multi = len(self._states) > 1
         self.combo_robot.setVisible(multi)
-        self.btn_generate_all.setVisible(multi)
-        self.btn_play_all.setVisible(multi)
-        # 「校验全部」同理：单机时按一次 F7 就够，不必多一个按钮
         if getattr(self, "btn_validate_all", None) is not None:
-            self.btn_validate_all.setVisible(multi)
-            self.btn_validate_all.setEnabled(len(self._states) > 0)
+            self.btn_validate_all.setEnabled(bool(self._states))
+        if getattr(self, "btn_play_all", None) is not None:
+            self.btn_play_all.setEnabled(bool(self._playable()))
         if getattr(self, "btn_grasp_wizard", None) is not None:
             self.btn_grasp_wizard.setEnabled(bool(self._states))
 
@@ -742,8 +750,9 @@ class ProgramPanel(QtWidgets.QWidget):
             return
         self.statusMessage.emit(tr("导入 {n} 个示教点").format(n=n))
         self._refresh_point_list()
-        if self._robot is not None:
-            self.btn_validate.setEnabled(n >= 1)
+        # 有了示教点才有东西可导出：「导出全部」的可用性随点表一起变，
+        # 只靠登记机器人时点一次会一直灰着
+        self._refresh_export_all_enabled()
 
     # ---------------------------- 抓取向导 ---------------------------- #
 
@@ -1159,6 +1168,14 @@ class ProgramPanel(QtWidgets.QWidget):
         positions, types, motions = self.get_taught_points()
         self.taughtPointsChanged.emit(positions, types or [], motions)
 
+    def _refresh_export_all_enabled(self) -> None:
+        """「导出全部…」的可用性：任何一台有程序就该能点（它会跳过没示教的）。"""
+        if getattr(self, "btn_export_all", None) is None:
+            return
+        self.btn_export_all.setEnabled(
+            any(s.robot is not None and s.taught for s in self._states.values())
+        )
+
     def _invalidate_results(self) -> None:
         """示教点变了，旧轨迹/报告/回放全部作废。"""
         self.stop_playback()
@@ -1166,7 +1183,29 @@ class ProgramPanel(QtWidgets.QWidget):
         self._report = None
         self._planner = None
         self._gripper_animator = None
-        self.btn_play.setEnabled(False)
+        # 「全部回放」跟着失效：轨迹没了就不该再能点——否则按下去播的是
+        # 内存里已经被判废的旧轨迹
+        if getattr(self, "btn_play_all", None) is not None:
+            self.btn_play_all.setEnabled(bool(self._playable()))
+
+    def _keep_row_selected(self, row: int) -> None:
+        """把第 ``row`` 行设为选中并滚进视野。
+
+        增删改之后列表是**整体重建**的：重建会把选中清掉，长点表里就再也找不
+        到刚动过的那一行。移动类操作一律走这里。注意 ``setCurrentRow`` 只设
+        **当前行**、不设**选中**——重建后的行没有选中态，深色主题下只显示
+        交替行的淡色而不是蓝色高亮，用户看到的就是"选中的颜色变淡了"
+        （2026-09-21 用户反馈）。所以这里显式 ``setSelected(True)``。
+        """
+        if not (0 <= row < self.point_list.count()):
+            return
+        self.point_list.setCurrentRow(row)
+        item = self.point_list.item(row)
+        if item is not None:
+            item.setSelected(True)
+            self.point_list.scrollToItem(
+                item, QtWidgets.QAbstractItemView.EnsureVisible
+            )
 
     def insert_point(self, index: Optional[int] = None) -> Optional[int]:
         """在 ``index`` 之后插入路点，复制其关节值与运动类型。
@@ -1178,6 +1217,8 @@ class ProgramPanel(QtWidgets.QWidget):
         Returns:
             新点序号；示教点未初始化时返回 ``None``
         """
+        if isinstance(index, bool):  # clicked(bool) 之类把 False 顶了进来
+            index = None
         if not self._taught:
             if self._joint_names:
                 zero = {name: 0.0 for name in self._joint_names}
@@ -1201,13 +1242,19 @@ class ProgramPanel(QtWidgets.QWidget):
             index = index + 1
         self._invalidate_results()
         self._refresh_point_list()
-        self.point_list.setCurrentRow(index)
+        self._keep_row_selected(index)
         self._emit_taught_changed()
+        self._keep_row_selected(index)  # 回灌可能重建列表，选中再兜一次
         self.statusMessage.emit(tr("已插入路点 {n}，请重新校验").format(n=index + 1))
         return index
 
     def delete_point(self, index: Optional[int] = None) -> bool:
-        """删除 ``index`` 处的路点（``None`` 取当前选中行）。"""
+        """删除 ``index`` 处的路点（``None`` 取当前选中行）。
+
+        删完把选中落在**顶上来的那一行**：后续继续删相邻点时不必重新点选。
+        """
+        if isinstance(index, bool):  # clicked(bool) 之类把 False 顶了进来
+            index = None
         if not self._taught:
             return False
         if index is None:
@@ -1222,12 +1269,20 @@ class ProgramPanel(QtWidgets.QWidget):
             del self._point_motions[index]
         self._invalidate_results()
         self._refresh_point_list()
+        follow = min(index, self.point_list.count() - 1)
+        self.point_list.setCurrentRow(follow)
         self._emit_taught_changed()
+        self._keep_row_selected(follow)
         self.statusMessage.emit(tr("已删除路点 {n}，请重新校验").format(n=index + 1))
         return True
 
     def move_point(self, src: int, dst: int) -> bool:
-        """把路点从 ``src`` 移动到 ``dst``（``dst`` 为移动后的新序号）。"""
+        """把路点从 ``src`` 移动到 ``dst``（``dst`` 为移动后的新序号）。
+
+        移动的**是那一个点本身**：关节值、工艺语义、运动类型一起走，列表里的
+        ``P`` 序号按行序重排（第 N 行就是 P{N+1}），因此"被移动的点"到了新位置
+        就顶新的号——不会留下"坐标走了、序号还挂旧行"的两张皮。选中也跟着它走。
+        """
         n = len(self._taught)
         if not (0 <= src < n) or not (0 <= dst < n) or src == dst:
             return False
@@ -1237,14 +1292,21 @@ class ProgramPanel(QtWidgets.QWidget):
             self._point_types.insert(dst, self._point_types.pop(src))
         self._invalidate_results()
         self._refresh_point_list()
-        self.point_list.setCurrentRow(dst)
+        self._keep_row_selected(dst)
         self._emit_taught_changed()
+        # 回灌链路（主窗口按机器人回写点表）若顺带重建了列表，选中会被抹掉——
+        # 再兜一次，保证"原来选中的还是选中的"
+        self._keep_row_selected(dst)
+        self.statusMessage.emit(
+            tr("P{a} 已移到 P{b}，请重新校验").format(a=src + 1, b=dst + 1)
+        )
         return True
 
     def shift_selected_point(self, delta: int) -> bool:
         """把当前选中路点上移（``delta=-1``）或下移（``delta=1``）。"""
         index = self._selected_index()
         if index is None:
+            self.statusMessage.emit(tr("请先在列表中选中要移动的路点"))
             return False
         return self.move_point(index, index + delta)
 
@@ -1272,22 +1334,6 @@ class ProgramPanel(QtWidgets.QWidget):
         self._refresh_point_list()
         self._emit_taught_changed()
         return True
-
-    def set_selected_motion(self, motion: str) -> bool:
-        """把当前选中路点设为指定运动类型（按钮入口）。"""
-        index = self._selected_index()
-        if index is None:
-            self.statusMessage.emit(tr("请先在列表中选中要改运动类型的路点"))
-            return False
-        labels = {
-            "L": tr("moveL（直线）"),
-            "C": tr("moveC（圆弧）"),
-        }
-        changed = self.set_point_motion(index, motion)
-        if changed:
-            label = labels.get(str(motion).upper(), tr("moveJ（关节）"))
-            self.statusMessage.emit(tr("{n} 已设为 {label}，请重新校验").format(n=index + 1, label=label))
-        return changed
 
     def update_point(
         self,
@@ -1569,12 +1615,45 @@ class ProgramPanel(QtWidgets.QWidget):
             _gripper_after(i)
         return builder.build()
 
+    def _scene_joint_snapshot(self, name: Optional[str]):
+        """校验前把 ``name`` 的场景关节角拍个快照（恢复用）；拍不到返回 ``None``。"""
+        scene = self._scene
+        if scene is None or not name:
+            return None
+        state = getattr(scene, "robots", {}).get(name)
+        joints = getattr(state, "joints_deg", None)
+        if joints is None:
+            return None
+        return (name, [float(v) for v in joints])
+
+    def _restore_scene_joints(self, snapshot) -> None:
+        """把校验期间被干涉检查写走的场景关节角**原样还回去**。
+
+        干涉检查沿轨迹密集采样，且会把采样到的位形写回场景（规划器的
+        历史契约，单点位形检查依赖它）。副作用是：校验一跑完，**场景**里
+        的机器人停在轨迹末端的位形，而**视口渲染器**还在原地——挂载件
+        （夹爪/工件）的位姿按场景关节算，于是"夹爪离开法兰跳到别处"。
+        校验是只读的分析，不该留这种副作用，这里统一恢复。
+        """
+        if not snapshot or self._scene is None:
+            return
+        name, joints = snapshot
+        try:
+            self._scene.set_robot_joints(joints, name=name)
+        except Exception as exc:  # 恢复失败不该盖过校验结果本身
+            print(f"[warning] 恢复场景关节失败: {exc}")
+
     def validate_program(self) -> Optional[ProgramReport]:
         """校验程序并刷新界面。
+
+        面板自己的槽位是上次同步时的快照，而点表的最新版本在主窗口那边
+        （"教点 → 回灌"是两条通路）。点按钮时先请求回灌一次，避免"校的是
+        旧数据 / 这一槽压根没灌过点点看起来像没反应"。
 
         Returns:
             :class:`ProgramReport`；条件不足时返回 ``None``
         """
+        self.syncRequested.emit(self._active)
         if self._robot is None:
             self.statusMessage.emit(tr("请先载入机器人型号，再校验程序"))
             return None
@@ -1585,6 +1664,7 @@ class ProgramPanel(QtWidgets.QWidget):
             return None
 
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        snapshot = self._scene_joint_snapshot(self._active)
         try:
             report = program.validate(scene=self._scene)
             planner = TrajectoryPlanner(self._robot, scene=self._scene)
@@ -1595,6 +1675,7 @@ class ProgramPanel(QtWidgets.QWidget):
             return None
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+            self._restore_scene_joints(snapshot)
 
         # 规划器要留着：其内部记录了每条指令的时间区间，抓取动画靠它把
         # gripper() 指令映射到轨迹时刻
@@ -1608,7 +1689,6 @@ class ProgramPanel(QtWidgets.QWidget):
         self.reportReady.emit(report)
 
         # 有轨迹就能回放——即使校验没通过，也允许用户看看走到哪儿崩的
-        self.btn_play.setEnabled(bool(self._trajectory and len(self._trajectory.waypoints) > 1))
         if getattr(self, "btn_play_all", None) is not None:
             self.btn_play_all.setEnabled(bool(self._playable()))
         message = tr("校验完成：{res}").format(
@@ -1644,6 +1724,7 @@ class ProgramPanel(QtWidgets.QWidget):
                 if program is None:
                     reports[name] = None  # 这台还没教过程序
                     continue
+                snapshot = self._scene_joint_snapshot(name)
                 try:
                     report = program.validate(scene=self._scene)
                     planner = TrajectoryPlanner(self._robot, scene=self._scene)
@@ -1659,6 +1740,8 @@ class ProgramPanel(QtWidgets.QWidget):
                         )
                     )
                     continue
+                finally:
+                    self._restore_scene_joints(snapshot)
                 state.planner = planner
                 state.gripper_animator = GraspAnimator(program, planner)
                 state.report = report
@@ -1716,10 +1799,42 @@ class ProgramPanel(QtWidgets.QWidget):
     # ---------------------------- 设备联调 ---------------------------- #
 
     def generate_code(self) -> None:
-        """按选择的后处理器生成控制器代码并预览。
+        """生成控制器代码并预览——口径与「回放」一致。
+
+        * 视口里**选中了某台设备**（机器人/其夹爪/被夹工件都算）→ 只出**那台**的代码；
+        * **没选中** → 一次给出**全部**机器人的代码（每台一段，带名字分隔），
+          替代已删除的「导出全部…」。
 
         失败时如实抛错并清空预览——绝不留下"看起来成功"的废代码。
         """
+        selected = None
+        provider = getattr(self, "selection_robot_provider", None)
+        if callable(provider):
+            try:
+                selected = provider()
+            except Exception:
+                selected = None
+        if selected and selected in self._states:
+            with self._using_robot(selected):
+                self._generate_active_code()
+            return
+
+        codes = self.generate_all_code()
+        if not codes:
+            return
+        # 没选中 = 用户要看"整条产线"：逐台拼接，段与段之间用名字隔开
+        blocks = [
+            f"# ===== {name} =====\n{code}" for name, code in codes.items()
+        ]
+        self.code_preview.setPlainText("\n\n".join(blocks))
+        self._last_code = codes.get(self._active) or next(iter(codes.values()))
+        self._refresh_export_all_enabled()
+        self.statusMessage.emit(
+            tr("未选中设备——已生成全部 {n} 台的代码").format(n=len(codes))
+        )
+
+    def _generate_active_code(self) -> None:
+        """按选择的后处理器生成**当前那台**的控制器代码并预览。"""
         program = self.build_program()
         if program is None:
             self.statusMessage.emit(tr("请先加载机器人并示教至少一个点"))
@@ -1732,28 +1847,37 @@ class ProgramPanel(QtWidgets.QWidget):
             code = program.to_post(choice, metadata={"program_name": prog_name})
         except Exception as exc:
             self._last_code = ""
-            self.btn_export.setEnabled(False)
             self.code_preview.setPlainText(tr("生成失败：\n{exc}").format(exc=exc))
             self.statusMessage.emit(tr("生成失败: {exc}").format(exc=exc))
             return
         self._last_code = code
         self.code_preview.setPlainText(code)
-        self.btn_export.setEnabled(True)
         self.statusMessage.emit(
             tr("已生成 {choice} 代码，共 {lines} 行").format(
                 choice=choice or tr("自动"), lines=len(code.splitlines())
             )
         )
 
-    def export_program(self) -> None:
-        """一键导出程序到指定目录（走 ``FileLink`` 离线部署通道）。
+    def export_all_programs(self) -> None:
+        """把**每台**机器人各导出一份**独立程序文件**到同一个目录。
 
-        不要求先点「生成代码」：内部直接构建程序并后处理，按品牌落出
-        正确扩展名的文件（UR ``.script`` / KUKA ``.src`` / ABB ``.mod`` /
-        FANUC ``.tp``…），并写 ``.manifest.json`` 部署清单。
+        走 ``FileLink`` 离线部署通道，**不要求**先点「生成代码」：内部逐台
+        构建自己的程序再后处理，各按自己的品牌落正确扩展名（UR ``.script``
+        / KUKA ``.src`` / ABB ``.mod`` / FANUC ``.tp``…），文件名与程序名用
+        场景里的**机器人名**（多机同型号也不会互相覆盖），并各写
+        ``.manifest.json`` 部署清单。
+
+        选中了设备时只导那一台（与「生成代码」同一套选中口径）；没选就逐台导。
         """
-        program = self.build_program()
-        if program is None:
+        selected = None
+        provider = getattr(self, "selection_robot_provider", None)
+        if callable(provider):
+            try:
+                selected = provider()
+            except Exception:
+                selected = None
+        targets = [selected] if selected and selected in self._states else list(self._states)
+        if not targets:
             self.statusMessage.emit(tr("请先加载机器人并示教至少一个点"))
             return
         dest = QtWidgets.QFileDialog.getExistingDirectory(
@@ -1761,7 +1885,21 @@ class ProgramPanel(QtWidgets.QWidget):
         )
         if not dest:
             return
-        self.export_program_to(program, dest)
+        ok = 0
+        for name in targets:
+            program = self.build_program(name)
+            if program is None:
+                self.statusMessage.emit(
+                    tr("{name}：无示教点，已跳过").format(name=name)
+                )
+                continue
+            if self.export_program_to(program, dest, robot=name):
+                ok += 1
+        if ok == 0:
+            return
+        self.statusMessage.emit(
+            tr("已导出 {n} 台机器人的独立程序到 {dest}").format(n=ok, dest=dest)
+        )
 
     def export_program_to(
         self, program: Program, dest: str, robot: Optional[str] = None
@@ -1794,7 +1932,7 @@ class ProgramPanel(QtWidgets.QWidget):
             self.statusMessage.emit(tr("导出失败: {exc}").format(exc=exc))
             return False
         self._last_code = deployment.code
-        self.btn_export.setEnabled(True)
+        self._refresh_export_all_enabled()
         note = tr("（{note}）").format(note=deployment.notes) if deployment.notes else ""
         self.statusMessage.emit(tr("已导出：{handle}{note}").format(handle=deployment.handle, note=note))
         return True
@@ -1884,30 +2022,6 @@ class ProgramPanel(QtWidgets.QWidget):
             self.statusMessage.emit(tr("已生成 {n} 台机器人的代码").format(n=len(codes)))
         return codes
 
-    def export_all_programs(self) -> None:
-        """把**所有**机器人的程序一次导出到同一个目录（每台一个文件）。"""
-        codes = self.generate_all_code()
-        if not codes:
-            self.statusMessage.emit(tr("没有可导出的机器人程序"))
-            return
-        dest = QtWidgets.QFileDialog.getExistingDirectory(
-            self, tr("选择导出目录"), str(Path.cwd())
-        )
-        if not dest:
-            return
-        ok = 0
-        for name in list(codes):
-            program = self.build_program(name)
-            if program is None:
-                continue
-            if self.export_program_to(program, dest, robot=name):
-                ok += 1
-        self.statusMessage.emit(
-            tr("已导出 {n}/{total} 个机器人程序到 {dest}").format(
-                n=ok, total=len(codes), dest=dest
-            )
-        )
-
     def _show_report(self, report: ProgramReport) -> None:
         """把报告填进界面。"""
         self.lbl_cycle.setText(
@@ -1949,6 +2063,10 @@ class ProgramPanel(QtWidgets.QWidget):
                 多台时**各自按自己的时间轴**推进但共用同一个定时器——这就是
                 多机协同回放：能直观看出两台是否会抢同一个工位
         """
+        if isinstance(robots, bool) or isinstance(robots, str):
+            # ``clicked(bool)`` 会把 False 灌进来（``list(False)`` 直接崩），
+            # 单个名字的字符串也会被拆成一串字符——都不是"机器人名单"
+            robots = ([robots] if isinstance(robots, str) else None)
         wanted = list(robots) if robots is not None else self._playable()
         names = [n for n in wanted if self._playable(n)]
         if not names:
@@ -1967,7 +2085,6 @@ class ProgramPanel(QtWidgets.QWidget):
             self._set_gripper_for(name, "")
 
         self._playing = names
-        self.btn_play.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self._timer.start()
         if len(names) > 1:
@@ -2005,8 +2122,6 @@ class ProgramPanel(QtWidgets.QWidget):
         self._timer.stop()
         self._playing = []
         self.btn_stop.setEnabled(False)
-        if self._trajectory and len(self._trajectory.waypoints) > 1:
-            self.btn_play.setEnabled(True)
         if was_running:
             self.playbackFinished.emit()
 

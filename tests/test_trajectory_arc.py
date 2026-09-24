@@ -385,7 +385,7 @@ def test_arc_edit_invalidates_previous_results(panel):
     assert panel.trajectory is not None
     panel.set_point_motion(2, ARC)
     assert panel.trajectory is None
-    assert panel.btn_play.isEnabled() is False
+    assert panel.btn_play_all.isEnabled() is False
 
 
 # --------------------------------------------------------------------------- #

@@ -66,10 +66,14 @@ def silent_dialogs(monkeypatch):
 
 
 def _menu_texts(window) -> list:
+    """「文件」菜单的条目——标题已中文化，按当前语言的译文找。"""
+    from orolp.i18n import tr
+
+    wanted = tr("文件(&F)").replace("&", "")
     for action in window.menuBar().actions():
-        if action.menu() is not None and action.text().replace("&", "") == "File":
+        if action.menu() is not None and action.text().replace("&", "") == wanted:
             return [a.text().replace("&", "") for a in action.menu().actions()]
-    raise AssertionError("没有 File 菜单")
+    raise AssertionError(f"没有「{wanted}」菜单")
 
 
 def test_menu_action_present_with_tooltip(window):

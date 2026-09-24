@@ -137,6 +137,90 @@ def test_insert_without_selection_appends(panel):
     assert len(panel._taught) == 3
 
 
+# --------------------------------------------------------------------------- #
+# 按钮链路：``clicked`` 自带 bool，不能灌进带可选参数的槽
+# --------------------------------------------------------------------------- #
+
+
+def test_buttons_act_on_selected_row(panel):
+    """插入/删除/上移按钮必须作用于**选中**那一行。
+
+    回归：``clicked`` 带一个 bool 参数，直接连到 ``insert_point(index=None)``
+    / ``delete_point(index=None)`` 会把 ``False``（等于 0）当成行号——删除永远
+    砍掉 P1，用户选中谁都没用。
+    """
+    panel.set_taught_points(
+        _positions([HOME, SECOND, [30.0] + HOME[1:], [45.0] + HOME[1:]])
+    )
+
+    panel.point_list.setCurrentRow(2)  # 选中 P3
+    panel.btn_insert_point.click()
+    assert panel.point_list.currentRow() == 3, "插入后选中该落在新那一行"
+    assert len(panel._taught) == 5
+
+    panel.btn_delete_point.click()
+    assert len(panel._taught) == 4
+    assert panel.point_list.currentRow() == 3, "删除后选中要落在顶上来的那行"
+
+    panel.point_list.setCurrentRow(1)
+    second = dict(panel._taught[1])
+    panel.btn_move_up.click()
+    assert panel._taught[0] == second, "上移没把选中的点搬上去"
+    assert panel.point_list.currentRow() == 0, "移动的点是选中的，选中要跟着它"
+
+
+def test_move_renumbers_and_reports(panel):
+    """移动后 P 序号按新行序重排（第 N 行 = P{N}），并有状态栏回执。"""
+    panel.set_taught_points(_positions([HOME, SECOND, [30.0] + HOME[1:]]))
+    panel.point_list.setCurrentRow(2)
+    messages = []
+    panel.statusMessage.connect(messages.append)
+
+    panel.btn_move_up.click()
+
+    assert panel.point_list.item(0).text().startswith("P1")
+    assert messages, "移动后没有任何回执，用户会以为按钮没反应"
+    assert "P3" in messages[-1] and "P2" in messages[-1]
+
+
+def test_move_keeps_row_selected_not_just_current(panel):
+    """移动后那一行必须是**选中**（蓝色高亮），而不只是"当前行"。
+
+    回归：列表整体重建后 ``setCurrentRow`` 只设当前行、不设选中——深色主题
+    下重建出来的行没有选中态，交替行淡色透出来，看着就是"选中的颜色变淡了"
+    （2026-09-21 用户反馈）。
+    """
+    panel.set_taught_points(_positions([HOME, SECOND, [30.0] + HOME[1:]]))
+    panel.point_list.setCurrentRow(2)
+
+    panel.btn_move_up.click()
+
+    assert panel.point_list.currentRow() == 1
+    assert panel.point_list.item(1).isSelected(), (
+        "移动过的那一行应保持选中高亮，而不是淡出的交替行色"
+    )
+
+
+def test_real_machine_buttons_hidden_in_mvp(panel, monkeypatch):
+    """MVP 档不建「上传真机 / 真机验证」入口：藏掉，而不是置灰。"""
+    import orolp.program_panel as pp_mod
+
+    assert hasattr(panel, "btn_upload"), "测试档（全功能）应有这两个按钮"
+    monkeypatch.setattr(pp_mod, "_feature_enabled", lambda name: False)
+    hidden = type(panel)()
+    try:
+        assert not hasattr(hidden, "btn_upload"), "MVP 档不该有「上传真机」"
+        assert not hasattr(hidden, "btn_verify"), "MVP 档不该有「真机验证」"
+    finally:
+        hidden.deleteLater()
+
+
+def test_no_motion_type_buttons_in_panel(panel):
+    """运动类型不在这里改：面板里没有「设为 moveJ/moveL/moveC」那排按钮。"""
+    for name in ("btn_motion_j", "btn_motion_l", "btn_motion_c"):
+        assert not hasattr(panel, name), f"{name} 还在，改动入口又多了一处"
+
+
 def test_update_point_degrees_to_radians(panel):
     new = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
     assert panel.update_point(0, new, "L") is True
@@ -168,7 +252,7 @@ def test_edit_changes_invalidate_previous_trajectory(panel):
     panel.update_point(0, [5.0, -88.0, 88.0, -88.0, 5.0, 0.0])
     # 旧轨迹/报告作废：编辑后必须重新校验才能回放
     assert panel.trajectory is None
-    assert panel.btn_play.isEnabled() is False
+    assert panel.btn_play_all.isEnabled() is False
 
 
 # --------------------------------------------------------------------------- #

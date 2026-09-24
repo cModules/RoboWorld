@@ -30,6 +30,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('logo.png', '.'),
+        # 功能开关清单放在 pyproject.toml 里：打包后 orolp.features 也要读得到，
+        # 否则冻结版会用兜底清单——开发机上改了文件、安装包却还是老口径。
+        ('pyproject.toml', '.'),
         ('models', 'models'),
         ('examples', 'examples'),
         ('README.md', '.'),
@@ -124,7 +127,7 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'RobotWorld',
         'CFBundleDisplayName': 'RobotWorld',
-        'CFBundleShortVersionString': '1.3.9',
+        'CFBundleShortVersionString': '1.4.0',
         'NSHighResolutionCapable': True,
     },
 )

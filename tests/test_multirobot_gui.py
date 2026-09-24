@@ -655,6 +655,12 @@ def _teach_pick_cycle(win, robot, step_deg: float, base_deg=None) -> None:
         win.gl_widget.get_recorded_positions(robot), robot
     )
     win.code_editor.sync_point_types()
+    # 抓取语义**显式**声明：生产代码不再替用户猜抓取/放置点（2026-09-21
+    # 用户反馈——随手教的轨迹导出时被自动塞进 5 行夹爪开合）。要测夹爪
+    # 相关行为，就在这里把五点式语义明说。
+    from orolp.pickplace import DEFAULT_SEQUENCE
+
+    win.code_editor.set_types_for(robot, list(DEFAULT_SEQUENCE))
     win._sync_program_points(robot)
 
 
@@ -715,6 +721,279 @@ def test_multi_robot_pick_playback_grasps_each_own_workpiece(two_ur5e):
     assert (a, a) in attached and (b, b) in attached, (
         f"工件没挂到各自的机器人上：{attached}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 5b. 轨迹编辑器改动只能落到"正在编辑那台"头上
+# --------------------------------------------------------------------------- #
+
+
+def test_edit_active_robot_points_keeps_the_other_robot(two_ur5e):
+    """在面板里改动 B 的路点，A 的那一捅点必须原样留在点表里。
+
+    回归：回灌整份替换（``owner=None``）会把点表的 ``# Robot:`` 归属抹成
+    ``None``——A 的点当场蒸发，代码里再也看不到它的 movej，切回去就是空的。
+
+    顺便一起验的是**选中的行要跟着移动**那件事：上移后列表仍停在移动过的
+    那一行（现在是 P2），否则连按几次就找不着自己动的是哪个点。
+    """
+    win, scene, a, b = two_ur5e
+    _teach_pick_cycle(win, a, 10.0)
+    win.gl_widget.set_current_robot(b)
+    _teach_pick_cycle(win, b, -10.0)
+
+    panel = win.program_panel
+    panel.set_active_robot(b)
+    before_b = list(panel._taught)
+    panel.point_list.setCurrentRow(2)  # 选中 P3
+    moved = dict(panel._taught[2])
+    panel.btn_move_up.click()
+    assert panel.point_list.currentRow() == 1, "移动后选中没跟着走"
+    assert panel._taught[1] == moved, "移动的是行号，不是那一个点本身"
+
+    ed = win.code_editor
+    assert [len(ed.points_of(a)), len(ed.points_of(b))] == [5, 5], (
+        "移动一台的路点把别人的点表搅没了"
+    )
+    assert "# Robot: %s" % a in ed.toPlainText()
+    assert "# Robot: %s" % b in ed.toPlainText()
+    # 移动也确实写回了代码预览：B 那段是移动后的新顺序
+    assert ed.points_of(b) != before_b
+
+    panel.set_active_robot(a)
+    assert len(panel._taught) == 5, "切回 A 后它的示教点应完整保留"
+
+
+def test_playback_button_starts_timer(two_ur5e):
+    """「全部回放」按钮必须真能把回放跑起来。
+
+    回归：``clicked`` 自带一个 bool 参数，直接连到带可选参数的槽会把 ``False``
+    当成机器人名单——``list(False)`` 抛异常，按钮看着毫无反应。
+    「校验程序/回放」这两个单机按钮已删除（与校验全部/全部回放重复）。
+    """
+    win, scene, a, b = two_ur5e
+    panel = win.program_panel
+    assert not hasattr(panel, "btn_validate"), "单机「校验程序」按钮应已删除"
+    assert not hasattr(panel, "btn_play"), "单机「回放」按钮应已删除"
+
+    _teach_pick_cycle(win, a, 10.0)
+    panel.set_active_robot(a)
+    assert panel.validate_program() is not None
+    assert panel.btn_play_all.isEnabled(), "校验出轨迹后「全部回放」该能点"
+
+    frames = []
+    panel.playbackFrame.connect(lambda robot, vals: frames.append(robot))
+    panel.btn_play_all.click()  # 走真实按钮
+    try:
+        panel._on_tick()
+    finally:
+        panel.stop_playback()
+
+    assert panel._timer.isActive() is False, "stop_playback 没停掉定时器"
+    assert frames == [a], f"点「全部回放」没出帧：{frames}"
+
+
+def test_validate_restores_scene_joints(two_ur5e):
+    """校验完，场景里那台机器人的关节角必须原样恢复。
+
+    回归：干涉检查沿轨迹采样时会把采样位形**写回场景**（规划器的历史契约），
+    校验一跑完场景机器人就停在轨迹末端，而视口渲染器还在原地——挂载件的
+    位姿按场景关节算，于是"夹爪离开法兰跳到别处"（2026-09-21 用户反馈）。
+    """
+    win, scene, a, b = two_ur5e
+    panel = win.program_panel
+    _teach_pick_cycle(win, a, 10.0)
+    panel.set_active_robot(a)
+
+    # 故意把当前位形摆在和示教点不同的地方（用户示教完随手摆的位形）
+    rend = win.gl_widget.renderer_of(a)
+    names = rend.actuated_names()
+    before_deg = [35.0, -55.0, 80.0, -20.0, 70.0, 15.0]
+    for n, v in zip(names, before_deg):
+        rend.joint_values[n] = math.radians(v)
+    win._sync_scene_joints(a)
+    scene_before = [float(v) for v in scene.robots[a].joints_deg]
+
+    assert panel.validate_program() is not None
+
+    scene_after = [float(v) for v in scene.robots[a].joints_deg]
+    assert scene_after == scene_before, (
+        f"校验把场景关节写走了：{scene_before} → {scene_after}，"
+        "挂载在法兰上的夹爪会跟着跳走"
+    )
+
+
+def test_export_all_writes_one_program_per_robot(two_ur5e, tmp_path, monkeypatch):
+    """「导出全部…」：每台机器人各落一份**独立**程序文件。
+
+    回归：一键导出（只导当前那台）已被它取代——多机产线逐个点太笨
+    （2026-09-21 用户反馈）。选中设备时只导那一台。
+    """
+    from PySide6 import QtWidgets as _QtWidgets
+
+    win, scene, a, b = two_ur5e
+    panel = win.program_panel
+    _teach_pick_cycle(win, a, 10.0)
+    _teach_pick_cycle(win, b, -10.0)
+    assert panel.btn_export_all.isEnabled()
+
+    dest = {"dir": tmp_path / "all"}
+    dest["dir"].mkdir()
+    monkeypatch.setattr(
+        _QtWidgets.QFileDialog, "getExistingDirectory",
+        staticmethod(lambda *a, **k: str(dest["dir"])),
+    )
+
+    panel.selection_robot_provider = lambda: None
+    panel.export_all_programs()
+    scripts = sorted(p.name for p in dest["dir"].rglob("*.script"))
+    assert len(scripts) >= 2, f"每台都该有自己的一份程序，实际 {scripts}"
+
+    dest["dir"] = tmp_path / "one"
+    dest["dir"].mkdir()
+    panel.selection_robot_provider = lambda: b
+    panel.export_all_programs()
+    assert len(list(dest["dir"].rglob("*.script"))) == 1, "选中设备时应只导那一台"
+
+
+def test_property_panel_shows_each_robots_own_spec(window):
+    """选中谁，规格块就得显示谁的型号/厂商——不能永远是最后加载那台。
+
+    回归：规格只在 load_robot 时写入面板，多机时被后一台覆盖；选中 A 显示
+    的却是 B 的型号/厂商/负载（2026-09-21 用户反馈，两台不同品牌时一眼可见）。
+    """
+    from orolp.robot_library.catalog import RobotCatalog
+
+    scene = window.scene_panel.scene
+    panel = window.property_panel
+    catalog = RobotCatalog(REPO_ROOT / "models")
+    keys = [
+        k for k, v in catalog._entries.items()
+        if v.urdf_path and Path(v.urdf_path).exists()
+    ]
+    kuka = next((k for k in keys if k.startswith("kuka")), None)
+    other = next((k for k in keys if not k.startswith("kuka")), None)
+    if not kuka or not other:
+        pytest.skip("机器人库缺不同品牌的可用 URDF")
+
+    scene.clear()
+    names = []
+    for key in (kuka, other):
+        window._on_robot_dropped(key)
+        names.append(scene.robot_names[-1])
+
+    specs = {}
+    for name in names:
+        panel.set_object(name)
+        specs[name] = (panel.name_label.text(), panel.manufacturer_label.text())
+    a, b = names
+    assert specs[a] != specs[b], f"两台不同品牌的规格显示串台了：{specs}"
+    # 各台显示的都是**自己**的型号，而不是最后加载那台的
+    assert specs[a][1] != specs[b][1], "厂商应当各归各"
+
+
+def test_property_panel_pose_shows_world_coordinates(two_ur5e):
+    """位置分组显示**世界坐标**：挂到底座上的机器人不再显示恒定的局部值。
+
+    回归：挂载件的局部 pose 是相对父对象的——两台挂法相同的机器人局部值
+    一模一样（0,0,底座高），看起来"位置永远不变"；改用 world_transform 回显。
+    """
+    win, scene, a, b = two_ur5e
+    panel = win.property_panel
+    from orolp.world import placement as _placement
+
+    ped = scene.add("worktable", name="底座",
+                    params={"length": 400.0, "width": 400.0, "height": 200.0},
+                    pose=Pose.from_xyz_rpy(1200.0, 300.0, 0.0, 0.0, 0.0, 0.0))
+    _placement.mount_on_top_of(scene, b, ped.name)
+    scene.attach(b, ped.name, keep_world=True)
+
+    panel.set_object(b)
+    shown = [panel.obj_pose_widgets[k].value() for k in ("x", "y", "z")]
+    world = scene.world_transform(b)[:3, 3]
+    assert shown == pytest.approx([float(v) for v in world], abs=0.5), (
+        f"面板显示 {shown} ≠ 世界坐标 {world.tolist()}"
+    )
+
+    # 编辑也按世界坐标落地：把 X 改到 600，机器人世界 X 应跟着走
+    panel.obj_pose_widgets["x"].setValue(600.0)
+    panel._on_obj_pose_edited()
+    assert scene.world_transform(b)[:3, 3][0] == pytest.approx(600.0, abs=0.5)
+
+
+def test_no_auto_gripper_in_export(two_ur5e):
+    """随手教的轨迹导出时**不带**夹爪指令；显式标注后才有。
+
+    回归：记录点位时下拉被自动拨到"下一个循环语义"、缺语义的点被自动补成
+    五点式——用户导出程序的开头凭空多出 5 行夹爪开合（2026-09-21 用户反馈）。
+    语义是工艺意图，只能用户自己标。
+    """
+    win, scene, a, b = two_ur5e
+    ed = win.code_editor
+    panel = win.program_panel
+    prop = win.property_panel
+    ed.record_btn.setChecked(True)
+
+    renderer = win.gl_widget.renderer_of(a)
+    win.gl_widget.set_current_robot(a)
+    for i in range(5):
+        prop.jointChanged.emit(
+            a, renderer.actuated_names()[0], math.radians(i * 10.0)
+        )
+
+    program = panel.build_program(a)
+    assert program is not None
+    code = program.to_post(None, metadata={"program_name": a})
+    gripper_lines = [
+        ln for ln in code.splitlines() if "gripper" in ln or "clamped" in ln
+    ]
+    assert gripper_lines == [], f"默认导出不该有夹爪指令：{gripper_lines[:3]}"
+
+    # 显式标注抓取/放置后，夹爪指令照常生成
+    from orolp.pickplace import DEFAULT_SEQUENCE
+
+    ed.set_types_for(a, list(DEFAULT_SEQUENCE))
+    win._sync_program_points(a)
+    code2 = panel.build_program(a).to_post(None, metadata={"program_name": a})
+    assert any("gripper" in ln or "clamped" in ln for ln in code2.splitlines())
+
+
+def test_whole_table_replace_keeps_ownership(two_ur5e):
+    """整份替换点表（不带 owner）时归属**沿用原表**，不再抹成无主段。
+
+    回归：无归属段渲染时不带 ``# Robot:`` 头，永远顶在代码开头——用户看到
+    "开头莫名其妙多了几行 movej"，且此后所有按机写入都只能追加在它后面。
+    """
+    win, scene, a, b = two_ur5e
+    ed = win.code_editor
+    _teach_pick_cycle(win, a, 10.0)
+    _teach_pick_cycle(win, b, -10.0)
+
+    before = list(ed.point_robots)
+    ed.set_recorded_positions(list(ed.recorded_positions))  # 不带 owner
+    assert ed.point_robots == before, "整份替换不该抹掉点的归属"
+
+
+def test_generate_code_follows_selection(two_ur5e):
+    """「生成代码」：选中设备 → 只出那台的；没选中 → 出全部的。"""
+    win, scene, a, b = two_ur5e
+    panel = win.program_panel
+    _teach_pick_cycle(win, a, 10.0)
+    _teach_pick_cycle(win, b, -10.0)
+
+    # 选中 b 的夹爪（挂在 b 下）→ 只出 b 的
+    panel.selection_robot_provider = lambda: b
+    panel.generate_code()
+    text = panel.code_preview.toPlainText()
+    assert f"# ===== {a} =====" not in text, "选中设备时应只出那一台的代码"
+    assert text.strip(), "选中设备时应出那台的代码"
+
+    # 没选中 → 全部，逐台分段
+    panel.selection_robot_provider = lambda: None
+    panel.generate_code()
+    text = panel.code_preview.toPlainText()
+    assert f"# ===== {a} =====" in text, "没选中时应给出全部机器人的代码"
+    assert f"# ===== {b} =====" in text, "没选中时应给出全部机器人的代码"
 
 
 # --------------------------------------------------------------------------- #
@@ -1191,3 +1470,97 @@ def test_playback_stops_when_the_owner_robot_is_gone(two_robots):
     assert stopped, "机器人不在了必须停表"
     assert editor._playback_pos == 0, "停表后不该继续往下走"
     assert "已不在场景" in win.statusBar().currentMessage()
+
+
+# --------------------------------------------------------------------------- #
+# 10. 加/删机器人：路径不许"复制"，也不许留下幽灵
+# --------------------------------------------------------------------------- #
+
+
+def _add_robot(win, urdf: str) -> str:
+    """走"再加一台"的真实入口（组件库双击 / 拖拽最终都汇到 ``load_robot``）。"""
+    scene = win.scene_panel.scene
+    before = set(scene.robot_names)
+    win.load_robot(urdf)
+    added = [n for n in scene.robot_names if n not in before]
+    assert len(added) == 1, f"没加进来或加多了：{added}"
+    return added[0]
+
+
+def test_adding_robot_does_not_copy_the_current_path(two_ur5e):
+    """再加一台机器人：它**空着手**进场，不该继承别人示教好的路径。
+
+    回归：``load_robot`` 末尾把路径编辑器里**整份**点表灌进视口，而此时
+    ``current_robot`` 已被切成新机器人——于是新机器人名下多出一串别人的点，
+    画出来就是"路径被复制给了几台机器人"。
+    """
+    win, scene, a, b = two_ur5e
+    _teach_pick_cycle(win, a, 10.0)
+    assert len(win.gl_widget.get_recorded_positions(a)) == 5
+
+    c = _add_robot(win, str(UR5E))
+
+    assert win.gl_widget.get_recorded_positions(c) == [], (
+        "新加的机器人继承了别人的示教点"
+    )
+    assert c not in win.gl_widget._path_robots(), "新机器人身上画出了别人的路径"
+    assert set(win.gl_widget._path_robots()) == {a}, (
+        f"路径归属乱了：{win.gl_widget._path_robots()}"
+    )
+    # 原主人的点一个都不能少
+    assert len(win.gl_widget.get_recorded_positions(a)) == 5
+
+
+def test_removing_robot_leaves_no_ghost_path(two_ur5e):
+    """删掉教过路径那台：它的路径**整段消失**，别的机器人不受牵连。
+
+    回归两件事：
+
+    1. 删除时只清空"被删那台"自己的桶，之前被复制到**其他**机器人名下的
+       副本原样留着——那个名字还在场景里，于是屏幕上多出一条画得出、却
+       既不在代码里也回放不了的幽灵路径；
+    2. 删除时把路径编辑器**整表**清空，把还活着的其他机器人的路径一起抹了
+       ——显示（视口分桶）与代码/回放（编辑器点表）从此分家。
+    """
+    win, scene, a, b = two_ur5e
+    _teach_pick_cycle(win, a, 10.0)
+    _teach_pick_cycle(win, b, -10.0)
+    _add_robot(win, str(UR5E))  # 第三台：旧实现会在这时复制出副本
+
+    win.scene_panel._selected = a
+    win.scene_panel._remove_selected()
+
+    assert a not in win.gl_widget._path_robots(), "被删那台的路径还在画"
+    assert a not in win.code_editor.point_robots, "被删那台的段还留在代码里"
+    assert set(win.gl_widget._path_robots()) == {b}, (
+        f"留下了幽灵路径：{win.gl_widget._path_robots()}"
+    )
+    # 活着的这台：视口与代码都还得有自己的那一段
+    assert len(win.gl_widget.get_recorded_positions(b)) == 5
+    assert len(win.code_editor.recorded_positions) == 5
+    assert f"# Robot: {b}" in win.code_editor.toPlainText()
+
+
+def test_path_after_removal_and_new_robot_shows_only_live_robots(two_ur5e):
+    """删掉一台后再加一台、教新路径：屏幕上只有**活着的那几台**的路径。
+
+    这就是用户现场：删完重新加机器人教路径后，旧路径与新路径同时显示在
+    屏幕上，而旧的那条在代码里已经不见了。
+    """
+    win, scene, a, b = two_ur5e
+    _teach_pick_cycle(win, a, 10.0)
+    _teach_pick_cycle(win, b, -10.0)
+
+    win.scene_panel._selected = a
+    win.scene_panel._remove_selected()
+
+    d = _add_robot(win, str(UR5E))
+    _teach_pick_cycle(win, d, 5.0)
+
+    assert set(win.gl_widget._path_robots()) == {b, d}, (
+        f"屏幕上该只有这两台的路径：{win.gl_widget._path_robots()}"
+    )
+    # 代码里同样只有活着的两台：画得出的必须回放到得了
+    owners = {r for r in win.code_editor.point_robots}
+    assert owners == {b, d}, f"代码里的归属不对：{owners}"
+    assert len(win.code_editor.recorded_positions) == 10

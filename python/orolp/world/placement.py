@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -34,6 +34,7 @@ __all__ = [
     "GROUND_NAME",
     "PlacementResult",
     "world_aabb",
+    "descendants_of",
     "support_height_at",
     "ground_offset",
     "snap",
@@ -110,6 +111,33 @@ def world_aabb(scene: Scene, name: str) -> Optional[AABB]:
     return AABB(lo, hi)
 
 
+def descendants_of(scene: Scene, name: str) -> List[str]:
+    """``name`` 的全部后代（子、孙…）对象名。
+
+    后代会跟着 ``name`` 一起搬动，**永远不能当它自己的支承面**：否则
+    "点一下基座"会把自己叠到装在机器人法兰上的夹爪顶上，而夹爪又随基座
+    一起上升——再点一次再叠一次，Z 就一路往上跑（见 :func:`support_height_at`）。
+    """
+    children: Dict[str, List[str]] = {}
+    for child, obj in scene.objects.items():
+        parent = getattr(obj, "parent", None)
+        if parent:
+            children.setdefault(parent, []).append(child)
+
+    out: List[str] = []
+    seen = {name}
+    stack = [name]
+    while stack:
+        current = stack.pop()
+        for kid in children.get(current, ()):
+            if kid in seen:
+                continue
+            seen.add(kid)
+            out.append(kid)
+            stack.append(kid)
+    return out
+
+
 def support_height_at(
     scene: Scene, x: float, y: float, ignore: Iterable[str] = ()
 ) -> Tuple[float, str]:
@@ -118,8 +146,14 @@ def support_height_at(
     规则：在所有**可见、非机器人**的对象里，取 XY 包围落点、顶面最高的
     那一个；没有任何对象覆盖时落到地面（``z=0``）。``ignore`` 用于把
     正在拖动的对象自己排除掉——否则工件永远"落在自己头上"。
+
+    ``ignore`` 里的每个名字会**连同它的后代一起排除**：后代是挂在自己身上的
+    （基座上的机器人、法兰上的夹爪、台面上的料箱…），会跟着自己一起移动，
+    拿它们当支承面就会把自己叠到孩子头上、越叠越高。
     """
     skipped = set(ignore)
+    for ignored in list(skipped):
+        skipped.update(descendants_of(scene, ignored))
     best_z = 0.0
     best_name = GROUND_NAME
     for name in scene.objects:
@@ -178,7 +212,10 @@ def mount_on_top_of(scene: Scene, name: str, host: str) -> bool:
 
     world = np.asarray(scene.world_transform(name), dtype=np.float64).copy()
     world[:3, 3] = [cx, cy, z]
-    local = np.linalg.inv(scene.world_transform(host)) @ world
+    # 局部 pose 必须相对**自己的父系**求逆，而不是相对 host：对象还没挂到
+    # host 名下时（先摆后挂的调用顺序），拿 host 的世界变换求逆会把对象写到
+    # 错位的地方——host 离原点越远偏得越离谱（"挂到底座上却悬在半空"）
+    local = np.linalg.inv(scene.parent_transform(name)) @ world
     scene.objects[name].pose = Pose(local)
     return True
 

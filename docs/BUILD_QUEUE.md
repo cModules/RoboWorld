@@ -17,6 +17,70 @@
 - [x] **S5 展示物料**：`examples/grasping_workstation_demo.py`（无 GUI 一键跑通全流程：仿真→节拍→UR/KUKA/ABB 出码打印）+ README「Key Features Demo」增加抓取工作站小节 + 3 张截图（docs/screenshots/）。（2026-09-13 完成：`examples/grasping_workstation_demo.py` 一条命令跑通「模板工作站 → IK 示例示教点 → 程序构建自动插夹爪 IO → 校验 + 仿真节拍 6.33s → UR/KUKA/ABB/FANUC 出码」，与 GUI 一键入口同一条 `demo_pick_place_points` 数据通路；新增 `tests/test_demo_script.py` 4 测试（子进程真实运行示例脚本验收）；`tools/capture_grasp_screenshots.py` 真实 GUI 会话抓取 3 张截图（grasping_workstation/grasping_playback/grasping_offline_programming.png）；README 新增「Grasping workstation · one-click demo」小节；267 passed + 2 skipped）
 - [x] **S6 Web 可体验部署（持续维护）**：建一个网页版演示站点（静态页 + three.js/动画：抓取工作站示意、TCP 轨迹动画、节拍数据、UR/KUKA/ABB 出码样例、GUI 截图），源文件放 `/Users/jayhan/RobotWorld/deploy/web/`。通过 WorkBuddy 的「发布为应用」能力发布为在线链接。**此后每次任务完成后更新该页面内容并重新发布同一目录，保持链接不变**，通知里始终附上最新链接。（2026-09-13 首版上线：`tools/build_web_site.py` 自动生成，数据来自真实仿真（节拍 8.1s）与真实后处理；在线链接 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host ；后续每次任务完成后运行 `python tools/build_web_site.py` 并重新发布同一目录）
 
+### 🎯 短期目标（最高优先）：v1.4.0 MVP 发版（macOS + Windows 双包）
+
+> 2026-09-19 用户提出：**尽快发一个 MVP 版本出去，把不成熟的功能先去掉**；既定——①多机保留；②mac + win 双平台交付；③版本 **v1.4.0**（全功能再升 **2.0**）。
+> MVP 定位＝**单机/多机各自独立的离线编程闭环**：搭场景 → 示教 → 校验与节拍 → 干涉检查 → 回放（含抓取随动）→ 出品牌代码 → 存 `.orolp`。这条链路有 `S3/S4/S5` 真示例，是唯一敢对外承诺的。
+
+- [x] **Day1 · MVP 构建档位开关**（2026-09-19 完成）：新增 `python/orolp/features.py`——环境变量 `OROLP_FEATURES`（缺省 `mvp`，`full/all/on/1/dev` 全功能档；未知写法按 MVP 处理，**宁可少暴露**；pytest 进程未显式设置时按 full，保证被隐藏的入口继续被回归覆盖）。
+  MVP 档隐藏 **6 项入口**：`sequence_editor`（泳道图，队列 P5）/ `plc_logic`（P2）/ `subprogram`（P2）/ `controller_link`（**从未上真机**）/ `plugins`（生态未成型）/ `dev_tools`（缓存两项）。**多机不在隐藏集合内**——多台独立编程与回放是 MVP 承诺的一部分。接线：`world/panel.py` 时序分组、`app.py` PLC/子程序两个子标签、`view_menu` 真机连接/插件三项/缓存两项，以及三处 `sequence_editor` 引用改成存在性保护。
+  **隐藏的是入口不是数据**：`.orolp` 里的未知段仍走「保真」路径，隐藏项存盘不丢（`tests/test_features.py` 有测试钉住）。
+- [x] **Day1+ · 开关清单外置 + 硬件列表隐藏 + 面板换位**（2026-09-19 完成）：①隐藏清单搬到 `pyproject.toml` 的 `[tool.orolp.features] hidden-in-mvp`（**唯一真源**，改口径只动这一处，不用碰 Python）；文件读不到 / 段被删 / TOML 写坏 → 回退内置 `DEFAULT_HIDDEN_IN_MVP`（保守侧，也不会让程序起不来）；临时看全部用 `OROLP_FEATURES=full`；指着别的文件用 `OROLP_FEATURES_FILE`。打包已把 `pyproject.toml` 塞进 spec 的 datas（`_MEIPASS`），冻结版吃同一份清单。②新增第 7 项隐藏 `hardware_list`（代码预览 → 硬件列表，台账还没和出码打通），并按 MVP 档表格不存在的口径给 `_selected_device` / `_remove_device_row` / `_refresh_device_table` 加了存在性保护——**设备数据仍在 `self.cell` 里**，只是没有界面看它。③按操作顺手程度换序：左侧「场景设备库 + 代码预览」（输入区贴着视口，改一行 `movej` 当场看到效果），右侧「属性 + 设备树 + 导出打包」（树上选中、当场改位姿）；新增 `MainWindow._focus_tab()`——按"面板在哪组里"切前台，不再写死左右，将来再挪布局不用改调用方。
+- [x] **Day1 · 版本口径 v1.4.0**（四处已同步）：`orolp/__init__.py` / `pyproject.toml` / `app.spec` 的 `CFBundleShortVersionString` / 哨兵 `tests/test_plugins.py::test_version_is_1_4_0`（窗口标题自 v1.3.0 起从 `__version__` 派生，不用手改）。
+- [x] **Day1 · 崩溃兜底**：`main()` 在构造任何窗口之前挂 `sys.excepthook` → traceback 落 `$OROLP_CONFIG_DIR/logs/crash-<时间戳>.log`（默认 `~/.orolp/logs`，与自动保存同根）+ 一句人话提示。Windows 打包是 `console=False`，没有这层兜底现场问题只能靠口头猜。
+- [x] **Day1 · GUI 冒烟升级为 MVP 验收清单**：`tools/smoke_gui_demo.py` 从「演示 Bilibili」扩成 9 步——冷启动 → 一键演示 → F6 → F7 → 回放 → 出码 → 存工程 → 关并重开 → 退出；每步打印可见结果，失败汇总而非中途退出。两处刻意隔离（`OROLP_CONFIG_DIR` 指向临时目录＝干净用户；模态对话框全部 stub）＋ `faulthandler` 看门狗（卡住自动 dump 线程栈）——**这三个坑是它原本会 hang 在等待人类点对话框的原因**。MVP 档 **9/9 通过**。
+- [x] **Day1 · 顺带修掉两个既有真缺陷**（都在演示主路径上，且都会给客户第一印象减分）：
+  ①**「幽灵机器人」**：`load_grasping_workstation_demo` 先 `load_robot` 再 `_adopt_scene`，名字在旧场景里分到 `机器人_2`、换场景后场景里又从 `机器人` 重新编号 → 回放吸附工件时 attach 到一个不存在的父对象（工件不随动）、存工程多出一台空段机器人的程序段。改为**先接管场景再认领**（`load_robot(urdf, adopt_existing=True)`），`load_preset_cell` 同口径。
+  ②**演示的示教点没有归属**：直接给 `code_editor.recorded_positions` 赋值，`point_robots` 空 → `_update_code_with_positions` 里 `segments()` 空、**代码里一个 `movej` 都不写**，点数看着 8 个、存盘再打开发现一个点都没有。改走 `set_recorded_positions(positions, owner=...)`，即手工示教同一条通路。
+- [x] **Day1 · macOS RC 包**：`dist/RobotWorld.app` **73MB** + `dist/RobotWorld-macOS-arm64-v1.4.0.zip` **71MB**；自检 `missing module named 'orolp*'` **0**（缺的只有 `OCP.*`——spec 里刻意排除的软依赖）+ offscreen 冷启动存活 25s 无崩溃日志。
+
+- [x] **Day2 · 修多机「路径复制 / 幽灵轨迹」（2026-09-20 用户现场报的 bug）**：
+  现象：①给其中一台教完路径后再加机器人，当前路径被复制给新加的那台；②删掉一台、再在未选中任何机器人时加一台并教路径，屏幕上同时画着旧路径与新路径，而旧路径**代码里没有、也回放不了**。
+  根因两条：①`MainWindow.load_robot` 末尾把路径编辑器**整份**点表 `set_recorded_positions` 灌进视口，而 `gl_widget.load_robot` 已把 `current_robot` 切成新机器人——新机器人"继承"了别人教好的点；②`_on_robot_removed` 只在"被删那台正好是当前台"时把编辑器**整表**清空——既漏掉它不是当前台的情况（段留在代码里，回放认一台已不存在的机器人），又会在它是当前台时把别的机器人的路径一起抹掉，而视口分桶没动，**显示源（分桶）与代码/回放源（编辑器点表）从此分家**，那条线就成了幽灵。
+  修法：新增 `_sync_viewport_paths_from_editor()`（按 `robot_at` 归属分桶回灌，无归属的旧点表仍退回当前台），`load_robot` / 工程载入 / `load_path_code` / `on_positions_parsed` 四处统一走它；`_on_robot_removed` 改成**只删被删那台的段**（`set_recorded_positions([], name)`）并在 `owner_robot` 指向已删名字时置空（否则后续播放会判"机器人已不在场景"而停表）。
+  账：`tests/test_multirobot_gui.py` 新增 3 个用例（加机器人不继承路径 / 删除不留幽灵 / 删后新教路径只剩活着的），修复前 3 failed、修复后 3 passed；全量 **1675 passed + 12 skipped** 无回归；`tools/smoke_gui_demo.py` **9/9** 通过。
+
+**Day1 冒出来的两个「绿着的坑」（既有，未修，Day2 处理）**
+
+1. **全量 pytest 会卡在恢复询问**：前面的 GUI 测试把自动保存快照写进了**真实的** `~/.orolp/autosave`，后续新建 `MainWindow` 的 `showEvent → maybe_prompt_recovery` 弹出模态框等人点——今天全量跑到 99%（`tests/test_ui_layout.py::test_no_tab_page_is_clipped_at_minimum_window`）就停在那儿了。单个文件跑全绿，所以这不是 UI 测试本身的错，而是**测试没有隔离用户目录**。修法取向：根 `tests/conftest.py` 里加 autouse fixture 把 `OROLP_CONFIG_DIR` 指到 `tmp_path`（与冒烟脚本同口径）。**这条会直接卡死 CI，Windows/CNB 流水线之前必须先落地。**
+2. **`examples/assets/grasping_workstation_calibration.json` 被写回**：跑相关演示会重做手眼标定并把新的 `created` 时间戳写回仓库里的示例文件（`examples/vision_pick_demo.py:69` 的 `CALIB_JSON`）。打包后资源目录通常是只读的，这条有可能在客户机器上变成写失败。
+
+**Day2 待办**：Windows 三坑（`install_pip_deps.ps1` 缺 scipy/jinja2/pyyaml/pydantic → 改 `pip install -e ".[gui]"`；`app.spec` 的 `icon='logo.png'` 在 Windows 不合法 → 平台分支 + 新增 `logo.ico`；`build_win64.ps1` 的「spec 不存在就生成旧 spec」兜底分支会造成缺 `python/` pathex 的空壳包 → 删除并加打包后自检）+ CNB `.cnb.yml`（测试门禁 / macOS 自托管打出 `.app` / Windows 自托管 or GitHub Actions 补位 / `git:release` + `cnbcool/attachments`）+ 发布说明（`MVP 范围与隐藏项清单`、`OROLP_FEATURES=full` 开启方式、未签名的两处绕法、2.0 路线）。
+
+> 记账规则照旧。当前已知账：`tests/test_features.py` **15 passed**（新增）；受影响子集 `test_project_gui + test_sequence + test_iomap + test_plugins` + `test_ui_layout` **263 + 12 passed**（无回归）；**全量未跑完**——见上「坑 1」，修好后补记真基线（历史基线 1684 passed + 6 skipped）。
+
+### 🎯 短期目标（新）：GUI 交互打磨（2026-09-19 用户指定，优先于主队列）
+
+> 2026-09-19 用户提出。目标从「跑得通」转向「好用」——面板布局、代码预览子面板、抓取交互、视口操作、动作时序编辑五处。
+> 执行顺序建议 **P1 → P5**（P1 改布局，先定，后面几项都在新布局之上做）。
+
+- [ ] **P1 面板位置调换：「代码预览」移到左侧，「设备树」移到右侧**（`app.py`：`left_tabs` 约 5442 / `right_tabs` 约 5462）：
+  现状：左＝设备树（250–360px），右＝属性 / 代码预览 / 导出打包（260–330px）。
+  要点：①两个 `QTabWidget` 的 min/max 宽度要跟着内容换（代码预览需要更宽的可写区，设备树窄一点够用）；②所有「切到某个标签」的调用要跟着改——`_add_component_from_library()`（约 4169）里 `left_tabs.setCurrentWidget(self.scene_panel)`、以及选中对象/生成代码时自动切页的逻辑；③`tools/smoke_gui_demo.py` 与截图脚本里按左右取面板的地方一并复核。
+  验收：offscreen GUI 测试断言「代码预览在左、设备树在右」，拖组件入库 / 切页 / 选中同步三条通路仍通。
+
+- [ ] **P2 代码预览下的子面板完善（尤其「PLC 程序逻辑」「机器人子程序」）**（`app.py` `_build_plc_tab()` 约 2507 / `_build_subprogram_tab()` 约 2510，`sub_tabs` 约 2500）：
+  现状：两块都能出码，但交互薄弱（用户明确点名这两块）。
+  要点：①**PLC 程序逻辑**：与点表/IO 映射（`SignalMap`、`cell.devices[].io_map`）编辑联动、信号增删重命名、按品牌（西门子 SCL 等）出码预览与导出；②**机器人子程序**：子程序命名与参数（工件/工位）、「选中若干示教点 → 生成子程序」的绑定、跨品牌出码复用、与抓取/放置语义对齐（PICK/PLACE 落在子程序里而不是散在主程序）；③两块共同：空态提示、错误可定位（点一下跳到对应示教点/代码行）、en 界面文案、与 v1.1.6 点表校验的问题互通。
+  验收：新增 `tests/test_codegen_tabs.py`，覆盖「选点生成子程序 → 出码 → 回读一致」与空态/报错路径。
+
+- [ ] **P3 抓取交互功能**（`orolp/world/animation.py` 的 `GraspAnimator`、`program_panel.py` 的 gripper 自动插入、`app.py` 的 `gripperStateChanged` 接线）：
+  现状：**只有回放时按程序指令自动吸附/释放**（S3 已交付），没有「人指定抓什么、怎么抓」的交互。
+  要点：①在视口/属性面板指定「用哪个工具抓哪个工件」（工具 TCP、工件、抓取位姿），落到既有 PICK/PLACE 语义里；②手动试抓 / 试放并**回写程序**（生成或更新 `gripper()` 指令 + 工件随动关系），让交互与回放、出码共用同一份时序；③抓不住时的诊断要说得清为什么（够不着 / 超负载 / 干涉 / 工件不在可抓范围），而不是静默失败；④与 P2 子程序联动（一次抓取＝一段可复用子程序）。
+  验收：新增 `tests/test_grasp_interaction.py`，覆盖「交互指定 → 程序生成 → 回放吸附 → 出码含夹爪指令」。
+
+- [ ] **P4 3D 视口：视图移动与视角切换**（`GLWidget`：`camera_az/el` 约 637、`wheelEvent` 约 2348、`reset_view` 约 6586；View 菜单约 5253）：
+  现状只有左键旋转 + 滚轮缩放 + `R` 复位。
+  要点：①**平移视图**（中键拖 / Shift+左键拖 / 方向键），并把观察中心移到选中对象（双击对象居中）；②**视角预设**：前/后/左/右/顶/等轴测一键切换 + 数字键快捷键，能回到上一个视角；③聚焦选中对象（Fit to selection）与缩放上下限；④状态栏/提示条显示当前视角与操作提示（左键旋转、中键平移、R 复位）。
+  验收：offscreen 测试断言相机参数随预设切换、平移改变观察中心、快捷键接线存在。
+
+- [ ] **P5 设备树「动作时序」编辑器做成可用**（`world/panel.py` `SequenceEditor` 约 688 + `orolp/sequence.py`）：
+  现状是「能存能校验」的最小版本（步骤表 + 泳道画布 + JSON 往返），真编排一批工步时不可用——用户判断「要做大量工作」。
+  要点：①泳道（机器人 / 设备）增删并按场景对象自动同步（多机每台一条泳道）；②工步增删改、拖拽排序、复制粘贴、撤销重做；③时间轴缩放与吸附、驻留（`waitTime`）/ 握手信号可视化、与程序 IO 事件对齐；④校验结果**可点击定位**（跳到对应工步并标红）并给出修复建议；⑤与 P2 子程序联动（工步引用子程序名）。
+  验收：新增/扩充 `tests/test_sequence_editor.py`，并实测「编排 20+ 工步仍能流畅增删改」。
+
+> 记账规则照旧：完成一项勾一项、同步 `docs/ROADMAP.md` §3 与 `README.md` 开发进展表；测试不得引入回归（当前基线见上：1684 passed + 6 skipped）。
+
 ### 展示任务与主队列的关系
 
 S2 完成后把 v0.3.3 剩余部分（工艺模板库、waitDI 完整语义）留在原任务继续；S3 的碰撞校验依赖 v0.2.1，上线后回补。S6 在 S1 完成后即可开始搭建，之后作为持续维护项：每次任务完成后同步更新并重新发布，链接保持不变。
@@ -126,6 +190,13 @@ _（用户随时口述补充在这里，下次自动开发前由 AI 整理成正
 - **（2026-09-16 v1.3.1 动态时序落地 → 界面 PRD 仅剩一项待拍板）**：`docs/prd/ui-architecture.md` 的 §6 验收标准 1–5 条已由 `tests/test_ui_layout.py` 钉成可执行断言；**第 6 条「无空占位区块」的唯一未过项——设备树「工艺时序（泳道图）」空壳——已在 v1.3.1 换成真 `SequenceEditor`（数据模型 + 四种工步 + 双出口 + 保存载入），§6 六条至此全部勾选**。~~零件库 / 预置场景库（P1/P2）~~ → **已于 v1.3.3 落地（2026-09-16，见 Could 区）**：默认取 PRD 点名的分拣工位 + 机床上下料两个行业模板 + 零件库自定义导入（参数化基本体通路）；更多行业模板（3C 装配 / 汽车焊装等）待用户点名补充。其余缺口与外部输入依赖不变（①STEP ②真机 ③云端点 ④厂商标定协议）。**v1.3.2 补充**：上轮预告的「动态时序使用体验（示例工程 + docs）」已落地（见上方 v1.3.2 条目），无新遗留项。
 
 - **（2026-09-16 v1.3.4 工程文件落地 → 队列已清空，本轮为自行选题，待用户拍板）**：短期目标 S1–S6 与主队列 Must/Should/Could **全部完成**，唯一未完成项 v0.2.3 仍 `[阻塞: 等官方 STEP]`；候选清单里剩的四条也全部依赖外部输入（①STEP ②真机 ③云端点 ④厂商标定协议拍板）。按「不空转、不瞎猜」的纪律，本轮自行选了**最近几轮能力之间还没收口的缝**——v1.3.0–v1.3.3 每件界面能力各带自己一份 JSON、「存一个活要存四个文件」，于是做了 `.orolp` 工程文件（见 Could 区 v1.3.4 条目）。**未经用户认可，故在通知中明确标注「队列已空，本轮为自行选题，请拍板是否继续这个方向」**。下一步可选方向（需用户点头）：(a) 继续「未收口的缝」类自选题——**已全部收口**：最近打开列表与崩溃自动恢复（v1.3.5 ✅）+ 工程文件模板（v1.3.6 ✅）；(b) 按用户点名的行业模板扩预置场景库（分拣工位、机床上下料已落地，3C 装配 / 汽车焊装**已于 2026-09-16 按 v1.3.7 落地**——第三轮 "Please continue" 授权按第五十一轮预告的默认方向执行，更多行业仍待点名）；(c) 版本对齐重新打包——**已于 2026-09-16 完成（用户 "Please continue" 授权续跑，见「里程碑打包记录」v1.3.6 条目）**；(d) 其余一律需要外部输入（STEP / 真机 / 云端点 / 厂商协议）。
+
+- **（2026-09-19 用户口述新增，待评审）在线市场（Marketplace）：用户建的场景 / 自定义设备可上架展示与定价，赋能有类似项目需求的人**：
+  动机：`.orolp` 工程文件（v1.3.4，六段＝场景/示教程序/工艺时序/设备点表/零件库来源/标定集）、`assets/cells/` 预置工作站（v1.3.3 / v1.3.7）、零件库 JSON `orolp.parts/1`（v1.3.3）、自定义设备 URDF（v1.2.1 `tools/build_vendor_urdf.py`）、插件包（v1.0.4 接口 / v1.0.8 真 `pip install`）**目前只活在本机文件里**——做出来的东西只能自己用，有类似项目的人得从零再来一遍。
+  现有可复用的地基（不要重造）：①`CloudTransport` + `HTTPCloudStore`/SigV4 + `CloudStoreServer` 参考服务端（v1.0.6）＝对象上下行与鉴权；②`ProgramVersionStore`（v1.0.7）＝按名自动递增 vN 的版本库；③`program_fingerprint`（v1.0.7）＝内容寻址指纹，可作"这份就是那份"的校验；④插件入口点发现 + 失败隔离（v1.0.4）＝第三方包进得来、坏包不拖垮软件；⑤`Project` 逐段容错 + 未知段/未知键保真（v1.3.4）＝别人做的工程也能安全读进来。
+  建议分期（**P0 不依赖服务端，可先做**）：**P0 本地可分发包**——把「场景 / 零件 / 自定义设备 / 插件 / 整工程」导出成一个带清单的分发包（manifest：作者、版本、依赖、指纹、许可），导入侧走 `Project` 的容错与保真通路，且**导入即校验**（干涉 / 越限 / IO 未映射，全是现有 planner 与 `SignalMap` 口径）；**P1 目录与检索**——上架对象 + 索引（作者 / 标签 / 适用品牌 / 版本），浏览与下载复用 `CloudTransport`，版本沿用 vN 递增；**P2 定价与交易**——账号、订单、分成、授权（限设备 / 限版本 / 是否可离线）；**P3 审核与安全**——第三方内容含**真实轨迹与 IO 信号**，导入即可下发真机，这条链上的风险比普通素材市场高，审核 / 沙箱 / 签名要一并考虑。
+  诚实口径：`CloudTransport` 是**对象存储不是商店**（没有检索 / 元数据 / 计费）；包内若含厂商 URDF/STL，转售可能有版权问题（与 v0.2.3 官方 STEP 至今未投放属同一类外部约束）；支付 / 发票 / 分成 / 合规超出桌面应用现有能力范围，**本条不可能靠无人值守自动开发完成**。
+  开放问题（需拍板）：①**先卖什么**（整工程 / 场景模板 · 零件库 · 自定义设备 · 后处理插件）；②**定价模式**（免费 / 买断 / 订阅 / 分成比例）；③**服务端谁运营**（自建复用 `CloudStoreServer` 还是托管）；④**模型版权**（厂商几何能否上架、作者是否需自备授权声明）；⑤**审核与签名**（是否强制、坏内容如何处置）；⑥**离线优先**（已购内容断网后是否仍可用）。
 
 ---
 

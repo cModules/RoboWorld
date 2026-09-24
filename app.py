@@ -20,6 +20,7 @@ if str(_PYTHON_DIR) not in sys.path:
 
 try:
     from orolp.i18n import available_languages, current_language, set_language, tr
+    from orolp.render.urdf_model import rpy_to_matrix
 except Exception:  # pragma: no cover - i18n 缺失时退化为恒等
     def tr(s):
         return s
@@ -32,6 +33,36 @@ except Exception:  # pragma: no cover - i18n 缺失时退化为恒等
 
     def set_language(lang, **kw):
         return lang
+
+    def rpy_to_matrix(rpy):  # 兜底：与 rpy_to_matrix 同口径的最小实现
+        import numpy as _np
+        r, p, y = rpy
+        cr, sr = _np.cos(r), _np.sin(r)
+        cp, sp = _np.cos(p), _np.sin(p)
+        cy, sy = _np.cos(y), _np.sin(y)
+        return _np.array([
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr, 0.0],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr, 0.0],
+            [-sp, cp * sr, cp * cr, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+
+# v1.4.0 MVP 发版：构建档位开关（``python/orolp/features.py``）。
+# MVP 档只暴露跑通了的离线编程闭环，未完善 / 没上过真机的入口不构建；内部开发用
+# ``OROLP_FEATURES=full`` 全部恢复（2.0 全功能档同此口径）。
+# 开关模块缺失时一律按 **全功能** 处理：宁可多暴露，也不要因为依赖问题把已经
+# 能用的功能锁死。
+try:
+    from orolp.features import describe as _features_describe
+    from orolp.features import enabled as _feature_enabled
+except Exception:  # pragma: no cover - 仅用于 features 模块缺失时的降级
+
+    def _feature_enabled(name: str) -> bool:
+        return True
+
+    def _features_describe() -> str:
+        return "full（features 模块缺失，按全功能降级）"
+
 
 try:
     from PySide6 import QtWidgets, QtCore, QtOpenGLWidgets, QtGui
@@ -2427,14 +2458,15 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.code_edit.setTabStopDistance(20)
         teach_layout.addWidget(self.code_edit)
 
-        control_layout = QtWidgets.QHBoxLayout()
-
-        self.record_btn = QtWidgets.QPushButton("● Record")
+        # 按钮文案一律走 tr()：这一排 6 个键是**左侧栏最宽的一行**，换成中文
+        # 后所需宽度从 ~475px 降到 ~300px——既去掉了中英文混用，也在 400px
+        # 的栏宽里放得下了（2026-09-21 界面体检）
+        self.record_btn = QtWidgets.QPushButton(tr("● 记录"))
         self.record_btn.setStyleSheet("background-color: #555555; color: white;")
         self.record_btn.setCheckable(True)
         self.record_btn.clicked.connect(self._on_record_toggled)
 
-        self.play_btn = QtWidgets.QPushButton("▶ Play")
+        self.play_btn = QtWidgets.QPushButton(tr("▶ 播放"))
         self.play_btn.setStyleSheet("background-color: #4CAF50; color: white;")
         self.play_btn.clicked.connect(self._on_play_clicked)
 
@@ -2448,15 +2480,15 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.step_btn.setToolTip(tr("走一个示教点——核对抓取/放置时机最有用的操作"))
         self.step_btn.clicked.connect(self._on_step_clicked)
 
-        self.stop_btn = QtWidgets.QPushButton("■ Stop")
+        self.stop_btn = QtWidgets.QPushButton(tr("■ 停止"))
         self.stop_btn.setStyleSheet("background-color: #f44336; color: white;")
         self.stop_btn.clicked.connect(self._on_stop_clicked)
 
-        self.clear_btn = QtWidgets.QPushButton("Clear")
+        self.clear_btn = QtWidgets.QPushButton(tr("清空"))
         self.clear_btn.setStyleSheet("background-color: #777777; color: white;")
         self.clear_btn.clicked.connect(self._on_clear_clicked)
 
-        self.pos_count_label = QtWidgets.QLabel("Positions: 0")
+        self.pos_count_label = QtWidgets.QLabel(tr("示教点：0"))
         self.pos_count_label.setFont(QFont("Consolas", 9))
 
         #: 将要执行的范围——按下去之前就该知道跑的是哪台、从哪一行开始
@@ -2464,20 +2496,40 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.scope_label.setFont(QFont("Consolas", 9))
         self.scope_label.setStyleSheet("color: #9ad0ff;")
 
-        control_layout.addWidget(self.record_btn)
-        control_layout.addWidget(self.play_btn)
-        control_layout.addWidget(self.pause_btn)
-        control_layout.addWidget(self.step_btn)
-        control_layout.addWidget(self.stop_btn)
-        control_layout.addWidget(self.clear_btn)
-        control_layout.addWidget(self.pos_count_label)
-        control_layout.addWidget(self.scope_label)
-        control_layout.addStretch(1)
+        # 播放按钮排成 3×2 网格而不是一行：这个面板在左侧栏里只有 280–400px，
+        # 一行摆 6 个按钮 + 2 个提示 + 2 个下拉时 Qt 不会换行，只会把每个按钮
+        # 压到 33px（实测：只剩一个色块），并把最后一个下拉顶到面板外面看不见。
+        btn_grid = QtWidgets.QGridLayout()
+        btn_grid.setHorizontalSpacing(4)
+        for _i, _btn in enumerate(
+            (
+                self.record_btn,
+                self.play_btn,
+                self.pause_btn,
+                self.step_btn,
+                self.stop_btn,
+                self.clear_btn,
+            )
+        ):
+            _btn.setSizePolicy(
+                QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
+            )
+            btn_grid.addWidget(_btn, _i // 3, _i % 3)
+        teach_layout.addLayout(btn_grid)
+
+        # 点数与"跑哪台、从哪行起"分两行：范围提示本身可以很长
+        # （如「将从第 3 行起全局运行（8/8 点）」），和点数挤在一行会把它压没
+        info_layout = QtWidgets.QHBoxLayout()
+        info_layout.addWidget(self.pos_count_label)
+        info_layout.addStretch(1)
+        teach_layout.addLayout(info_layout)
+        self.scope_label.setWordWrap(True)
+        teach_layout.addWidget(self.scope_label)
 
         # ---- 抓取工艺：点位语义 + 工件选择 ----
         if _HAS_PICKPLACE:
-            control_layout.addSpacing(12)
-            control_layout.addWidget(QtWidgets.QLabel(tr("点位:")))
+            process_layout = QtWidgets.QHBoxLayout()
+            process_layout.addWidget(QtWidgets.QLabel(tr("点位:")))
             self.point_type_combo = QtWidgets.QComboBox()
             self.point_type_combo.setToolTip(
                 tr(
@@ -2488,26 +2540,31 @@ class PathCodeEditor(QtWidgets.QWidget):
             )
             for t in PointType:
                 self.point_type_combo.addItem(t.label, t)
-            control_layout.addWidget(self.point_type_combo)
+            # 工件名可能很长——不设下限的话它会按最长的一项撑宽整行，
+            # 把右边的东西挤出可视区（这在侧栏里等于直接看不见）
+            self.point_type_combo.setMinimumContentsLength(4)
+            process_layout.addWidget(self.point_type_combo, 1)
 
-            control_layout.addWidget(QtWidgets.QLabel(tr("工件:")))
+            process_layout.addWidget(QtWidgets.QLabel(tr("工件:")))
             self.workpiece_combo = QtWidgets.QComboBox()
-            self.workpiece_combo.setMinimumWidth(90)
+            self.workpiece_combo.setMinimumContentsLength(4)
             self.workpiece_combo.setToolTip(tr("被抓取的场景对象；留空表示只演示轨迹"))
-            control_layout.addWidget(self.workpiece_combo)
-
-        teach_layout.addLayout(control_layout)
+            process_layout.addWidget(self.workpiece_combo, 1)
+            teach_layout.addLayout(process_layout)
 
         self.sub_tabs.addTab(teach, tr("路径示教"))
 
-        # ---------- 2) 硬件列表 ----------
-        self.sub_tabs.addTab(self._build_hardware_tab(), tr("硬件列表"))
+        # ---------- 2) 硬件列表（MVP 隐藏：设备台账还没和出码打通，队列 P2） ----------
+        if _feature_enabled("hardware_list"):
+            self.sub_tabs.addTab(self._build_hardware_tab(), tr("硬件列表"))
 
-        # ---------- 3) PLC 程序逻辑 ----------
-        self.sub_tabs.addTab(self._build_plc_tab(), tr("PLC 程序逻辑"))
+        # ---------- 3) PLC 程序逻辑（MVP 隐藏：出码尚未完善，队列 P2） ----------
+        if _feature_enabled("plc_logic"):
+            self.sub_tabs.addTab(self._build_plc_tab(), tr("PLC 程序逻辑"))
 
-        # ---------- 4) 机器人子程序 ----------
-        self.sub_tabs.addTab(self._build_subprogram_tab(), tr("机器人子程序"))
+        # ---------- 4) 机器人子程序（MVP 隐藏：尚未完善，队列 P2） ----------
+        if _feature_enabled("subprogram"):
+            self.sub_tabs.addTab(self._build_subprogram_tab(), tr("机器人子程序"))
 
         layout.addWidget(self.sub_tabs)
 
@@ -2756,11 +2813,18 @@ class PathCodeEditor(QtWidgets.QWidget):
         self._notify(summary, 8000)
         return report
 
+    def _device_table(self):
+        """硬件列表的表格；MVP 档入口没构建时是 ``None``。"""
+        return getattr(self, "device_table", None)
+
     def _selected_device(self):
         """设备列表里当前选中的设备；无选中返回 ``None``。"""
         if self.cell is None:
             return None
-        r = self.device_table.currentRow()
+        table = self._device_table()
+        if table is None:
+            return None
+        r = table.currentRow()
         if r < 0 or r >= len(self.cell.devices):
             return None
         return self.cell.devices[r]
@@ -2775,19 +2839,31 @@ class PathCodeEditor(QtWidgets.QWidget):
     def _remove_device_row(self):
         if self.cell is None:
             return
-        r = self.device_table.currentRow()
+        table = self._device_table()
+        if table is None:
+            return
+        r = table.currentRow()
         if r < 0 or r >= len(self.cell.devices):
             return
         self.cell.remove(self.cell.devices[r].name)
         self._refresh_device_table()
 
     def _refresh_device_table(self):
+        """把 ``cell`` 里的设备刷到表格上。
+
+        MVP 档表格不存在时**静默返回**而不是报错：``sync_devices`` /
+        ``set_cell`` 会调到这里，而设备数据始终在 ``self.cell`` 里——
+        PLC、点表读的是同一份，只是没有界面去看它。
+        """
         if self.cell is None:
             return
-        self.device_table.setRowCount(len(self.cell.devices))
+        table = self._device_table()
+        if table is None:
+            return
+        table.setRowCount(len(self.cell.devices))
         for i, d in enumerate(self.cell.devices):
             for j, val in enumerate([d.name, d.type, d.brand, d.model, d.comm, d.ip]):
-                self.device_table.setItem(i, j, QtWidgets.QTableWidgetItem(val))
+                table.setItem(i, j, QtWidgets.QTableWidgetItem(val))
 
     def _sync_devices_from_scene(self):
         self.sync_devices(self._scene)
@@ -2948,11 +3024,11 @@ class PathCodeEditor(QtWidgets.QWidget):
 
     def _on_record_toggled(self, checked):
         if checked:
-            self.record_btn.setText("● Recording")
+            self.record_btn.setText(tr("● 正在记录"))
             self.record_btn.setStyleSheet("background-color: #f44336; color: white;")
             self.record_btn.setIcon(QtGui.QIcon())
         else:
-            self.record_btn.setText("● Record")
+            self.record_btn.setText(tr("● 记录"))
             self.record_btn.setStyleSheet("background-color: #555555; color: white;")
 
     def _on_play_clicked(self):
@@ -3064,11 +3140,10 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.point_robots.clear()
         self.point_types.clear()
         self._line_map.clear()
-        self.pos_count_label.setText("Positions: 0")
+        self.pos_count_label.setText(tr("示教点：0"))
         self.code_edit.clear()
         self.code_edit.append("# OLP Path Code\n")
         self.clearRequested.emit()
-        self._suggest_next_point_type()
 
     def record_position(self, joint_values, robot=None):
         if self.record_btn.isChecked():
@@ -3078,23 +3153,14 @@ class PathCodeEditor(QtWidgets.QWidget):
             self.point_robots.append(robot or self.owner_robot)
             if _HAS_PICKPLACE:
                 self.point_types.append(self.point_type_combo.currentData())
-            self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
+            self.pos_count_label.setText(tr("示教点：{n}").format(n=len(self.recorded_positions)))
             self.positionRecorded.emit(len(self.recorded_positions))
             self._update_code_with_positions()
-            self._suggest_next_point_type()
 
-    def _suggest_next_point_type(self) -> None:
-        """把点位下拉预置成"下一个"该用的语义，用户可随时改。
-
-        例如已有 1 个点时，下一次默认建议「抓取点」——正好是五点式循环的顺序。
-        """
-        if not _HAS_PICKPLACE:
-            return
-        nxt = default_types_for_count(len(self.recorded_positions) + 1)
-        if len(nxt) > len(self.recorded_positions):
-            idx = self.point_type_combo.findData(nxt[len(self.recorded_positions)])
-            if idx >= 0:
-                self.point_type_combo.setCurrentIndex(idx)
+    # ``_suggest_next_point_type`` 已删除：它会把点位下拉自动拨到"下一个"
+    # 循环语义——用户随手连教几个点，第 2 个就被标成「抓取点」、第 4 个被标
+    # 成「放置点」，导出程序的开头凭空多出 5 行夹爪开合（2026-09-21 用户反馈）。
+    # 语义是工艺意图，要标请用点位下拉或「抓取向导」，程序不再替用户做主。
 
     def sync_point_types(self) -> None:
         """把 point_types 补齐到与 recorded_positions 等长。
@@ -3211,9 +3277,9 @@ class PathCodeEditor(QtWidgets.QWidget):
         named = {r: c for r, c in counts.items() if r}
         if named:
             detail = " · ".join(f"{r} {c}" for r, c in named.items())
-            self.pos_count_label.setText(f"Positions: {n}（{detail}）")
+            self.pos_count_label.setText(tr("示教点：{n}（{detail}）").format(n=n, detail=detail))
         else:
-            self.pos_count_label.setText(f"Positions: {n}")
+            self.pos_count_label.setText(tr("示教点：{n}").format(n=n))
 
     def get_recorded_positions(self):
         return self.recorded_positions
@@ -3227,8 +3293,17 @@ class PathCodeEditor(QtWidgets.QWidget):
         """
         positions = list(positions)
         if owner is None:
+            # 整份替换：**归属按原表沿用**——docstring 一直这么承诺，实现却曾把
+            # 归属整体抹成 None。无归属段渲染时不带 ``# Robot:`` 头，用户看到的
+            # 就是"代码开头莫名其妙多出几行 movej"；而且此后所有按机写入都只能
+            # 追加在它后面，这段幽灵行永远顶在最上面（2026-09-21 用户反馈）
+            prev_own = list(self.point_robots)
+            prev_owner = self.owner_robot
             self.recorded_positions = positions
-            self.point_robots = [None] * len(positions)
+            self.point_robots = [
+                prev_own[i] if i < len(prev_own) else prev_owner
+                for i in range(len(positions))
+            ]
         else:
             new_pos, new_own, new_types = [], [], []
             old_types = {
@@ -3261,7 +3336,7 @@ class PathCodeEditor(QtWidgets.QWidget):
             self.point_types = new_types
             self.owner_robot = owner
         self._fill_missing_types()
-        self.pos_count_label.setText(f"Positions: {len(self.recorded_positions)}")
+        self.pos_count_label.setText(tr("示教点：{n}").format(n=len(self.recorded_positions)))
         self._update_code_with_positions()
         self.update()
 
@@ -3272,11 +3347,12 @@ class PathCodeEditor(QtWidgets.QWidget):
         return None
 
     def _fill_missing_types(self) -> None:
-        """把 ``point_types`` 里的空位按**各段自己的**默认语义补齐。
+        """把 ``point_types`` 的长度对齐到点表（只做截断/补空，**不发明语义**）。
 
-        段替换后长度会变，而默认的五点式（接近/抓取/提升/放置/撤离）是**每台
-        机器人各一套**——按总点数取一套默认值的话，第二台拿到的是"续在后面"
-        的那几个（全是途经点），循环里没有抓取点，回放时根本不夹。
+        之前这里会按"五点式循环"给没标语义的点自动填 接近/抓取/提升/放置/撤离
+        ——用户只是随手教一条轨迹，导出的程序开头却**自动多出 5 行夹爪开合**
+        （2026-09-21 用户反馈：这 5 行不需要）。抓取语义是工艺意图，只能
+        用户自己标（点位下拉 / 抓取向导），程序不再替用户做主。
         """
         if not _HAS_PICKPLACE:
             return
@@ -3285,11 +3361,6 @@ class PathCodeEditor(QtWidgets.QWidget):
             self.point_types = self.point_types[:n]
         while len(self.point_types) < n:
             self.point_types.append(None)
-        for _robot, indices in self.segments():
-            seq = default_types_for_count(len(indices))
-            for k, i in enumerate(indices):
-                if self.point_types[i] is None and seq:
-                    self.point_types[i] = seq[k % len(seq)]
 
     def points_of(self, robot: Optional[str]) -> List[dict]:
         """``robot`` 那一段的示教点（按代码里的先后顺序）。"""
@@ -3510,8 +3581,8 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         # 信息（对象名/类型 + 机器人规格）
         self.info_group = QtWidgets.QGroupBox(tr("信息"))
         info_layout = QtWidgets.QFormLayout(self.info_group)
-        self.obj_name_label = QtWidgets.QLabel("N/A")
-        self.obj_type_label = QtWidgets.QLabel("N/A")
+        self.obj_name_label = QtWidgets.QLabel(tr("—"))
+        self.obj_type_label = QtWidgets.QLabel(tr("—"))
         info_layout.addRow(tr("名称:"), self.obj_name_label)
         info_layout.addRow(tr("类型:"), self.obj_type_label)
 
@@ -3550,14 +3621,14 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.robot_spec_widget = QtWidgets.QWidget()
         spec_layout = QtWidgets.QFormLayout(self.robot_spec_widget)
         spec_layout.setContentsMargins(0, 4, 0, 4)
-        self.name_label = QtWidgets.QLabel("N/A")
-        self.manufacturer_label = QtWidgets.QLabel("N/A")
-        self.type_label = QtWidgets.QLabel("N/A")
-        self.payload_label = QtWidgets.QLabel("N/A")
-        self.reach_label = QtWidgets.QLabel("N/A")
-        self.repeat_label = QtWidgets.QLabel("N/A")
-        self.dof_label = QtWidgets.QLabel("N/A")
-        self.controller_label = QtWidgets.QLabel("N/A")
+        self.name_label = QtWidgets.QLabel(tr("—"))
+        self.manufacturer_label = QtWidgets.QLabel(tr("—"))
+        self.type_label = QtWidgets.QLabel(tr("—"))
+        self.payload_label = QtWidgets.QLabel(tr("—"))
+        self.reach_label = QtWidgets.QLabel(tr("—"))
+        self.repeat_label = QtWidgets.QLabel(tr("—"))
+        self.dof_label = QtWidgets.QLabel(tr("—"))
+        self.controller_label = QtWidgets.QLabel(tr("—"))
         spec_layout.addRow(tr("型号:"), self.name_label)
         spec_layout.addRow(tr("厂商:"), self.manufacturer_label)
         spec_layout.addRow(tr("类型:"), self.type_label)
@@ -3583,9 +3654,9 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         self.pose_grp = QtWidgets.QGroupBox(tr("位置"))
         pose_layout = QtWidgets.QFormLayout(self.pose_grp)
         for key, label, lo, hi, step in (
-            ("x", "X (mm)", -20000, 20000, 10),
-            ("y", "Y (mm)", -20000, 20000, 10),
-            ("z", "Z (mm)", -5000, 10000, 10),
+            ("x", tr("X (毫米)"), -20000, 20000, 10),
+            ("y", tr("Y (毫米)"), -20000, 20000, 10),
+            ("z", tr("Z (毫米)"), -5000, 10000, 10),
             ("rx", tr("绕 X (°)"), -180, 180, 5),
             ("ry", tr("绕 Y (°)"), -180, 180, 5),
             ("rz", tr("绕 Z (°)"), -360, 360, 5),
@@ -3639,35 +3710,56 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         log_layout.addWidget(self.log_text)
         layout.addWidget(log_group)
     
-    def update_robot_info(self, renderer, entry=None):
+    def update_robot_info(self, renderer, entry=None, name: Optional[str] = None):
         """更新机器人信息区。
 
         Args:
             renderer: 已加载 URDF 的渲染器
             entry: 机器人库条目；提供时可回显负载、臂展等完整规格
+            name: 这台机器人在场景里的名字。**必须给**：规格要按名字留存，
+                否则只会记最后加载那台——多机时选中 A，规格块却显示 B 的
+                型号/厂商（2026-09-21 用户反馈）。``None`` 退回旧行为（单机）。
         """
         self._renderer = renderer
         self._has_robot_model = True
+        if name is not None:
+            # 规格按机器人名各存一份：set_object 选中谁就回显谁的
+            if not hasattr(self, "_robot_entries"):
+                self._robot_entries = {}
+            self._robot_entries[name] = entry
         revolute = [j for j in renderer.joints.values() if j["type"] == "revolute"]
         self.dof_label.setText(str(len(revolute)))
+        self._fill_robot_spec(renderer, entry)
 
+        self.log_text.append(tr("已载入: {name}").format(name=renderer.robot_name))
+        self.log_text.append(tr("关节数: {n}").format(n=len(revolute)))
+
+    def _fill_robot_spec(self, renderer, entry) -> None:
+        """把**指定那台**的规格填进信息区（型号/厂商/负载/臂展…）。
+
+        供两处调用：:meth:`update_robot_info`（载入时）与
+        :meth:`set_object`（选中机器人时按名字回显）——后者没有这条，
+        多机时规格块永远是最后加载那台的（2026-09-21 用户反馈）。
+        """
+        revolute = [j for j in renderer.joints.values() if j["type"] == "revolute"]
+        self.dof_label.setText(str(len(revolute)))
         if entry is not None:
             self.name_label.setText(entry.model_name)
             self.manufacturer_label.setText(entry.brand_display)
             type_map = {"industrial": tr("工业臂"), "cobot": tr("协作臂"), "scara": "SCARA"}
             self.type_label.setText(type_map.get(entry.robot_type, entry.robot_type))
             self.payload_label.setText(
-                f"{entry.payload_kg:g} kg" if entry.payload_kg is not None else "N/A"
+                f"{entry.payload_kg:g} kg" if entry.payload_kg is not None else tr("—")
             )
             self.reach_label.setText(
-                f"{entry.reach_mm:g} mm" if entry.reach_mm is not None else "N/A"
+                f"{entry.reach_mm:g} mm" if entry.reach_mm is not None else tr("—")
             )
             self.repeat_label.setText(
                 f"±{entry.repeatability_mm:g} mm"
                 if entry.repeatability_mm is not None
-                else "N/A"
+                else tr("—")
             )
-            self.controller_label.setText(entry.controller or "N/A")
+            self.controller_label.setText(entry.controller or tr("—"))
             if entry.note:
                 prefix = "" if entry.verified else tr("⚠ 参数未核验 — ")
                 self.note_label.setText(prefix + entry.note)
@@ -3676,16 +3768,13 @@ class DevicePropertyPanel(QtWidgets.QWidget):
                 self.note_label.hide()
         else:
             self.name_label.setText(renderer.robot_name)
-            self.manufacturer_label.setText("N/A")
-            self.type_label.setText("N/A")
-            self.payload_label.setText("N/A")
-            self.reach_label.setText("N/A")
-            self.repeat_label.setText("N/A")
-            self.controller_label.setText("N/A")
+            self.manufacturer_label.setText(tr("—"))
+            self.type_label.setText(tr("—"))
+            self.payload_label.setText(tr("—"))
+            self.reach_label.setText(tr("—"))
+            self.repeat_label.setText(tr("—"))
+            self.controller_label.setText(tr("—"))
             self.note_label.hide()
-
-        self.log_text.append(tr("已载入: {name}").format(name=renderer.robot_name))
-        self.log_text.append(tr("关节数: {n}").format(n=len(revolute)))
 
     # --------------------------- 对象属性动态编辑 --------------------------- #
 
@@ -3720,6 +3809,13 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         if is_robot:
             self.obj_type_label.setText(tr("机器人"))
             self.robot_spec_widget.setVisible(True)
+            # 规格块按**选中的这台**回显：载入时各台的规格已按名字留存
+            # （update_robot_info），只回显最后加载那台的话，选中 A 显示的
+            # 却是 B 的型号/厂商（2026-09-21 用户反馈）
+            self._fill_robot_spec(
+                self._renderer_for_robot(name),
+                getattr(self, "_robot_entries", {}).get(name),
+            )
             self.note_label.setVisible(bool(self.note_label.text()))
             # 机器人可以挂到底座/台面上（基座随之随动）。但「装夹到末端」对
             # 机器人自身没有意义——那是"把工具装到它的法兰上"，故只留下拉。
@@ -3737,9 +3833,12 @@ class DevicePropertyPanel(QtWidgets.QWidget):
 
         # 位姿回填（blockSignals 避免触发写回）
         # _matrix_to_rpy 返回弧度，转成角度后再填进 6 个输入框
-        tf = obj.pose
-        xyz = tf.matrix[:3, 3]
-        rx, ry, rz = (math.degrees(v) for v in _matrix_to_rpy(tf.matrix))
+        # 用**世界坐标**回填：挂载件（如装到底座上的机器人）的局部 pose 是相对
+        # 父对象的——两台挂法相同的机器人局部值一模一样（0,0,底座高），看起来
+        # "位置永远不变"，也和视口里拖拽落到的位置对不上（2026-09-21 用户反馈）
+        tf_matrix = self.scene.world_transform(name)
+        xyz = tf_matrix[:3, 3]
+        rx, ry, rz = (math.degrees(v) for v in _matrix_to_rpy(tf_matrix))
         for key, val in (("x", float(xyz[0])), ("y", float(xyz[1])),
                          ("z", float(xyz[2])),
                          ("rx", rx), ("ry", ry), ("rz", rz)):
@@ -3988,14 +4087,24 @@ class DevicePropertyPanel(QtWidgets.QWidget):
         obj = self.scene.objects.get(self.current_object)
         if obj is None:
             return
-        obj.pose = Pose.from_xyz_rpy(
+        # 输入框的语义与显示一致：**世界坐标**。挂载件必须先经父系逆变换换回
+        # 局部 pose 再落盘——直接把世界值当局部值写，对象会被"瞬移"到父系
+        # 原点附近（世界系 → 局部系的换算口径与 placement.apply_world_pose 一致）
+        world = rpy_to_matrix([
+            math.radians(self.obj_pose_widgets["rx"].value()),
+            math.radians(self.obj_pose_widgets["ry"].value()),
+            math.radians(self.obj_pose_widgets["rz"].value()),
+        ])
+        world[:3, 3] = [
             self.obj_pose_widgets["x"].value(),
             self.obj_pose_widgets["y"].value(),
             self.obj_pose_widgets["z"].value(),
-            self.obj_pose_widgets["rx"].value(),
-            self.obj_pose_widgets["ry"].value(),
-            self.obj_pose_widgets["rz"].value(),
-        )
+        ]
+        parent_tf = self.scene.parent_transform(self.current_object)
+        local = np.linalg.inv(parent_tf) @ world
+        lx, ly, lz = (float(v) for v in local[:3, 3])
+        lrx, lry, lrz = (math.degrees(v) for v in _matrix_to_rpy(local))
+        obj.pose = Pose.from_xyz_rpy(lx, ly, lz, lrx, lry, lrz)
         self.objectChanged.emit()
 
     def _descendant_names(self, name: str) -> set:
@@ -4171,8 +4280,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             return
         self.scene_panel.add_component(component_id)
-        if hasattr(self, "left_tabs"):
-            self.left_tabs.setCurrentWidget(self.scene_panel)
+        self._focus_tab(self.scene_panel)
 
     def _on_robot_dropped(self, key: str) -> None:
         """机器组件库拖拽机器人型号到视口时，按目录 key 解析 URDF 并载入。"""
@@ -4458,17 +4566,20 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, tr("载入失败"), str(exc))
             return
 
-        # 场景里的机器人可能与当前视口的不同——先让视口加载它
+        # 先接管场景：机器人的名字以**场景**为准（与"抓取工作站演示"同口径），
+        # 顺序反过来会让视口按追加分到另一个名字（详见那里的注释）
+        self._adopt_scene(scene)
+
+        # 场景里的机器人可能与当前视口的不同——让它加载场景里那台
         if scene.robot_urdf and Path(scene.robot_urdf).exists():
-            self.gl_widget.load_robot(scene.robot_urdf)
+            name = scene.robot_names[0] if scene.robot_names else ROBOT_NAME
+            self.gl_widget.load_robot(scene.robot_urdf, name)
             if scene.has_robot:
                 self.gl_widget.set_joint_values(
                     {n: math.radians(v) for n, v in zip(
                         self.gl_widget.renderer.actuated_names(),
                         scene._robot_joints_deg)}
                 )
-
-        self._adopt_scene(scene)
         self.statusBar().showMessage(
             tr("已载入 {name}（{n} 个对象）").format(name=target.name, n=len(scene))
         )
@@ -4511,8 +4622,16 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
 
-        # 1) 视口载机器人（顺带初始化离线编程面板与场景机器人）
-        self.load_robot(urdf)
+        # 1) 先接管模板场景 → 再**认领**里面的机器人（顺序是不能反的关键）
+        #
+        #    反过来的话：load_robot 会在**旧场景**里按"追加"分到下一个名字
+        #    （机器人_2），随后 _adopt_scene 换上模板场景，名字又从 机器人 开始
+        #    编号——视口与离线编程面板手里是旧名字、场景里是新名字，于是：
+        #    ① 回放吸附工件时 attach 到一个不存在的父对象（工件不随动）；
+        #    ② 存工程时多出一台"幽灵机器人"的程序段，重开后当前那台看不到点。
+        #    先换场景再认领，两边同名，这类错位从根上不成立。
+        self._adopt_scene(cell.scene)
+        self.load_robot(urdf, adopt_existing=True)
         robot = self.olp_robot
         if robot is None:
             QtWidgets.QMessageBox.warning(
@@ -4530,11 +4649,16 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
 
-        # 3) 接管模板场景 → 灌示教点（与手工示教同一条数据通路）
-        self._adopt_scene(cell.scene)
-        self.code_editor.recorded_positions = positions
-        self.code_editor.point_types = list(types)
-        self.code_editor.pos_count_label.setText(f"Positions: {len(positions)}")
+        # 3) 灌示教点：**走和手工示教同一条通路**（set_recorded_positions 带归属）。
+        #    之前这里是直接给 recorded_positions 赋值，点有了但没归属，
+        #    _update_code_with_positions 里 segments() 空、代码一个 movej 都不写——
+        #    点数看着 8 个，存盘再打开发现一个点都没有（program 段只有两行注释）。
+        #    场景已在第 1 步接管。
+        self.code_editor.set_recorded_positions(
+            positions, owner=self.gl_widget.current_robot
+        )
+        self.code_editor.point_types = list(types)  # set 后会上一套默认值，这里盖回去
+        self.code_editor.pos_count_label.setText(tr("示教点：{n}").format(n=len(positions)))
         self.code_editor._update_code_with_positions()
         self.gl_widget.set_recorded_positions(positions)
         self._sync_program_points()
@@ -4731,8 +4855,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                 tr("示教点语义含未知值（{msg}），已按默认语义重建").format(msg=exc)
                             )
                             self.code_editor.sync_point_types()
-                positions = self.code_editor.get_recorded_positions()
-                self.gl_widget.set_recorded_positions(positions)
+                # 按归属回灌：代码里的 ``# Robot:`` 段头已经写明了每段属于谁
+                self._sync_viewport_paths_from_editor()
                 self._sync_program_points()
 
         # ---- 多机：每台机器人各自的示教点与抓取语义 ---- #
@@ -5138,18 +5262,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def setup_menu(self):
         menubar = self.menuBar()
         
-        file_menu = menubar.addMenu("&File")
-        open_action = QAction("&Open Model...", self)
+        file_menu = menubar.addMenu(tr("文件(&F)"))
+        open_action = QAction(tr("打开模型(&O)…"), self)
         open_action.setShortcut(QKeySequence.Open)
         open_action.triggered.connect(self.open_model)
         file_menu.addAction(open_action)
         
-        save_action = QAction("&Save Path Code...", self)
+        save_action = QAction(tr("保存路径代码(&S)…"), self)
         save_action.setShortcut(QKeySequence.Save)
         save_action.triggered.connect(self.save_path_code)
         file_menu.addAction(save_action)
         
-        load_action = QAction("&Load Path Code...", self)
+        load_action = QAction(tr("载入路径代码(&L)…"), self)
         load_action.setShortcut("Ctrl+O")
         load_action.triggered.connect(self.load_path_code)
         file_menu.addAction(load_action)
@@ -5225,12 +5349,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         file_menu.addSeparator()
 
-        gen_action = QAction("&Generate Robot Code...", self)
+        gen_action = QAction(tr("生成机器人代码(&G)…"), self)
         gen_action.setShortcut("Ctrl+G")
         gen_action.triggered.connect(self.generate_robot_code)
         file_menu.addAction(gen_action)
 
-        if _HAS_CONTROLLER_PANEL:
+        # 真机连接（Socket / SSH）：从未上过真机验证，MVP 不敢当产品能力放出去
+        if _HAS_CONTROLLER_PANEL and _feature_enabled("controller_link"):
             link_action = QAction(tr("真机连接…"), self)
             link_action.setToolTip(
                 tr(
@@ -5244,13 +5369,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         file_menu.addSeparator()
         
-        exit_action = QAction("E&xit", self)
+        exit_action = QAction(tr("退出(&X)"), self)
         exit_action.setShortcut(QKeySequence.Quit)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
         
-        view_menu = menubar.addMenu("&View")
-        reset_view = QAction("&Reset View", self)
+        view_menu = menubar.addMenu(tr("视图(&V)"))
+        reset_view = QAction(tr("重置视图(&R)"), self)
         reset_view.setShortcut("R")
         reset_view.triggered.connect(self.reset_view)
         view_menu.addAction(reset_view)
@@ -5291,7 +5416,8 @@ class MainWindow(QtWidgets.QMainWindow):
             grasp_wizard.triggered.connect(self.open_grasp_wizard)
             view_menu.addAction(grasp_wizard)
 
-        if _HAS_PLUGINS:
+        # 插件生态未成型，属开发者项
+        if _HAS_PLUGINS and _feature_enabled("plugins"):
             view_menu.addSeparator()
             self.action_plugin_overlays = QAction(tr("插件覆盖层"), self)
             self.action_plugin_overlays.setCheckable(True)
@@ -5307,7 +5433,8 @@ class MainWindow(QtWidgets.QMainWindow):
             show_plugins.triggered.connect(self.show_plugin_status)
             view_menu.addAction(show_plugins)
 
-        if _HAS_INCREMENTAL:
+        # 缓存状态 / 清空缓存：纯开发者项
+        if _HAS_INCREMENTAL and _feature_enabled("dev_tools"):
             view_menu.addSeparator()
             show_cache = QAction(tr("缓存状态…"), self)
             show_cache.triggered.connect(self.show_cache_status)
@@ -5421,29 +5548,42 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.program_panel.taughtPointsChanged.connect(
                     self.on_taught_points_changed
                 )
+                # 面板要校验/回放前先要点最新数据（它的槽可能是旧快照）
+                self.program_panel.syncRequested.connect(
+                    self._on_program_sync_requested
+                )
+                # 「生成代码」按回放同一套口径：选中设备 → 只出那台的；
+                # 没选中 → 出全部。探针由主窗口注入（面板看不到视口选中）
+                self.program_panel.selection_robot_provider = (
+                    self._robot_for_selection
+                )
+                # 校验会把场景关节短暂写走再恢复（见面板 _restore_scene_joints）：
+                # 恢复之后视口得重画一次，夹爪才不会停留在半路
+                self.program_panel.reportReady.connect(
+                    lambda _report: self.gl_widget.update()
+                )
                 # 面板顶部「机器人」下拉换了人 → 视口/示教点显示同步到那台
                 self.program_panel.activeRobotChanged.connect(
                     self._on_program_robot_changed
                 )
 
-            # ---- 左：双 Tab（① 场景设备库 ② 设备树）----
-            # 左侧只负责"挑设备 + 编排层级"：Tab1 从库里选设备，Tab2 把设备摆成
-            # 层级（含挂法兰自动吸合）。代码预览、导出打包仍留在右侧输出区。
+            # ---- 左：双 Tab（① 场景设备库 ② 代码预览）----
+            # 左手边是"输入区"：Tab1 从库里挑设备拖进场景，Tab2 是紧贴视口的代码
+            # 预览——看着机器人动、同时读/改 movej 那几行，改完当场看得见效果，
+            # 不用在窗口两头来回横跳。设备树已挪到右侧（见下）。
             self.left_tabs = QtWidgets.QTabWidget()
-            self.left_tabs.setMaximumWidth(360)
-            self.left_tabs.setMinimumWidth(250)
+            self.left_tabs.setMaximumWidth(400)
+            self.left_tabs.setMinimumWidth(280)
             self.left_tabs.addTab(self.library_panel, tr("场景设备库"))
-            if _HAS_WORLD and hasattr(self, "scene_panel"):
-                self.left_tabs.addTab(self.scene_panel, tr("设备树"))
+            self.left_tabs.addTab(self.code_editor, tr("代码预览"))
             main_layout.addWidget(self.left_tabs)
         else:
-            # 无机器人库时左侧只保留设备树；代码编辑器已归入右侧「代码预览」
-            # 标签，这里不能再挂一次，否则会被重复 reparent。
+            # 无机器人库时左侧只剩代码预览；设备树放在右侧那组里。一个面板只能挂
+            # 一次——在两边都挂的话会被 reparent 到后挂的那组，先挂的位置就空了。
             self.left_tabs = QtWidgets.QTabWidget()
-            self.left_tabs.setMaximumWidth(360)
-            self.left_tabs.setMinimumWidth(250)
-            if _HAS_WORLD and hasattr(self, "scene_panel"):
-                self.left_tabs.addTab(self.scene_panel, tr("设备树"))
+            self.left_tabs.setMaximumWidth(400)
+            self.left_tabs.setMinimumWidth(280)
+            self.left_tabs.addTab(self.code_editor, tr("代码预览"))
             main_layout.addWidget(self.left_tabs)
         
         self.gl_widget = GLWidget(self)
@@ -5457,13 +5597,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # 沿用最后加载那台的关节组——拖 A 的滑块却驱动 B（两台一起动）。
         self.property_panel.set_renderer_provider(self.gl_widget.renderer_of)
 
-        # ---- 右：可折叠多功能标签页（核心输出区）----
-        # 一次只展开一个标签 → 界面无冗余信息；属性在前，选中对象时可自动切到它。
+        # ---- 右：可折叠多功能标签页（结构 + 输出）----
+        # 属性在最前（选中对象时自动切到它），设备树紧随其后：层级编排和属性本来
+        # 就是同一件事的两面——树上点一下选中、这里改位姿，左右手不用换地方。
         self.right_tabs = QtWidgets.QTabWidget()
-        self.right_tabs.setMaximumWidth(330)
+        self.right_tabs.setMaximumWidth(360)
         self.right_tabs.setMinimumWidth(260)
         self.right_tabs.addTab(self.property_panel, tr("属性"))
-        self.right_tabs.addTab(self.code_editor, tr("代码预览"))
+        if _HAS_WORLD and hasattr(self, "scene_panel"):
+            self.right_tabs.addTab(self.scene_panel, tr("设备树"))
         if _HAS_PROGRAM and hasattr(self, "program_panel"):
             self.right_tabs.addTab(self.program_panel, tr("导出打包"))
         main_layout.addWidget(self.right_tabs)
@@ -5511,18 +5653,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.gl_widget.componentDropped.connect(self._add_component_from_library)
             self.gl_widget.robotDropped.connect(self._on_robot_dropped)
             # 工艺时序（v1.3.1）：把点表里真实存在的信号名注入时序编辑器，
-            # 校验才能查出"序列用了但点表里没有"的信号
-            self.scene_panel.sequence_editor.set_available_signals(
-                sorted({sig for d in self.code_editor.cell.devices for sig in d.io_map}
-                       | set(HANDSHAKE_SIGNALS))
-            )
+            # 校验才能查出"序列用了但点表里没有"的信号。
+            # MVP 档没有时序编辑器（入口隐藏），这段连接一并跳过
+            _seq_editor = getattr(self.scene_panel, "sequence_editor", None)
+            if _seq_editor is not None:
+                _seq_editor.set_available_signals(
+                    sorted({sig for d in self.code_editor.cell.devices for sig in d.io_map}
+                           | set(HANDSHAKE_SIGNALS))
+                )
             # 工程未保存标记（v1.3.4）：会话里任何"值得存下来"的改动都置脏。
             # 刻意只挂这四条粗粒度信号——细粒度（每个对象位姿变化）噪声太大，
             # 会把标记变成常亮的装饰。
             self.scene_panel.sceneChanged.connect(self._set_project_dirty)
             # 机器人被移出场景 → 它的程序/轨迹/示教点/渲染器一并清除
             self.scene_panel.robotRemoved.connect(self._on_robot_removed)
-            self.scene_panel.sequence_editor.sequenceChanged.connect(self._set_project_dirty)
+            if _seq_editor is not None:
+                _seq_editor.sequenceChanged.connect(self._set_project_dirty)
             self.code_editor.code_edit.textChanged.connect(self._set_project_dirty)
 
         if _HAS_PROGRAM and hasattr(self, "program_panel"):
@@ -5542,7 +5688,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     self._on_grasp_cycle_applied
                 )
 
-        self.statusBar().showMessage("Ready")
+        self.statusBar().showMessage(tr("就绪"))
     
     def open_model(self):
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -5610,15 +5756,18 @@ class MainWindow(QtWidgets.QMainWindow):
         if _HAS_ROBOT_LIBRARY and hasattr(self, "library_panel"):
             entry = self.library_panel.catalog.find_by_urdf(path)
 
-        self.property_panel.update_robot_info(self.gl_widget.renderer, entry)
+        # 规格必须按场景里的机器人名留存：多机时选中谁就回显谁的型号/厂商，
+        # 否则永远显示最后加载那台（2026-09-21 用户反馈）
+        self.property_panel.update_robot_info(
+            self.gl_widget.renderer, entry, name=robot_name
+        )
         
         # 设置关节名称顺序，用于解析路径代码
         joint_names = list(self.gl_widget.renderer.joints.keys())
         self.code_editor.set_joint_names(joint_names)
         
-        recorded = self.code_editor.get_recorded_positions()
-        if recorded:
-            self.gl_widget.set_recorded_positions(recorded)
+        # 按归属回灌：整份灌进来的话，新加的这台会凭空"继承"别人教好的路径
+        self._sync_viewport_paths_from_editor()
         self.statusBar().showMessage(f"Loaded: {Path(path).name}")
 
         # 同步机器人到工作单元场景，使其参与干涉检查
@@ -5760,6 +5909,32 @@ class MainWindow(QtWidgets.QMainWindow):
             list(ed.point_types) if _HAS_PICKPLACE else None
         )
 
+    def _sync_viewport_paths_from_editor(self) -> None:
+        """把路径编辑器的点表**按归属**回写视口各机器人的路径桶。
+
+        单机时代的写法是"整份灌进当前机器人"（``set_recorded_positions`` 不指名
+        就写 ``current_robot``）。多机下它就是一台复制机：加载新机器人时
+        ``current_robot`` 已被切成新名字，于是**别人**教好的点被整份写进新机器
+        人名下、画在它旁边；等原主人被删掉，那份副本既不在代码里也回放不了，
+        变成屏幕上的幽灵路径。
+
+        这里按每条指令的归属（``robot_at``）分桶回写；没有归属标记的旧点表
+        整份退回**当前**那台，与旧行为一致。
+        """
+        positions = self.code_editor.get_recorded_positions()
+        if not positions:
+            return
+        by_robot: dict = {}
+        for i, pos in enumerate(positions):
+            key = self.code_editor.robot_at(i) or self.gl_widget.current_robot
+            by_robot.setdefault(key, []).append(pos)
+        for key, pts in by_robot.items():
+            self.gl_widget.set_recorded_positions(pts, key)
+        # 语义同样按段归档，否则导出程序的夹爪时序会串到别的机器人上
+        for key in by_robot:
+            self._point_types_by_robot[key] = self.code_editor.types_of(key)
+        self.gl_widget.update()
+
     def _on_robot_removed(self, name: str) -> None:
         """机器人被移出场景：把属于它的**全部**派生状态清掉。
 
@@ -5782,17 +5957,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self._point_types_by_robot.pop(name, None)
         self._workpiece_by_robot.pop(name, None)
 
+        # 路径编辑器：只删**它那一段**，其余机器人的段原样留着。
+        #
+        # 以前是"被删的那台正好是当前台才整表清空"：既漏掉了它**不是**当前台的
+        # 情况（段留在代码里，回放能跑到一台已经不存在的机器人），又会在它是
+        # 当前台时把别人教好的路径一起抹掉——视口还画着（分桶没动）、代码与
+        # 回放里却没了，正是那条形同幽灵的路径。
+        self.code_editor.set_recorded_positions([], name)
+        if getattr(self.code_editor, "owner_robot", None) == name:
+            # 没有段头的旧点表靠它找归属；指着一个已删的名字会让后续播放直接
+            # 判"机器人已不在场景"而停表
+            self.code_editor.owner_robot = None
+
         if self.gl_widget.current_robot == name:
-            # 编辑视角还停在被删那台上：挪到剩下的一台，并清空路径编辑器——
-            # 它显示的是已经不存在的机器人的点
+            # 编辑视角还停在被删那台上：挪到剩下的一台
             remaining = []
             if _HAS_WORLD and hasattr(self, "scene_panel"):
                 remaining = self.scene_panel.scene.robot_names
             if remaining:
                 self.gl_widget.set_current_robot(remaining[0])
-            self.code_editor.set_recorded_positions([])
-            self.code_editor.pos_count_label.setText("Positions: 0")
-            self.code_editor._update_code_with_positions()
 
         self.gl_widget.update()
 
@@ -5863,7 +6046,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     combo.setCurrentIndex(idx)
         # 长度要与示教点对齐，多退少补（缺的按默认语义补）
         self.code_editor.sync_point_types()
-        self.code_editor.pos_count_label.setText(f"Positions: {len(positions)}")
+        self.code_editor.pos_count_label.setText(tr("示教点：{n}").format(n=len(positions)))
         self.code_editor._update_code_with_positions()
         self._sync_program_points(name)
         self.gl_widget.update()
@@ -5873,20 +6056,56 @@ class MainWindow(QtWidgets.QMainWindow):
 
         两条编辑通路共用同一份示教点数据：面板里增删改了路点，左侧
         代码预览的 movej 文本与点位计数必须同步，否则下次 Play 会用旧数据。
+
+        **必须按机器人名回灌**：整机替换（``owner=None``）会把点表里的
+        ``# Robot:`` 归属标记抹成 ``None``——其余机器人的点当场从表里蒸发，
+        代码里再也看不见他们的 movej。这也是"删了/移了别人的点"的源头。
         """
         if not hasattr(self, "code_editor"):
             return
-        self.code_editor.set_recorded_positions(list(positions))
+        robot = getattr(self.program_panel, "active_robot", None)
+        positions = list(positions)
+        self.code_editor.set_recorded_positions(positions, robot)
         if _HAS_PICKPLACE and types is not None:
-            self.code_editor.point_types = list(types)
+            # 语义跟着新行序回填：移动过的点带着自己的"抓取/放置"一起走
+            for k, i in enumerate(self.code_editor.indices_of(robot)):
+                if k < len(types) and i < len(self.code_editor.point_types):
+                    self.code_editor.point_types[i] = types[k]
+        self.code_editor.pos_count_label.setText(
+            tr("示教点：{n}").format(n=len(self.code_editor.recorded_positions))
+        )
+        self.code_editor._update_code_with_positions()
+        # 视口路径同步**这一台**那一段：否则 3D 里画的还是移动前的折线顺序
+        self.gl_widget.set_recorded_positions(positions, robot)
+        self.gl_widget.update()
+
+    def _on_program_sync_requested(self, name: str) -> None:
+        """离线编程面板要动数据了：按名字把最新示教点回灌给它。
+
+        面板只在"记录点 / 切换机器人"这类时刻被同步过，它的槽位可能是旧快照
+        （例如先给 A 教完点、再把下拉切到自己还没教点的 C）。此时点「校验程序」
+        会用空数据校一遍，看起来就像按钮没反应。这里补一次回灌，让点面板自己
+        的按钮和按 F7 走同一份数据。
+        """
+        if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
+            return
+        if name and name not in self.program_panel.robot_names:
+            return
+        if name:
+            state = self.program_panel._state(name)
+            if state is not None and state.taught:
+                # 面板那台已经有内容——**绝不**用别处的版本覆盖它。示教点有两条
+                # 通路（面板直接 set_taught_points、以及主窗口回灌），合并规则说
+                # 不清时宁可不动：覆盖掉用户刚教的点比"少同步一次"严重得多
+                return
+        self._sync_program_points(name or None)
 
     def validate_program(self) -> None:
         """校验程序并给出节拍（F7）。"""
         if not (_HAS_PROGRAM and hasattr(self, "program_panel")):
             QtWidgets.QMessageBox.information(self, tr("程序校验"), tr("离线编程模块不可用。"))
             return
-        if hasattr(self, "right_tabs"):
-            self.right_tabs.setCurrentWidget(self.program_panel)
+        self._focus_tab(self.program_panel)
         # 校验的是**视口当前正在看的那台**：否则会出现"选了 B、却校了 A"
         current = getattr(self.gl_widget, "current_robot", None)
         if current and current in self.program_panel.robot_names:
@@ -5906,8 +6125,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not getattr(self.program_panel, "validate_all", None):
             QtWidgets.QMessageBox.information(self, tr("程序校验"), tr("当前版本不支持批量校验。"))
             return
-        if hasattr(self, "right_tabs"):
-            self.right_tabs.setCurrentWidget(self.program_panel)
+        self._focus_tab(self.program_panel)
         self._sync_program_points()
         reports = self.program_panel.validate_all()
         if not reports:
@@ -5998,8 +6216,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self, tr("抓取向导"), tr("当前版本不支持抓取向导。")
             )
             return
-        if hasattr(self, "right_tabs"):
-            self.right_tabs.setCurrentWidget(self.program_panel)
+        self._focus_tab(self.program_panel)
         self._sync_program_points()
         self.program_panel.open_grasp_wizard()
 
@@ -6026,7 +6243,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.code_editor.point_types = list(types)
                 self._point_types_by_robot[key] = list(types)
             self.code_editor.sync_point_types()
-            self.code_editor.pos_count_label.setText(f"Positions: {len(positions)}")
+            self.code_editor.pos_count_label.setText(tr("示教点：{n}").format(n=len(positions)))
             self.code_editor._update_code_with_positions()
             self._sync_program_points(key)
 
@@ -6176,13 +6393,24 @@ class MainWindow(QtWidgets.QMainWindow):
             name=target,
         )
 
+    def _focus_tab(self, widget) -> None:
+        """把某个面板切到它所在那一组的前台。
+
+        面板在左还是在右是布局的事（历史上一换就是好几处 ``setCurrentWidget``
+        忘了跟着改，点了按钮却看不到对应面板）。这里按"它在哪组里"找，
+        以后再挪位置不用改调用方。
+        """
+        for tabs in (getattr(self, "left_tabs", None), getattr(self, "right_tabs", None)):
+            if tabs is not None and tabs.indexOf(widget) >= 0:
+                tabs.setCurrentWidget(widget)
+                return
+
     def check_collisions(self) -> None:
         """执行工作单元干涉检查（F6），并把结果高亮到视口。"""
         if not (_HAS_WORLD and hasattr(self, "scene_panel")):
             QtWidgets.QMessageBox.information(self, tr("干涉检查"), tr("环境建模模块不可用。"))
             return
-        if hasattr(self, "left_tabs"):
-            self.left_tabs.setCurrentWidget(self.scene_panel)
+        self._focus_tab(self.scene_panel)
         hits = self.scene_panel.run_collision_check()
         self.gl_widget.set_collision_results(hits)
 
@@ -6409,18 +6637,7 @@ class MainWindow(QtWidgets.QMainWindow):
         B 播一次就会把编辑器里 A 的点复制到 B 名下，B 自己的路径被顶掉——
         用户看到的就是"选了第二台，第一台的路径被复制过去替换了"。
         """
-        positions = self.code_editor.get_recorded_positions()
-        if positions:
-            by_robot: dict = {}
-            for i, pos in enumerate(positions):
-                key = self.code_editor.robot_at(i) or self.gl_widget.current_robot
-                by_robot.setdefault(key, []).append(pos)
-            for key, pts in by_robot.items():
-                self.gl_widget.set_recorded_positions(pts, key)
-            # 语义同样按段归档，否则导出程序的夹爪时序会串到别的机器人上
-            for key in by_robot:
-                self._point_types_by_robot[key] = self.code_editor.types_of(key)
-            self.gl_widget.update()
+        self._sync_viewport_paths_from_editor()
         self._sync_program_points()
 
     def on_clear_requested(self):
@@ -6428,7 +6645,7 @@ class MainWindow(QtWidgets.QMainWindow):
         key = self.gl_widget.current_robot
         self.gl_widget.clear_recorded_positions(key)
         self.code_editor.set_recorded_positions([], key)
-        self.code_editor.pos_count_label.setText("Positions: 0")
+        self.code_editor.pos_count_label.setText(tr("示教点：0"))
         self.code_editor._update_code_with_positions()
         self._sync_program_points(key)
         self.statusBar().showMessage("Recorded positions cleared")
@@ -6574,11 +6791,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.code_editor.setPlainText(code_content)
                 # 解析代码并更新路径
                 self.code_editor._parse_code_to_positions()
-                # 更新 GLWidget 的路径可视化
-                positions = self.code_editor.get_recorded_positions()
-                if positions:
-                    self.gl_widget.set_recorded_positions(positions)
-                    self.gl_widget.update()
+                # 更新 GLWidget 的路径可视化：按段头归属分桶，别整份塞给当前那台
+                self._sync_viewport_paths_from_editor()
                 self.statusBar().showMessage(f"Loaded: {Path(file_path).name}")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Error", f"Failed to load path code: {e}")
@@ -6590,12 +6804,87 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gl_widget.update()
 
 
+# --------------------------------------------------------------------------- #
+# 崩溃兜底（v1.4.0）
+#
+# 打包出去的是 console=False 的 GUI：Windows 上没有终端，未捕获异常的对话框
+# 一闪而过（macOS 双击 dist 里的 app 同样看不到任何输出），现场问题最后只能
+# 靠口头猜。这里把 traceback 落到与自动保存同一处的日志目录，配合 v1.3.5 的
+# 崩溃自动恢复，至少保证「现场有据可查」。
+# --------------------------------------------------------------------------- #
+def crash_log_dir() -> "Path":
+    """崩溃日志目录（``$OROLP_CONFIG_DIR/logs`` > ``~/.orolp/logs``）。
+
+    与 :mod:`orolp.session` 的用户级配置根目录同口径：找自动保存的文件在一个
+    地方，找崩溃日志也在同一个地方。
+    """
+    base = os.environ.get("OROLP_CONFIG_DIR")
+    return (Path(base) if base else Path.home() / ".orolp") / "logs"
+
+
+def write_crash_log(exc_type, exc_value, exc_tb) -> "Path | None":
+    """把一次未捕获异常写成崩溃日志；写不了返回 None（绝不二次抛错）。"""
+    import datetime as _dt
+    import platform as _platform
+    import traceback as _tb
+
+    try:
+        log_dir = crash_log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        path = log_dir / f"crash-{stamp}.log"
+        lines = [
+            f"RobotWorld v{_OROLP_VERSION} 崩溃日志",
+            f"时间: {_dt.datetime.now().isoformat(timespec='seconds')}",
+            f"平台: {_platform.platform()}",
+            f"Python: {_platform.python_version()}",
+            f"构建档位: {_features_describe()}",
+            "",
+            *_tb.format_exception(exc_type, exc_value, exc_tb),
+        ]
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+    except Exception:
+        return None
+
+
+def _install_crash_handler() -> None:
+    """安装 ``sys.excepthook``：先落盘并给一句人话，再交回默认钩子。"""
+    default_hook = sys.excepthook
+
+    def _hook(exc_type, exc_value, exc_tb):
+        path = write_crash_log(exc_type, exc_value, exc_tb)
+        if path is None:
+            default_hook(exc_type, exc_value, exc_tb)
+            return
+        try:
+            # 事件循环可能已经瘫了：弹窗失败不影响日志（日志已经写完）
+            if QtWidgets.QApplication.instance() is not None:
+                QtWidgets.QMessageBox.critical(
+                    None,
+                    tr("程序异常"),
+                    tr(
+                        "程序遇到未处理的异常，当前操作已停止。\n\n"
+                        "崩溃日志已写入：\n{p}\n\n"
+                        "自动保存的那份工程还在，重新打开会提示恢复。"
+                    ).format(p=path),
+                )
+        except Exception:
+            pass
+        default_hook(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _hook
+
+
 def main():
     fmt = QtGui.QSurfaceFormat()
     fmt.setVersion(2, 1)
     fmt.setProfile(QtGui.QSurfaceFormat.NoProfile)
     QtGui.QSurfaceFormat.setDefaultFormat(fmt)
-    
+
+    # 必须在构造任何窗口之前挂好：窗口构造期抛异常也算
+    _install_crash_handler()
+
     app = QtWidgets.QApplication(sys.argv)
     
     urdf_path = sys.argv[1] if len(sys.argv) > 1 else None

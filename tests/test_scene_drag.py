@@ -107,6 +107,45 @@ def test_support_can_ignore_the_object_itself(scene):
     assert name_self == "工件" and z_self == pytest.approx(840.0)
 
 
+def test_support_ignores_descendants_of_the_ignored_object(scene):
+    """自己的后代不能当自己的支承面。
+
+    现场 bug：基座上挂着机器人、法兰上又挂着夹爪时，"点一下基座"会把它叠到
+    自己夹爪的顶面上——夹爪又随基座一起上升，于是每点一次就往上蹿一层。
+    """
+    # 料箱是工作台的**子对象**：局部 z=460 → 世界 400+460=860，正好坐在台面上
+    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460),
+                                        parent="工作台")
+    # 只排除自己时，料箱是工作台的子对象 → 也不该入选
+    z, name = placement.support_height_at(scene, 0.0, 0.0, ignore=("工作台",))
+    assert (z, name) == (0.0, placement.GROUND_NAME)
+    # 别人（工件）眼里料箱仍是正常的支承面
+    z_other, name_other = placement.support_height_at(scene, 0.0, 0.0, ignore=("工件",))
+    assert (z_other, name_other) == (920.0, "料箱")
+
+
+def test_descendants_of_collects_nested_children(scene):
+    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460),
+                                        parent="工作台")
+    scene.objects["垫块"] = _box_object("垫块", (40, 40, 20), (0, 0, 70),
+                                        parent="料箱")
+    assert set(placement.descendants_of(scene, "工作台")) == {"料箱", "垫块"}
+    assert placement.descendants_of(scene, "工件") == []
+
+
+def test_place_on_support_is_stable_when_clicked_repeatedly(scene):
+    """没有拖动只是"点一下"时，位姿必须原地不动——不能越点越高。"""
+    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460),
+                                        parent="工作台")
+    before = scene.objects["工作台"].pose
+    for _ in range(3):
+        result = placement.place_on_support(scene, "工作台", 0.0, 0.0)
+        assert result.moved is True
+        assert result.z == pytest.approx(400.0)   # 落在地面，而不是自己孩子头上
+    after = scene.objects["工作台"].pose
+    assert np.allclose(after.matrix, before.matrix, atol=1e-9)
+
+
 def test_support_skips_robots_and_invisible_objects(scene):
     scene.set_robot(URDF, joints_deg=[0.0] * 6)
     scene.objects["隐形箱"] = _box_object("隐形箱", (400, 300, 1600), (0, 0, 800),

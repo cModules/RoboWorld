@@ -7,7 +7,10 @@ post-processors.
 
 #: 包版本。与 `docs/ROADMAP.md` 的功能里程碑、以及 `app.spec` 的
 #: CFBundleShortVersionString 保持同一口径（此前长期停在 0.1.0，与文档脱节）。
-__version__ = "1.3.9"
+#: MVP 发版口径：v1.4.0 只暴露已跑通的离线编程闭环（搭场景→示教→校验→回放→出码→存工程）。
+#: 被开关隐藏的未成熟功能（工艺时序 / PLC 逻辑 / 子程序 / 真机连接 / 插件 / 开发者项）
+#: 随 2.0 全功能档放开，见 python/orolp/features.py。
+__version__ = "1.4.0"
 
 # Core C++ bindings (optional)
 try:

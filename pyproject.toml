@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orolp"
-version = "1.3.9"
+version = "1.4.0"
 description = "RobotWorld - Open-source Offline Programming Software for Industrial Robots"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -56,6 +56,25 @@ package-dir = {"orolp" = "python/orolp"}
 
 [tool.setuptools.package-data]
 orolp = ["templates/*.j2", "assets/*"]
+
+# --------------------------------------------------------------------------- #
+# v1.4.0 构建档位开关：MVP 档要隐藏哪些入口（代码里的默认清单以这里为准）
+#
+# 后续完善某个功能后，直接从下面删掉它，入口就回来；删空 = 全功能档。
+# 可用名见 python/orolp/features.py 的 ALL_FEATURES，写错的名字会被忽略。
+# 开发环境临时看全部：OROLP_FEATURES=full app.py（不用改这个文件）。
+# --------------------------------------------------------------------------- #
+[tool.orolp.features]
+hidden-in-mvp = [
+    "sequence_editor",   # 工艺时序（泳道图）编辑器：交互还在改（队列 P5）
+    "plc_logic",         # PLC 程序逻辑：出码尚未完善（队列 P2）
+    "subprogram",        # 机器人子程序：尚未完善（队列 P2）
+    "controller_link",   # 真机连接（Socket/SSH 传程序 + 回读）：从未上真机验证
+    "real_machine_upload",  # 上传真机/真机验证按钮：等 MVP 跑通后再放开
+    "plugins",           # 插件生态（覆盖层 / 重扫描 / 插件状态）：生态未成型，属开发者项
+    "dev_tools",         # 开发者项：缓存状态 / 清空缓存
+    "hardware_list",     # 代码生成 → 硬件列表：设备台账还没和出码打通（队列 P2）
+]
 
 [tool.black]
 line-length = 100

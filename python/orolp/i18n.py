@@ -284,10 +284,46 @@ _CATALOG_EN: dict[str, str] = {
     "后处理器": "Post-processor",
     "生成代码": "Generate code",
     "一键导出…": "One-click export…",
+    "导出全部…": "Export all…",
+    "为每一台机器人各落一份独立程序文件到同一目录（UR .script / KUKA .src / ABB .mod / FANUC .tp）": (
+        "Write one independent program file per robot into the same folder"
+        " (UR .script / KUKA .src / ABB .mod / FANUC .tp)"
+    ),
+    "已导出 {n} 台机器人的独立程序到 {dest}": (
+        "Exported {n} independent robot programs to {dest}"
+    ),
     "上传真机": "Upload to controller",
     "真机验证": "Controller verification",
     "回放": "Playback",
+    "全部回放": "Play all",
+    "未选中设备——已生成全部 {n} 台的代码": (
+        "No device selected — generated code for all {n} robots"
+    ),
     "停止": "Stop",
+    # 代码预览（路径示教）的播放条——原先 Record/Play/Stop/Clear 是英文，
+    # 与同一行的「暂停 / 单步」混着排（2026-09-21 界面体检）
+    "● 记录": "● Record",
+    "● 正在记录": "● Recording",
+    "▶ 播放": "▶ Play",
+    "■ 停止": "■ Stop",
+    "示教点：0": "Points: 0",
+    "示教点：{n}": "Points: {n}",
+    "示教点：{n}（{detail}）": "Points: {n} ({detail})",
+    "就绪": "Ready",
+    "—": "—",
+    "X (毫米)": "X (mm)",
+    "Y (毫米)": "Y (mm)",
+    "Z (毫米)": "Z (mm)",
+    # 菜单栏：原先 File / View 与其中若干条目是英文
+    "文件(&F)": "File(&F)",
+    "打开模型(&O)…": "Open Model(&O)…",
+    "保存路径代码(&S)…": "Save Path Code(&S)…",
+    "载入路径代码(&L)…": "Load Path Code(&L)…",
+    "生成机器人代码(&G)…": "Generate Robot Code(&G)…",
+    "退出(&X)": "Exit(&X)",
+    "视图(&V)": "View(&V)",
+    "重置视图(&R)": "Reset View(&R)",
+    "语言 / Language": "Language",
     "从轨迹起点开始回放。": "Play back from the trajectory start.",
     "停止回放。": "Stop playback.",
     "看一遍路径怎么走": "Preview how the path moves",
@@ -397,6 +433,8 @@ _CATALOG_EN: dict[str, str] = {
     "生成的控制器代码将显示在这里": "Generated controller code will appear here",
     "已插入路点 {n}，请重新校验": "Inserted waypoint {n}; re-validate",
     "已删除路点 {n}，请重新校验": "Deleted waypoint {n}; re-validate",
+    "P{a} 已移到 P{b}，请重新校验": "P{a} moved to P{b}; re-validate",
+    "请先在列表中选中要移动的路点": "Select a waypoint in the list first",
     "{n} 已更新，请重新校验": "{n} updated; re-validate",
     "{n} 已设为 {label}，请重新校验": "{n} set to {label}; re-validate",
     "修改选中路点的关节角（度）与运动类型（双击同效）": "Edit the selected waypoint's joint angles (deg) and motion type (double-click works too)",
@@ -466,7 +504,7 @@ _CATALOG_EN: dict[str, str] = {
     "{name} 的 URDF 不可用": "URDF unavailable for {name}",
     "{n} 轴": "{n} axes",
     # --- 语言切换（app.py 菜单与对话框） ---
-    "语言 / Language": "语言 / Language",
+    # 「语言 / Language」的译文见上（中文菜单里保留双语名，英文模式只留 Language）
     "切换语言需要重启应用才能完全生效。现在重启吗？": "Restart the app to apply the language change fully. Restart now?",
     "立即重启": "Restart now",
     "稍后": "Later",
@@ -648,7 +686,6 @@ _CATALOG_EN: dict[str, str] = {
         "line count only, no byte-level claim)"
     ),
     "核对 {name}：{lines} 行": "Verified {name}: {lines} lines",
-    "关节角 —": "Joints —",
 
     # ---- link.describe()（真机连接状态行，随界面语言）----
     "服务端": "server",
@@ -1303,7 +1340,6 @@ _CATALOG_EN: dict[str, str] = {
     "自动保存：无": "Autosave: none",
     "自动保存：{saved_at} ｜ 源工程 {src}": "Autosave: {saved_at} | source project {src}",
     "（未知时间）": "(unknown time)",
-    "（未命名工程）": "(untitled project)",
     "快照：{path}": "Snapshot: {path}",
     "最近打开(&R)": "Recent &projects",
     "最近打开过的 .orolp 工程文件（最新在前，最多 10 条）。\n文件已不存在的条目会置灰，不会被悄悄藏掉。": (
@@ -1366,5 +1402,82 @@ _CATALOG_EN: dict[str, str] = {
     "焊接变位机 + 输送辊道 + 控制柜 + 围栏，机器人与工件已摆好，示教程序从 Home 位起步": (
         "Welding positioner + roller conveyor + controller cabinet + fence; "
         "robot and workpieces laid out, teach program starts from Home"
+    ),
+    # ---- v1.4.1 补齐：英文模式下曾漏出中文的片段（语言切换的坑） ---- #
+    "一键载入抓取工作站（UR5e + 吸盘 + 输送带 + 托盘），\n": (
+        "Load the grasping workcell (UR5e + suction cup + conveyor + pallet) "
+        "in one click,\n"
+    ),
+    "从内置模板（抓取工作站 / 分拣工位 / 机床上下料 / 3C 装配 / 汽车焊装）新建工程：\n": (
+        "Create a project from a built-in template (grasping / sorting / machine "
+        "tending / 3C assembly / automotive welding):\n"
+    ),
+    "分段 {entries}/{wp_max} 条（{wp} 路点） · ": (
+        "Segments {entries}/{wp_max} ({wp} waypoints) · "
+    ),
+    "将从第 {line} 行起全局运行（{n}/{total} 点）": (
+        "Will run globally from line {line} ({n}/{total} points)"
+    ),
+    "将运行：{robot} · {n}/{total} 点": "Will run: {robot} · {n}/{total} points",
+    "打开 .orolp 工程文件：一次载入场景、示教程序（含抓取/放置语义）、": (
+        "Open a .orolp project: loads scene, teach program (with grasp/release "
+        "semantics), "
+    ),
+    "把当前工作会话存成一个 .orolp 工程文件（原子写入）。\n": (
+        "Save the current session as a .orolp project (atomic write).\n"
+    ),
+    "抓取工作站演示已就绪：{n} 个示例示教点{cycle_txt}，": (
+        "Grasping workcell demo ready: {n} sample taught points{cycle_txt}, "
+    ),
+    "挂到「机器人」＝ 安装到法兰，工具将跟随机器人运动；\n": (
+        'Mounting to "Robot" = installing on the flange, the tool then follows '
+        "the robot;\n"
+    ),
+    "整程序 {entries}/{max} 份（{wp} 路点） · ": (
+        "Whole program {entries}/{max} entries ({wp} waypoints) · "
+    ),
+    "最近打开过的 .orolp 工程文件（最新在前，最多 10 条）。\n": (
+        "Recently opened .orolp projects (newest first, up to 10).\n"
+    ),
+    "条目 {entries}/{max} · 命中 {hits} / 未命中 {misses}": (
+        "Entries {entries}/{max} · hits {hits} / misses {misses}"
+    ),
+    "检测到上次会话的自动保存。\n\n": "Autosave from the last session detected.\n\n",
+    "没有可运行的路径点": "No runnable path points",
+    "示教点语义 {a} 个与解析出的 {b} 个点不一致，": (
+        "{a} taught point semantics do not match the {b} parsed points, "
+    ),
+    "程序异常": "Program error",
+    "程序遇到未处理的异常，当前操作已停止。\n\n": (
+        "The program hit an unhandled exception; the current action stopped.\n\n"
+    ),
+    "第 {line} 行：机器人“{robot}”已不在场景中，已停止运行": (
+        "Line {line}: robot “{robot}” is no longer in the scene, run stopped"
+    ),
+    "记录时赋予该示教点的工艺语义。\n": (
+        "Process semantics assigned to this point when recorded.\n"
+    ),
+    "连接真机控制器：部署当前程序、回读实际关节角、取回核对。\n": (
+        "Connect a real controller: deploy the current program, read back actual "
+        "joints, verify.\n"
+    ),
+    "重新扫描完成：发现 {discovered} 个入口点，登记 {registered} 个，": (
+        "Rescan finished: {discovered} entry points found, {registered} registered, "
+    ),
+    "{name} 生成失败：{exc}": "Generating {name} failed: {exc}",
+    "{name}：无示教点，已跳过": "{name}: no taught points, skipped",
+    "多机回放中…（{n} 台）": "Playing back {n} robots…",
+    "已生成 {n} 台机器人的代码": "Generated code for {n} robots",
+    "所有已校验的机器人同时回放——检查多机协同是否撞车": (
+        "Play back every validated robot at once — check for multi-robot conflicts"
+    ),
+    "接近点 → 抓取点 → 提升点": "approach → pick → lift",
+    "没有已生成轨迹的机器人——请先校验程序": (
+        "No robot with a generated trajectory — validate the program first"
+    ),
+    "程序遇到未处理的异常，当前操作已停止。\n\n崩溃日志已写入：\n{p}\n\n自动保存的那份工程还在，重新打开会提示恢复。": (
+        "The program hit an unhandled exception; the current action stopped.\n\n"
+        "Crash log written to:\n{p}\n\nThe autosaved project is still there — "
+        "reopening offers to restore it."
     ),
 }

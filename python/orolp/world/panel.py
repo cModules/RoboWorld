@@ -29,6 +29,7 @@ from ..sequence import (
     WaitStep,
 )
 from ..i18n import tr
+from ..features import enabled as _feature_enabled
 
 __all__ = ["ScenePanel", "SequenceEditor", "SequenceCanvas"]
 
@@ -194,13 +195,17 @@ class ScenePanel(QtWidgets.QWidget):
         root.addWidget(self.stats_label)
 
         # ---- 工艺时序（动态时序：工序触发 / 信号等待 / 子程序调用，v1.3.1） ---- #
-        swim_group = QtWidgets.QGroupBox(tr("工艺时序（泳道图）"))
-        swim_layout = QtWidgets.QVBoxLayout(swim_group)
-        self.sequence_editor = SequenceEditor()
-        self.sequence_editor.statusMessage.connect(self.statusMessage)
-        self.sequence_editor.sequenceChanged.connect(self.sceneChanged)
-        swim_layout.addWidget(self.sequence_editor, 1)
-        root.addWidget(swim_group, 1)
+        # v1.4.0 MVP：泳道图编辑器还在迭代（队列 P5），MVP 档整组不构建。
+        # 隐藏的是**入口**而不是数据——工程里的时序段依旧保真载入
+        # （见 ``app.MainWindow._apply_project`` 的"跳过"分支）。
+        if _feature_enabled("sequence_editor"):
+            swim_group = QtWidgets.QGroupBox(tr("工艺时序（泳道图）"))
+            swim_layout = QtWidgets.QVBoxLayout(swim_group)
+            self.sequence_editor = SequenceEditor()
+            self.sequence_editor.statusMessage.connect(self.statusMessage)
+            self.sequence_editor.sequenceChanged.connect(self.sceneChanged)
+            swim_layout.addWidget(self.sequence_editor, 1)
+            root.addWidget(swim_group, 1)
 
         root.addStretch(1)
 

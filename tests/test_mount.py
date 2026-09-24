@@ -281,6 +281,31 @@ def test_robot_mounted_on_base_sits_on_top_center(scene):
     assert ground_offset(scene, ROBOT_NAME) == pytest.approx(0.0, abs=1e-6)
 
 
+def test_mount_on_top_of_before_attach_places_in_world(scene):
+    """先摆后挂的调用顺序也必须落点正确。
+
+    回归：``mount_on_top_of`` 曾用 **host 的世界变换**求逆写局部 pose——
+    只有对象已经是 host 的子对象时才成立。先摆（还没 attach）时，host 离
+    原点越远，对象被写到越偏的地方："挂到底座上却悬在半空"。
+    """
+    from orolp.world.placement import mount_on_top_of, world_aabb
+
+    base = scene.add(
+        "worktable", name="底座",
+        params={"length": 400.0, "width": 400.0, "height": 200.0},
+        pose=Pose.from_xyz_rpy(1000.0, 500.0, 0.0, 0.0, 0.0, 0.0),
+    )
+    # 注意顺序：先摆（此刻机器人还挂在场景根下），后 attach
+    assert mount_on_top_of(scene, ROBOT_NAME, base.name) is True
+    scene.attach(ROBOT_NAME, base.name, keep_world=True)
+
+    box = world_aabb(scene, base.name)
+    p = scene.world_transform(ROBOT_NAME)[:3, 3]
+    assert p[0] == pytest.approx(0.5 * (box.lo[0] + box.hi[0]), abs=1e-6)
+    assert p[1] == pytest.approx(0.5 * (box.lo[1] + box.hi[1]), abs=1e-6)
+    assert p[2] == pytest.approx(float(box.hi[2]), abs=1e-6)
+
+
 def test_serialization_preserves_robot_mounted_on_base(scene):
     """机器人挂在底座上必须能存进场景文件——否则重开就散架。"""
     base = scene.add("worktable", name="底座")

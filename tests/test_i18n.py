@@ -12,9 +12,11 @@
 全部跑在 Qt offscreen 平台上，不需要真实显示服务器。
 """
 
+import ast
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -169,14 +171,14 @@ def make_panel(qapp):
 def test_panel_text_zh_by_default(make_panel):
     i18n.set_language(i18n.LANG_ZH, save=False)
     panel = make_panel()
-    assert panel.btn_validate.text() == "校验程序 (F7)"
+    assert panel.btn_validate_all.text() == "校验全部"
     assert panel.btn_delete_point.text() == "删除"
 
 
 def test_panel_text_en(make_panel):
     i18n.set_language(i18n.LANG_EN, save=False)
     panel = make_panel()
-    assert panel.btn_validate.text() == "Validate (F7)"
+    assert panel.btn_validate_all.text() == "Validate all"
     assert panel.btn_delete_point.text() == "Delete"
     assert panel.combo_post.itemText(0)  # 冒烟：组合框可访问
 
@@ -198,8 +200,69 @@ def test_main_window_has_language_menu_en(qapp, monkeypatch):
             assert win._lang_actions["en"].isChecked()
             assert not win._lang_actions["zh"].isChecked()
             # 英文模式下按钮文案已是英文
-            assert win.program_panel.btn_validate.text() == "Validate (F7)"
+            assert win.program_panel.btn_validate_all.text() == "Validate all"
         finally:
             win.deleteLater()
     finally:
         i18n._LANGUAGE = None
+
+
+# --------------------------------------------------------------------------- #
+# 语言切换的"假全英文"守卫
+# --------------------------------------------------------------------------- #
+
+#: 英文词典里漏掉的键会**原样显示中文**——切到 en 后界面中英夹杂，正是
+#: "提供了语言切换却切不干净"的样子（2026-09-21 用户提出要语言切换菜单）
+_CJK = re.compile(r"[一-鿿]")
+
+
+def _tr_keys() -> set:
+    """扫源码里所有 ``tr("...")`` 的字面量键（ast 取值，转义与运行时一致）。"""
+    files = [REPO_ROOT / "app.py"] + sorted((REPO_ROOT / "python" / "orolp").rglob("*.py"))
+    keys = set()
+    for f in files:
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - 源码都合法
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Name) and node.func.id == "tr"):
+                continue
+            if node.args and isinstance(node.args[0], ast.Constant):
+                value = node.args[0].value
+                if isinstance(value, str):
+                    keys.add(value)
+    return keys
+
+
+def test_every_tr_key_has_english():
+    """每个 tr() 中文键都得有英文译文——否则 en 模式漏出中文。"""
+    from orolp import i18n
+
+    missing = sorted(k for k in _tr_keys() if _CJK.search(k) and k not in i18n._CATALOG_EN)
+    assert missing == [], f"这些键缺英文译文：{missing[:5]}"
+
+
+def test_catalog_has_no_duplicate_keys():
+    """词典里的重复键只有后者生效——漏译时极难看出来。
+
+    用 ast 读字面量而不是正则扫文本：键里有 ``\\"`` 转义时正则会在转义引号处
+    截断，把一条正常条目误判成两条"重复"。
+    """
+    from orolp import i18n
+
+    tree = ast.parse(Path(i18n.__file__).read_text(encoding="utf-8"))
+    keys = []
+    for node in ast.walk(tree):
+        value = getattr(node, "value", None)
+        name = getattr(node, "target", None)
+        if not isinstance(node, ast.AnnAssign) or not isinstance(value, ast.Dict):
+            continue
+        if not (isinstance(name, ast.Name) and name.id == "_CATALOG_EN"):
+            continue
+        keys = [k.value for k in value.keys if isinstance(k, ast.Constant)]
+    assert keys, "没解析到词典内容"
+    dups = sorted({k for k in keys if keys.count(k) > 1})
+    assert dups == [], f"词典里有重复键：{dups}"
