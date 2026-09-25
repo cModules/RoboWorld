@@ -100,3 +100,4 @@ assets/vendor/
 
 # 开发启动器（含本机绝对路径，不入仓库）
 RobotWorld-Dev.app/
+.codebuddy/rules/tcb/
