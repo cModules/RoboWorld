@@ -20,8 +20,8 @@ main:
             set -e
             IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}"
             # 无头自检：跑纯 Python 回归测试（pick & place 出码链路），无需 docker-in-docker
-            docker run --rm "$IMAGE:latest" python -m pytest tests/test_pickplace.py -q
-            echo "✅ 制成品镜像可运行（pytest 无头自检通过）"
+            docker run --rm "$IMAGE:latest" python -m pytest tests -q
+            echo "✅ 制成品镜像可运行（全量无头回归通过）"
 
     # 构建知识库：把仓库 Markdown 文档（含 Issue）切片、向量化后写入 CNB 知识库
     - name: build-knowledge-base
@@ -51,16 +51,18 @@ main:
             echo "代码检查：校验仓库必需文件"
             test -f README.md && echo "README.md 存在" || { echo "缺少 README.md"; exit 1; }
             test -f LICENSE && echo "LICENSE 存在" || { echo "缺少 LICENSE"; exit 1; }
-        - name: unit-test
-          image: node:16.13.0
+        - name: arch-rules
           script: |
-            echo "单元测试：执行仓库自带测试脚本（若无则跳过）"
-            if [ -f package.json ]; then
-              npm install
-              npm test --if-present
-            else
-              echo "未发现 package.json，跳过测试"
-            fi
+            set -e
+            echo "架构规则：依赖方向（H1-H4）+ 行数分档（L1）——tools/check_arch_rules.py"
+            python3 tools/check_arch_rules.py
+            echo "架构规则通过（0 硬违规）"
+        - name: unit-test
+          script: |
+            set -e
+            echo "回归测试：免 Qt 的纯 Python 链路（与制成品镜像同一套口径）"
+            python3 -m pytest tests/test_pickplace.py tests/test_mount.py -q
+            echo "回归测试通过"
         - name: build-verify
           script: |
             echo "构建验证：检查 .cnb.yml 配置可解析"
@@ -122,8 +124,8 @@ main:
             set -e
             IMAGE="${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/robot_world"
             # 无头自检：跑纯 Python 回归测试（pick & place 出码链路），无需 docker-in-docker
-            docker run --rm "$IMAGE:${CNB_BRANCH}" python -m pytest tests/test_pickplace.py -q
-            echo "✅ 制成品镜像可运行（pytest 无头自检通过）"
+            docker run --rm "$IMAGE:${CNB_BRANCH}" python -m pytest tests -q
+            echo "✅ 制成品镜像可运行（全量无头回归通过）"
 
   # 自定义部署流程，环境定义见 .cnb/tag_deploy.yml
   tag_deploy.development:

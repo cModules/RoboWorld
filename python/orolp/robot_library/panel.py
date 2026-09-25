@@ -11,6 +11,8 @@ URDF 路径抛给主窗口，由主窗口完成加载与联动，保持职责单
     panel = RobotLibraryPanel(models_dir=Path("models"))
     panel.robotSelected.connect(main_window.load_robot)
 """
+# TECH_DEBT: 存量 GUI 债务（ADR-002）——迁移到 orolp/app/views 之前冻结新功能；
+# 清单见 tools/check_arch_rules.py 的 GUI_DEBT，口径见 docs/CODING_RULES.md §3.2。
 
 from __future__ import annotations
 

@@ -6,6 +6,8 @@
   H2  C++ 核心（orolp_core / orolp._core）只允许在单一边界白名单内引用
   H3  Domain 层禁止 import services / app / GUI
   H4  Adapter 层（post / robot_library 非面板部分）禁止 import services / GUI
+  H5  i18n 棘轮：中文串字面量（排除 docstring/注释）超过基线即为硬违规，只许减不许增
+  H6  features 一致性：enabled/_feature_enabled 的功能键必须在 ALL_FEATURES 注册
   L1  行数分档：>600 行须有 TECH_DEBT 标注或在存量债务清单；>1000 行为硬违规
 
 用法：
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -92,6 +95,38 @@ LEGACY_DEBT = {
 SOFT_LIMIT = 600
 HARD_LIMIT = 1000
 
+# ---------------------------------------------------------------------------
+# H5: i18n 棘轮基线（2026-09-25 首扫：58 文件 / 2558 条，i18n.py 词典 925 条豁免）
+# 规则：文件内"非 docstring 的中文字符串字面量"数量 ≤ 基线；超过即硬违规；
+# 减少后把基线同步下调（只许减不许增，逐步收敛到 i18n 键）。
+# ---------------------------------------------------------------------------
+I18N_HOME = {"i18n.py"}
+CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+CJK_BASELINE = {
+    "app.py": 352, "program_panel.py": 138, "world/components.py": 115, "world/panel.py": 112,
+    "twinsync.py": 92, "perf.py": 78, "controller_panel.py": 76,
+    "project.py": 74, "compliance.py": 72, "plugins.py": 70,
+    "world/templates.py": 67, "calibration.py": 66, "link.py": 59,
+    "cloudhttp.py": 49, "linkstub.py": 43, "planner.py": 39,
+    "robot_library/specs.py": 38, "robot_library/panel.py": 29,
+    "progdiff.py": 29, "plc_scl.py": 27, "iomap.py": 27, "cam.py": 25,
+    "process.py": 24, "sequence.py": 22, "render/urdf_model.py": 22,
+    "multirobot.py": 21, "world/parts_library.py": 17, "post/base.py": 16,
+    "robot_library/catalog.py": 13, "project_templates.py": 13,
+    "program.py": 13, "world/scene.py": 11, "render/mesh.py": 11,
+    "kinematics.py": 11, "post/fanuc_tp.py": 10, "pickplace.py": 10,
+    "session.py": 8, "world/placement.py": 7, "robot.py": 7,
+    "post/ur_script.py": 7, "post/kuka_krc4.py": 7, "render/primitives.py": 6,
+    "cell.py": 6, "features.py": 5, "debug.py": 5, "world/geometry.py": 4,
+    "sshstub.py": 4, "post/abb_rapid.py": 4, "ocpcompat.py": 4,
+    "post/jaka_zu.py": 3, "post/estun_er.py": 3, "post/__init__.py": 3,
+    "collision.py": 3, "simulation.py": 2, "robot_library/urdf_builder.py": 2,
+    "post/huichuan_inoteach.py": 2, "world/demo.py": 1, "world/animation.py": 1,
+}
+
+# H6: 功能门控键调用形态（含面板本地包装 _feature_enabled）
+FEATURE_CALL_NAMES = {"enabled", "_feature_enabled", "hidden_in_mvp"}
+
 
 def iter_py_files():
     yield ROOT / "app.py"
@@ -161,6 +196,69 @@ def classify(rel: str) -> str:
     return "infra/support"
 
 
+def _docstring_node_ids(tree) -> set:
+    """模块/类/函数首语句的字符串常量视为 docstring，不参与 CJK 计数。"""
+    ids = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef,
+                             ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.body and isinstance(node.body[0], ast.Expr) \
+                    and isinstance(node.body[0].value, ast.Constant):
+                ids.add(id(node.body[0].value))
+    return ids
+
+
+def scan_strings(path: Path):
+    """单次 ast 遍历，返回 (中文字面量条数, 功能键未注册列表, 错误或 None)。"""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError as e:
+        return 0, [], f"{path}: 语法解析失败 {e}"
+    doc_ids = _docstring_node_ids(tree)
+    cjk = 0
+    bad_keys: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and CJK_RE.search(node.value) and id(node) not in doc_ids:
+            cjk += 1
+        if isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else (
+                fn.attr if isinstance(fn, ast.Attribute) else "")
+            if name in FEATURE_CALL_NAMES:
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        bad_keys.append(arg.value)
+    return cjk, bad_keys, None
+
+
+def extract_all_features() -> set[str] | None:
+    """从 features.py 静态提取 ALL_FEATURES（DEFAULT_HIDDEN_IN_MVP ∪ {multirobot}）。"""
+    try:
+        tree = ast.parse((PKG / "features.py").read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    hidden: set[str] = set()
+    for node in ast.walk(tree):
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        for t in targets:
+            if isinstance(t, ast.Name) and t.id == "DEFAULT_HIDDEN_IN_MVP":
+                value = node.value
+                # 兼容两种写法：裸集合字面量，或 frozenset({...}) 调用包裹
+                if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) \
+                        and value.func.id in {"frozenset", "set", "list", "tuple"} \
+                        and value.args:
+                    value = value.args[0]
+                if isinstance(value, (ast.Set, ast.List, ast.Tuple)):
+                    hidden = {e.value for e in value.elts
+                              if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    return hidden | {"multirobot"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lines", action="store_true", help="打印行数明细")
@@ -168,6 +266,9 @@ def main() -> int:
 
     errors: list[str] = []
     warns: list[str] = []
+    all_features = extract_all_features()
+    if all_features is None:
+        warns.append("H6 [features.py] 无法解析 ALL_FEATURES，跳过功能键校验")
 
     for path in iter_py_files():
         rel = rel_id(path)
@@ -182,8 +283,8 @@ def main() -> int:
         if ("PySide6" in rel_str or "OpenGL" in rel_str) and layer != "gui" and rel != "app.py":
             errors.append(f"H1 [{rel}] ({layer}) 引用了 PySide6/OpenGL，"
                           f"GUI 依赖只允许 orolp/app/ 或已登记债务文件")
-        if rel in GUI_DEBT and "TECH_DEBT" not in (path.read_text(encoding='utf-8', errors='replace')[:600] if path.exists() else ""):
-            warns.append(f"H1 [{rel}] 存量 GUI 债务未标注 TECH_DEBT，迁移前应冻结新功能")
+        if rel in GUI_DEBT and not has_tech_debt_marker(path):
+            warns.append(f"H1 [{rel}] 存量 GUI 债务未在头部标注 TECH_DEBT（迁移前冻结新功能）")
 
         # H2: C++ 核心边界
         if any(t in rel_str for t in ("orolp_core", "orolp._core")) and rel not in CORE_BOUNDARY:
@@ -219,6 +320,27 @@ def main() -> int:
             warns.append(f"L1 [{rel}] {n} 行 > 软限 {SOFT_LIMIT}，需标注 TECH_DEBT 或登记债务")
         if args.lines:
             print(f"  {n:>5}  {layer:<8} {rel}")
+
+        # H5 / H6: 字符串字面量与功能键
+        cjk, keys, serr = scan_strings(path)
+        if serr:
+            errors.append(serr)
+        else:
+            if rel not in I18N_HOME and cjk:
+                base = CJK_BASELINE.get(rel, 0)
+                if cjk > base:
+                    errors.append(f"H5 [{rel}] 中文字面量 {cjk} 条 > 基线 {base}，"
+                                  f"新增用户可见串必须走 i18n（AGENTS.md #15）")
+                elif cjk < base:
+                    warns.append(f"H5 [{rel}] 中文字面量 {cjk} 条 < 基线 {base}，"
+                                 f"基线可下调（棘轮收敛）")
+            all_features = extract_all_features()
+            if all_features is None:
+                warns.append("H6 [features.py] 无法解析 ALL_FEATURES，跳过功能键校验")
+            else:
+                for k in keys:
+                    if k not in all_features:
+                        errors.append(f"H6 [{rel}] 功能键 \"{k}\" 未在 ALL_FEATURES 注册")
 
     print("=" * 60)
     for w in warns:

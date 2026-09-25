@@ -1,3 +1,6 @@
+# TECH_DEBT: 存量 GUI 债务（ADR-002）——迁移到 orolp/app/views 之前冻结新功能；
+# 清单见 tools/check_arch_rules.py 的 GUI_DEBT，口径见 docs/CODING_RULES.md §3.2。
+
 """真机连接面板（v1.1.1 建立，v1.1.4 支持双传输）：把真机连接变成界面能力。
 
 v1.0.5 落地了真机 Socket 连接（``orolp-socket`` 行协议），v1.1.2 补齐了 SSH 形态
@@ -39,7 +42,6 @@ SSH 自由命令输入框**（:meth:`SSHLink.run_command` 是脚本化部署流�
 :class:`~orolp.sshstub.SSHStubServer`（真 SSH）做对端，全链路走真协议；
 全部跑在 Qt offscreen 平台上。
 """
-
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional

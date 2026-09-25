@@ -7,6 +7,8 @@
 ``params`` 定义**自动生成**控件——新增组件只需在 components.py 里注册，
 界面无需改动。
 """
+# TECH_DEBT: 存量 GUI 债务（ADR-002）——迁移到 orolp/app/views 之前冻结新功能；
+# 清单见 tools/check_arch_rules.py 的 GUI_DEBT，口径见 docs/CODING_RULES.md §3.2。
 
 from __future__ import annotations
 

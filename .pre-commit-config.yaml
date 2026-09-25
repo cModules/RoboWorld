@@ -1,0 +1,22 @@
+# RobotWorld 本地守门钩子——与 CI（.cnb.yml）和 AGENTS.md 同一套规则。
+#
+# 启用一次即可：
+#   pip install pre-commit
+#   pre-commit install          # 之后每次 git commit 都会跑下面两条
+#
+# 说明：提交前只跑"快且不需要 Qt"的检查；全量 GUI 回归交给 CI（offscreen 环境）。
+repos:
+  - repo: local
+    hooks:
+      - id: arch-rules
+        name: 架构规则（依赖方向 H1-H4 / 行数分档 L1）
+        entry: python3 tools/check_arch_rules.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: pytest-core
+        name: 核心回归（免 Qt：pickplace / mount / 架构规则自测）
+        entry: python3 -m pytest tests/test_pickplace.py tests/test_mount.py -q
+        language: system
+        pass_filenames: false
+        always_run: true

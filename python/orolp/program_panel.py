@@ -11,6 +11,8 @@
 单位：面板内部一律 **度**（与 :class:`~orolp.planner` 一致）；向视口发送
 回放帧时换算为 **弧度**（``GLWidget.renderer.joint_values`` 用弧度）。
 """
+# TECH_DEBT: 存量 GUI 债务（ADR-002）——迁移到 orolp/app/views 之前冻结新功能；
+# 清单见 tools/check_arch_rules.py 的 GUI_DEBT，口径见 docs/CODING_RULES.md §3.2。
 
 from __future__ import annotations
 
