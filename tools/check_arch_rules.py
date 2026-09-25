@@ -334,10 +334,7 @@ def main() -> int:
                 elif cjk < base:
                     warns.append(f"H5 [{rel}] 中文字面量 {cjk} 条 < 基线 {base}，"
                                  f"基线可下调（棘轮收敛）")
-            all_features = extract_all_features()
-            if all_features is None:
-                warns.append("H6 [features.py] 无法解析 ALL_FEATURES，跳过功能键校验")
-            else:
+            if all_features is not None:
                 for k in keys:
                     if k not in all_features:
                         errors.append(f"H6 [{rel}] 功能键 \"{k}\" 未在 ALL_FEATURES 注册")

@@ -12,6 +12,7 @@
 - 适用代码：`python/orolp/`（Python 主体）、`src/core/`（C++ 加速层）、`tests/`、`tools/`
 - 适用场景：代码生成、补全、功能迭代、重构、Bug 修复、代码评审、AI 自动开发循环
 - 生效方式：AI 编码前必须先过 §8 自检清单；CI / 本地用 `python tools/check_arch_rules.py` 复核
+  （检查项 H1 GUI 归宿 / H2 C++ 边界 / H3-H4 分层纯净 / **H5 i18n 棘轮基线** / **H6 features 键注册** / L1 行数分档）
 
 ---
 
