@@ -651,6 +651,10 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
     objectPlaced = QtCore.Signal(str)
     #: 视口侧改动了挂载关系（起拖自动解除 / 松手吸附装夹），携带对象名
     sceneChanged = QtCore.Signal(str)
+    #: 右键点中**某个已示教路径点** → 把该台机器人驱动到那个示教点。
+    #: 参数是（机器人名, 该台点表里的下标）——必须带名字：多机时点属于谁
+    #: 由画出来的那一段决定，退回"当前那台"会把 A 的点驱动到 B 身上
+    pathPointMoveRequested = QtCore.Signal(str, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2281,6 +2285,8 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         )
         if is_right_like:
             self._right_like = True
+            #: 本次右键是否已经拖过——拖过就是 gizmo/视角操作，松手不弹菜单
+            self._right_moved = False
             if _HAS_WORLD and self.scene is not None:
                 pos = event.position().toPoint()
                 name = self._pick_object(pos.x(), pos.y())
@@ -2327,6 +2333,7 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
 
         # 右键（或 Control+左键）按住时做 gizmo 变换，不做视角旋转
         if self._right_like and (event.buttons() & (Qt.RightButton | Qt.LeftButton)):
+            self._right_moved = True
             if self.selected_object is not None:
                 self._handle_right_drag(event.position().toPoint())
             return
@@ -2382,6 +2389,68 @@ class GLWidget(QtOpenGLWidgets.QOpenGLWidget):
         self.camera_dist = max(0.3, min(10.0, self.camera_dist))
         self.update()
 
+    # ---------------- 路径点：右键「移动到」 ---------------- #
+
+    def path_point_at(self, x: float, y: float, radius_px: float = 14.0):
+        """``(x, y)`` 像素位置附近**最近的已示教路径点**。
+
+        路径点就是 :attr:`_recorded_ee_by_robot` 里的末端位姿，与
+        :attr:`_recorded_by_robot` 的关节位形**一一对应**——命中第 i 个点，
+        就能拿到该点对应的关节值。
+
+        Args:
+            x / y: 视口像素坐标
+            radius_px: 命中半径（像素）
+
+        Returns:
+            ``(机器人名, 点索引)``；附近没有点返回 ``None``
+        """
+        best = None
+        best_d = float(radius_px)
+        for robot, ees in self._recorded_ee_by_robot.items():
+            if self.scene is not None and robot not in self.scene.robots:
+                continue  # 已被移出场景的机器人，它的点不该还能点
+            for i, p in enumerate(ees):
+                try:
+                    sx, sy = self._project(p)
+                except Exception:
+                    continue
+                d = math.hypot(sx - x, sy - y)
+                if d <= best_d:
+                    best_d, best = d, (robot, i)
+        return best
+
+    def contextMenuEvent(self, event):
+        """右键路径点 →「移动到」：点哪个点，机器人就走到那个示教点。
+
+        命中优先级**路径点优先**：红点是刻意去点的小目标（命中半径 14px），
+        而机器人的拾取体是整台手臂的一个大包围盒——走近机器人的示教点几乎
+        总被它挡住。此前按"对象优先"判断，结果靠近机器人时永远弹不出菜单
+        （2026-09-24 用户反馈）。
+
+        拖 gizmo 的手势不会被抢：右键**拖动过**就不弹菜单（见
+        :attr:`_right_moved`），菜单只在"点一下就松开"时出现。
+        """
+        if not self._has_any_path():
+            return
+        # 右键拖过 = gizmo / 视角操作，不是要点菜单
+        if getattr(self, "_right_moved", False):
+            return
+        pos = event.pos()
+        hit = self.path_point_at(pos.x(), pos.y())
+        if hit is None:
+            return
+        robot, index = hit
+        menu = QtWidgets.QMenu(self)
+        action = menu.addAction(
+            tr("移动到 {robot} 的 P{n}").format(robot=robot, n=index + 1)
+        )
+        action.setToolTip(
+            tr("把这一台直接走到示教点 P{n} 的关节位形").format(n=index + 1)
+        )
+        if menu.exec(event.globalPos()) is not None:
+            self.pathPointMoveRequested.emit(robot, index)
+
 
 class PathCodeEditor(QtWidgets.QWidget):
     positionRecorded = Signal(int)
@@ -2421,6 +2490,12 @@ class PathCodeEditor(QtWidgets.QWidget):
         self._line_map: List[Tuple[int, Optional[str], int]] = []
         #: 本次播放要走的**点索引序列**（已按"只跑某台 / 从光标行起"筛过）
         self._playback_seq: List[int] = []
+        #: 手改代码后的**防抖重解析**定时器：边打字边解析既卡，又会把半截
+        #: 语法（写到一半的 movej(）灌进点表。停手 300ms 再解析一次
+        self._edit_parse_timer = QtCore.QTimer(self)
+        self._edit_parse_timer.setSingleShot(True)
+        self._edit_parse_timer.setInterval(300)
+        self._edit_parse_timer.timeout.connect(self._flush_code_edit)
         #: 走到 :attr:`_playback_seq` 的第几个
         self._playback_pos: int = 0
         #: 由主窗口注入的回调：返回**当前选中对象**关联的机器人名（``None``
@@ -2456,6 +2531,13 @@ class PathCodeEditor(QtWidgets.QWidget):
         self.code_edit.setStyleSheet("background-color: #1a1a1a; color: #e0e0e0;")
         self.code_edit.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
         self.code_edit.setTabStopDistance(20)
+        # 手改代码 → 停手后自动重解析：3D 路径与离线编程面板的点表跟着刷新
+        self.code_edit.textChanged.connect(self._edit_parse_timer.start)
+        # 右键菜单：标准编辑项 +「执行此行」（逐行核对的入口）
+        self.code_edit.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.code_edit.customContextMenuRequested.connect(
+            self._show_code_context_menu
+        )
         teach_layout.addWidget(self.code_edit)
 
         # 按钮文案一律走 tr()：这一排 6 个键是**左侧栏最宽的一行**，换成中文
@@ -3522,6 +3604,94 @@ class PathCodeEditor(QtWidgets.QWidget):
                 tr("将从第 {line} 行起全局运行（{n}/{total} 点）").format(
                     line=self._cursor_line(), n=len(seq), total=total)
             )
+
+    def _flush_code_edit(self) -> None:
+        """手改代码停手后：重解析 → 广播，让 3D 路径与面板点表跟着刷新。
+
+        只在**没在播放**时刷：播到一半被解析改写点表，回放序列与点表会错位，
+        机器人直接跳到别处。
+        """
+        if self.playback_timer is not None and self.playback_timer.isActive():
+            return
+        self._parse_code_to_positions()
+        self.pos_count_label.setText(
+            tr("示教点：{n}").format(n=len(self.recorded_positions))
+        )
+        self.refresh_scope()
+        # 主窗口已接 on_positions_parsed：视口路径 + 离线编程面板点表
+        self.positionsParsed.emit()
+
+    def line_of_point(self, index: int, robot: Optional[str] = None):
+        """第 ``index`` 个示教点（属于 ``robot``）在代码里的行号。
+
+        「机器人走到哪一点，代码就高亮到哪一行」靠这条反查：点索引与行号不是
+        一回事——圆弧的中间点不单独出指令，手工改过的代码行号还会整体偏移。
+
+        Args:
+            index: 点表里的下标（0 起）
+            robot: 该点归属的机器人；``None`` 表示只按序号找
+
+        Returns:
+            行号（1 起）；查不到返回 ``None``
+        """
+        self._parse_code_to_positions()
+        loose = None
+        for ln, owner, point_index in self._line_map:
+            if point_index != index:
+                continue
+            if robot is None or owner == robot:
+                return ln
+            # 归属对不上（单机代码没有 ``# Robot:`` 头时 owner 是 None）：
+            # 先记住，全部找完再用——有且只有一个匹配点时序号就是行号
+            loose = ln if loose is None else loose
+        if loose is not None:
+            return loose
+        # 点表里压根没有行号信息（手打的/刚解析的），退回按序号估算
+        return self.line_of(index) if index < len(self.recorded_positions) else None
+
+    def _line_target(self, line: int):
+        """第 ``line`` 行对应的 ``(机器人名, 点索引)``；不可执行返回 ``None``。
+
+        先解析一遍代码：手改过的文本要先落到 :attr:`_line_map`，行号才对得上。
+        """
+        self._parse_code_to_positions()
+        for ln, robot, index in self._line_map:
+            if ln == line:
+                return (robot, index)
+        return None
+
+    def run_line(self, line: Optional[int] = None) -> bool:
+        """把机器人驱动到第 ``line`` 行（缺省光标行）对应的示教点。
+
+        与「播放」的区别：播是从某行**一直走到尾**，这里是**只走这一行**——
+        逐行核对抓取/放置时机、检查某点是否可达时最快。
+
+        Args:
+            line: 代码行号（1 起）；``None`` 取光标所在行
+
+        Returns:
+            执行成功 ``True``；该行不可执行 ``False``（状态栏说明原因）
+        """
+        if line is None:
+            line = self._cursor_line()
+        target = self._line_target(line)
+        if target is None:
+            self._notify(tr("第 {line} 行不是可执行的 movej 指令").format(line=line))
+            return False
+        robot, index = target
+        self.highlight_line(line)
+        # 归属跟着点走：多机时每行的主人可能不同，认行不认"当前那台"
+        self.playbackRequested.emit(index, robot or "")
+        return True
+
+    def _show_code_context_menu(self, pos) -> None:
+        """代码区右键菜单：标准编辑项 +「执行此行」。"""
+        menu = self.code_edit.createStandardContextMenu()
+        line = self.code_edit.cursorForPosition(pos).blockNumber() + 1
+        if self._line_target(line) is not None:
+            menu.addSeparator()
+            menu.addAction(tr("▶ 执行此行"), lambda: self.run_line(line))
+        menu.exec(self.code_edit.mapToGlobal(pos))
 
     def highlight_line(self, line: int) -> None:
         """把光标移到第 ``line`` 行并整行选中——报错时指出是哪一行出的问题。"""
@@ -5618,6 +5788,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.scene_panel.sceneReplaced.connect(self._adopt_scene)
             # 视口右键拾取/拖动选中对象时，同步到左侧场景面板树形选择
             self.gl_widget.objectSelected.connect(self.scene_panel._select_object)
+            # 视口右键路径点「移动到」：把那一台驱动到该示教点
+            self.gl_widget.pathPointMoveRequested.connect(
+                self.on_path_point_move_requested
+            )
             # 左键拖拽摆放完成（v1.1.7）：把"落在谁上面"说给状态栏听
             self.gl_widget.objectPlaced.connect(self.statusBar().showMessage)
             # 视口侧改动挂载关系（拖到法兰自动装夹 / 拖已装夹件自动解除）：
@@ -6323,6 +6497,49 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.statusBar().showMessage(tr("已按真机位形摆好视口"))
 
+    def _highlight_point_line(self, index: int, robot: Optional[str] = None) -> None:
+        """把代码编辑器的光标/选区落到第 ``index`` 个点对应的那一行。
+
+        3D 里点了哪个点、回放走到哪一点，代码就停在那一行——逐点核对时不
+        必再数行号。查不到对应行就什么都不做（手打的代码行号本就可能偏）。
+        """
+        if not hasattr(self, "code_editor"):
+            return
+        line = self.code_editor.line_of_point(index, robot)
+        if line is not None:
+            self.code_editor.highlight_line(line)
+
+    def on_path_point_move_requested(self, robot_name: str, index: int) -> None:
+        """视口右键「移动到」：把该台机器人驱动到示教点 ``index`` 的位形。
+
+        Args:
+            robot_name: 点属于哪台（画出来的那一段说了算，不是"当前那台"）
+            index: 那台点表里的下标（0 起，界面上显示为 P{index+1}）
+        """
+        if not robot_name:
+            return
+        pts = self.gl_widget.get_recorded_positions(robot_name)
+        if not (0 <= index < len(pts)):
+            return
+        self.gl_widget.set_current_robot(robot_name)
+        self.gl_widget.set_joint_values(pts[index], robot_name)
+        # 必须同步到场景：只改渲染器的话法兰不动，挂在法兰上的夹爪/工件
+        # 会留在原地——看着就是"机器人走了、工具没跟"
+        self._sync_scene_joints(robot_name)
+        # 面板只跟着"正在被查看的那台"刷新，避免把 A 的帧递给 B 的滑块
+        if hasattr(self, "property_panel") and (
+            self.property_panel.current_object == robot_name
+        ):
+            self.property_panel.update_joint_displays(pts[index])
+        self.gl_widget.update()
+        self.statusBar().showMessage(
+            tr("已把 {robot} 移动到示教点 P{n}").format(
+                robot=robot_name, n=index + 1
+            )
+        )
+        # 3D 里点了哪个点，代码就停在哪一行——便于对着这一行改数值
+        self._highlight_point_line(index, robot_name)
+
     def on_playback_frame(self, robot_name: str, joint_values: dict) -> None:
         """回放帧：按插补后的密集轨迹驱动**指定机器人**，而不是在示教点之间瞬移。
 
@@ -6492,6 +6709,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._halt_playback(target, index)
                 return
             self.gl_widget.set_joint_values(positions[index], target)
+            # 走到哪一点，代码就高亮到哪一行。用**已有**的 _line_map：回放期间
+            # 重新解析会改写点表，回放序列与点表错位会让机器人跳点
+            if hasattr(self, "code_editor"):
+                line = self.code_editor.line_of(index)
+                if line:
+                    self.code_editor.highlight_line(line)
             # 面板只跟着"正在被查看的那台"刷新，避免递给 A 的帧去拉动 B 的滑块
             if hasattr(self, "property_panel") and (
                 self.property_panel.current_object == target

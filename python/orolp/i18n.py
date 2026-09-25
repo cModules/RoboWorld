@@ -1480,4 +1480,14 @@ _CATALOG_EN: dict[str, str] = {
         "Crash log written to:\n{p}\n\nThe autosaved project is still there — "
         "reopening offers to restore it."
     ),
+    # ---- 路径点与代码行的右键动作（v1.4.2） ---- #
+    "移动到 {robot} 的 P{n}": "Move {robot} to P{n}",
+    "把这一台直接走到示教点 P{n} 的关节位形": (
+        "Move this robot straight to the joint pose of taught point P{n}"
+    ),
+    "已把 {robot} 移动到示教点 P{n}": "Moved {robot} to taught point P{n}",
+    "▶ 执行此行": "▶ Run this line",
+    "第 {line} 行不是可执行的 movej 指令": (
+        "Line {line} is not an executable movej instruction"
+    ),
 }

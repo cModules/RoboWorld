@@ -1,7 +1,7 @@
 {
   "schema": "orolp.calibration/1",
   "name": "grasping_workstation",
-  "created": "2026-09-22T00:57:07",
+  "created": "2026-09-25T10:19:50",
   "notes": "vision_pick_demo：像素噪声 0.0px，手眼噪声 0.15mm/0.03°",
   "tool": {
     "offset": [
