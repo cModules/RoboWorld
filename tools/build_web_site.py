@@ -40,16 +40,17 @@ from pathlib import Path
 import numpy as np  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Pose, Robot  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
-from orolp.world import build_grasping_workstation  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.world import build_grasping_workstation  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
-#: 当前全量测试套件规模（`pytest tests python/tests`），网页上所有"测试基线"数字统一取它
-TOTAL_TESTS = 1684
+#: 当前全量测试套件规模（`pytest tests -q`），网页上所有"测试基线"数字统一取它
+TOTAL_TESTS = 1743
 
 
 def _display_width(text: str) -> int:
@@ -71,15 +72,16 @@ def _rjust(text: str, width: int) -> str:
     """按显示列宽右对齐补空格。"""
     return " " * max(0, width - _display_width(text)) + text
 
+
 WEB_DIR = REPO_ROOT / "deploy/web"
 ASSET_DIR = WEB_DIR / "assets"
 
 HOME = [0, -90, 90, -90, 90, 0]
-# 与 orolp.world.templates 的可达性校准布局保持一致（2026-09-13 S4 修正）
+# 与 domain.world.templates 的可达性校准布局保持一致（2026-09-13 S4 修正）
 BELT_TOP = 200 + 66 + 2  # 皮带面顶 + 工件间隙
 WORKPIECE_H = 60.0
 PALLET_TOP = 144.0
-PICK_XY = (60.0, -400.0)   # 工件_1 中心
+PICK_XY = (60.0, -400.0)  # 工件_1 中心
 PLACE_XY = (350.0, 450.0)  # 托盘落件点
 WORKPIECE_XS = (60, 170, 280, 390)
 
@@ -113,12 +115,12 @@ IO_MAP = {
 def collect_data() -> dict:
     """用真实 API 收集演示数据。"""
     cell = build_grasping_workstation()
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.tool = cell.tcp_flange
     prog = _demo_program(robot)
 
     traj = prog.simulate(collision_check=False)
-    from orolp.planner import TrajectoryPlanner
+    from service.planner import TrajectoryPlanner
 
     traj_scurve = TrajectoryPlanner(robot, profile="scurve").plan(prog.build())
     report = prog.validate()
@@ -128,9 +130,7 @@ def collect_data() -> dict:
         for brand in ("ur_polyscope", "kuka_krc4", "abb_irc5", "fanuc_r30ib")
     }
     io_count = sum(
-        1
-        for i in prog.build().items
-        if type(i).__name__ in ("SetDO", "WaitDI", "WaitTime")
+        1 for i in prog.build().items if type(i).__name__ in ("SetDO", "WaitDI", "WaitTime")
     )
     return {
         "cycle_time": traj.duration(),
@@ -220,9 +220,9 @@ def _twin_data(robot: Robot, traj, ur_code: str) -> dict:
     """
     import tempfile
 
-    from orolp.debug import DebugSession
-    from orolp.link import SimLink
-    from orolp.twinsync import (
+    from service.debug import DebugSession
+    from domain.link import SimLink
+    from service.twinsync import (
         CloudLink,
         LocalCloudStore,
         PlantModel,
@@ -343,8 +343,8 @@ def _plugins_data(robot: Robot, traj) -> dict:
     注册渲染插件 → 把纯数据覆盖层收上来。另外**故意注册一个坏插件**，把"失败
     隔离"也变成页面上看得见的事实。
     """
-    from orolp.planner import TrajectoryPlanner
-    from orolp.plugins import (
+    from service.planner import TrajectoryPlanner
+    from adapter.plugins import (
         FrameMarker,
         LineSegments,
         OverlayContext,
@@ -357,7 +357,7 @@ def _plugins_data(robot: Robot, traj) -> dict:
     reg = default_registry
 
     # ---- 1) 后处理插件：仓库里没有的品牌 ----
-    from orolp.post.base import BasePostProcessor, PostConfig, PostProcessError
+    from adapter.post.base import BasePostProcessor, PostConfig, PostProcessError
 
     class AcmeV2PostProcessor(BasePostProcessor):
         """第三方品牌 ACME-V2（演示用的极简控制语言）。"""
@@ -424,7 +424,7 @@ def _plugins_data(robot: Robot, traj) -> dict:
     )
 
     # ---- 2) 运动学插件：标定偏置 ----
-    from orolp.kinematics import RobotKinematics
+    from domain.kinematics import RobotKinematics
 
     class OffsetKinematics(RobotKinematics):
         """在关节零位上叠一层标定偏置（真实场景=用标定过的几何模型）。"""
@@ -466,9 +466,7 @@ def _plugins_data(robot: Robot, traj) -> dict:
             out = [PointCloud(positions=pts, color=(0.35, 0.75, 1.0), size=3.0)]
             over = np.where(dev > self.tolerance_mm)[0]
             if over.size:
-                out.append(
-                    PointCloud(positions=pts[over], color=(1.0, 0.25, 0.25), size=7.0)
-                )
+                out.append(PointCloud(positions=pts[over], color=(1.0, 0.25, 0.25), size=7.0))
             worst = int(np.argmax(dev))
             if dev[worst] > self.tolerance_mm:
                 out.append(
@@ -521,7 +519,7 @@ def _plugins_data(robot: Robot, traj) -> dict:
     tool = robot.tool
 
     def _make_robot(**kw) -> Robot:
-        r = Robot("models/ur/ur5e/ur5e.urdf", "UR5e", **kw)
+        r = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e", **kw)
         r.tool = tool
         return r
 
@@ -580,11 +578,7 @@ def _plugins_data(robot: Robot, traj) -> dict:
     rows = []
     for name, item in collected.drawables:
         if isinstance(item, PointCloud):
-            label = (
-                "超容差点云"
-                if tuple(item.color) == (1.0, 0.25, 0.25)
-                else "整条 TCP 轨迹"
-            )
+            label = "超容差点云" if tuple(item.color) == (1.0, 0.25, 0.25) else "整条 TCP 轨迹"
             detail = (
                 f"{item.positions.shape[0]} 点 · 色 rgb"
                 f"{tuple(round(float(c), 2) for c in item.color)}"
@@ -593,9 +587,7 @@ def _plugins_data(robot: Robot, traj) -> dict:
             label, detail = "最差点标记线", f"{len(item.segments)} 条 · 线宽 {item.width}"
         else:
             label = "起点坐标系"
-            detail = "位姿 " + " ".join(
-                f"{float(v):.1f}" for v in item.pose.to_xyz_rpy()[:3]
-            )
+            detail = "位姿 " + " ".join(f"{float(v):.1f}" for v in item.pose.to_xyz_rpy()[:3])
         rows.append(
             f'<tr><td style="padding:3px 12px 3px 0">{html.escape(name)}</td>'
             f'<td style="padding:3px 12px">{html.escape(label)}</td>'
@@ -611,15 +603,15 @@ def _plugins_data(robot: Robot, traj) -> dict:
         else "（没有插件出错）"
     )
 
-    ep_snippet = """[project.entry-points."orolp.plugins"]
-acme_v2 = "acme_orolp.plugin:post_processor_spec"
+    ep_snippet = """[project.entry-points."adapter.plugins"]
+acme_v2 = "acme_core.plugin:post_processor_spec"
 
-# acme_orolp/plugin.py
-from orolp.plugins import PluginSpec
+# acme_core/plugin.py
+from adapter.plugins import PluginSpec
 
 post_processor_spec = PluginSpec(
     name="acme_v2", kind="post",
-    factory="acme_orolp.post:AcmeV2PostProcessor",
+    factory="acme_core.post:AcmeV2PostProcessor",
     version="1.0.0", description="ACME-V2 控制语言",
 )"""
 
@@ -631,9 +623,7 @@ post_processor_spec = PluginSpec(
         "plug_builtin_lines": str(len(builtin_code.splitlines())),
         "plug_tcp_builtin": " ".join(f"{v:.1f}" for v in xyz_b),
         "plug_tcp_plugin": " ".join(f"{v:.1f}" for v in xyz_p),
-        "plug_tcp_delta": (
-            f"{float(np.linalg.norm(np.asarray(xyz_p) - np.asarray(xyz_b))):.3f}"
-        ),
+        "plug_tcp_delta": (f"{float(np.linalg.norm(np.asarray(xyz_p) - np.asarray(xyz_b))):.3f}"),
         "plug_contract": html.escape(plugin_robot.kinematics_contract or ""),
         "plug_overlay_rows": "".join(rows),
         "plug_overlay_count": str(len(collected.drawables)),
@@ -667,14 +657,14 @@ def _cloud_data(robot: Robot, traj) -> dict:
     import tempfile
     from pathlib import Path
 
-    from orolp.cloudhttp import (
+    from adapter.cloudhttp import (
         CloudAuthError,
         CloudHTTPError,
         CloudStoreServer,
         HTTPCloudStore,
         SigV4Signer,
     )
-    from orolp.twinsync import (
+    from service.twinsync import (
         CloudLink,
         PlantModel,
         capture_plant_trace,
@@ -704,13 +694,18 @@ def _cloud_data(robot: Robot, traj) -> dict:
         handle = a.upload_program(
             "PICK_CLOUD",
             code,
-            {"ext": "script", "brand": "UR", "post_processor": "ur_polyscope",
-             "robot_name": robot.name},
+            {
+                "ext": "script",
+                "brand": "UR",
+                "post_processor": "ur_polyscope",
+                "robot_name": robot.name,
+            },
         )
         cellb_sees = b.list_programs()  # 命名空间隔离：应为空
         b.disconnect()
-        b2 = CloudLink(HTTPCloudStore(f"http://{srv.address}", "robotworld"),
-                       robot, namespace="cellA")
+        b2 = CloudLink(
+            HTTPCloudStore(f"http://{srv.address}", "robotworld"), robot, namespace="cellA"
+        )
         b2.connect()
         programs = b2.list_programs()
         back = b2.fetch_program("PICK_CLOUD", "script")
@@ -722,10 +717,14 @@ def _cloud_data(robot: Robot, traj) -> dict:
         wps = list(traj.waypoints)[::stride]
         if wps[-1] is not traj.waypoints[-1]:
             wps.append(traj.waypoints[-1])
-        from orolp.simulation import Trajectory
+        from service.simulation import Trajectory
+
         traj_s = Trajectory(wps)
         trace_real = capture_plant_trace(
-            traj_s, robot, plant=plant, program_name="PICK_CLOUD",
+            traj_s,
+            robot,
+            plant=plant,
+            program_name="PICK_CLOUD",
             notes="经 HTTP 云端中转（PlantModel 合成传动误差模型，非现场实测）",
         )
         a.publish_trace(trace_real, "PICK_CLOUD")
@@ -753,17 +752,20 @@ def _cloud_data(robot: Robot, traj) -> dict:
     )
 
     # SigV4 端到端：服务端逐请求复算签名，错密钥必须被 403 拒掉
-    srv_s3 = CloudStoreServer(tmp / "s3", bucket="robotworld",
-                              s3={"access_key": ak, "secret_key": sk})
+    srv_s3 = CloudStoreServer(
+        tmp / "s3", bucket="robotworld", s3={"access_key": ak, "secret_key": sk}
+    )
     srv_s3.start()
     try:
-        ok_store = HTTPCloudStore(f"http://{srv_s3.address}", "robotworld",
-                                  signer=SigV4Signer(ak, sk))
+        ok_store = HTTPCloudStore(
+            f"http://{srv_s3.address}", "robotworld", signer=SigV4Signer(ak, sk)
+        )
         ok_store.put("sigv4.txt", b"signed-put")
         sig_e2e = ok_store.get("sigv4.txt") == b"signed-put"
         try:
-            HTTPCloudStore(f"http://{srv_s3.address}", "robotworld",
-                           signer=SigV4Signer(ak, "WRONG-SECRET")).get("sigv4.txt")
+            HTTPCloudStore(
+                f"http://{srv_s3.address}", "robotworld", signer=SigV4Signer(ak, "WRONG-SECRET")
+            ).get("sigv4.txt")
             sig_bad = "（未按预期拒绝）"
         except CloudAuthError:
             sig_bad = "403 拒绝 ✓"
@@ -778,9 +780,13 @@ def _cloud_data(robot: Robot, traj) -> dict:
         dead.keys()
         faults.append(("连不上（端口没人听）", "（未按预期报错）", "——"))
     except CloudHTTPError:
-        faults.append(("连不上（端口没人听）",
-                       "CloudHTTPError（连接被拒 / 超时）",
-                       "仍认为可达：否 ✓" if not dead.reachable else "仍认为可达：是"))
+        faults.append(
+            (
+                "连不上（端口没人听）",
+                "CloudHTTPError（连接被拒 / 超时）",
+                "仍认为可达：否 ✓" if not dead.reachable else "仍认为可达：是",
+            )
+        )
 
     srv404 = CloudStoreServer(tmp / "b404")
     srv404.start()
@@ -790,14 +796,22 @@ def _cloud_data(robot: Robot, traj) -> dict:
             wrong_bucket.get("k.txt")
             faults.append(("配错桶（服务端 404 + 标记头）", "（未按预期报错）", "——"))
         except CloudHTTPError as exc:
-            faults.append(("配错桶（服务端 404 + 标记头）",
-                           f"CloudHTTPError（status={exc.status}）",
-                           "不伪装成「对象缺失」✓"))
+            faults.append(
+                (
+                    "配错桶（服务端 404 + 标记头）",
+                    f"CloudHTTPError（status={exc.status}）",
+                    "不伪装成「对象缺失」✓",
+                )
+            )
         miss = HTTPCloudStore(f"http://{srv404.address}", "robotworld")
         got = miss.get("从来没有过的.txt")
-        faults.append(("取不存在的对象（404 = 正常回答）",
-                       "返回 None（不是异常）",
-                       "仍认为可达：是 ✓" if miss.reachable else "误判不可达"))
+        faults.append(
+            (
+                "取不存在的对象（404 = 正常回答）",
+                "返回 None（不是异常）",
+                "仍认为可达：是 ✓" if miss.reachable else "误判不可达",
+            )
+        )
     finally:
         srv404.stop()
 
@@ -809,9 +823,13 @@ def _cloud_data(robot: Robot, traj) -> dict:
             ro.put("x.txt", b"v")
             faults.append(("只读存储上写（403）", "（未按预期报错）", "——"))
         except CloudAuthError as exc:
-            faults.append(("只读存储上写（403）",
-                           f"CloudAuthError（status={exc.status}）",
-                           "配置问题要响亮报错，不静默重试 ✓"))
+            faults.append(
+                (
+                    "只读存储上写（403）",
+                    f"CloudAuthError（status={exc.status}）",
+                    "配置问题要响亮报错，不静默重试 ✓",
+                )
+            )
     finally:
         srv_ro.stop()
 
@@ -845,8 +863,10 @@ def _cloud_data(robot: Robot, traj) -> dict:
         "cloud_manifest": html.escape(json.dumps(manifest, ensure_ascii=False)),
         "cloud_meta": html.escape(
             "来源 {source} · {samples} 快照 · {dur:.2f}s · 峰值 {peak:.2f}mm".format(
-                source=meta["source"], samples=meta["samples"],
-                dur=meta["duration_s"], peak=meta["max_pos_mm"],
+                source=meta["source"],
+                samples=meta["samples"],
+                dur=meta["duration_s"],
+                peak=meta["max_pos_mm"],
             )
         ),
         "cloud_samples": str(len(fetched)),
@@ -857,7 +877,9 @@ def _cloud_data(robot: Robot, traj) -> dict:
         "cloud_age": f"{age:.2f}",
         "cloud_fresh": "新鲜 ✓" if (age is not None and age < 5.0) else "过期",
         "cloud_sigvec": "4 组官方向量逐字符一致 ✓" if sig_ok else "与官方向量不一致 ✗",
-        "cloud_sig_e2e": "服务端复算通过，签名 PUT/GET 全链路可用 ✓" if sig_e2e else "签名端到端失败 ✗",
+        "cloud_sig_e2e": (
+            "服务端复算通过，签名 PUT/GET 全链路可用 ✓" if sig_e2e else "签名端到端失败 ✗"
+        ),
         "cloud_sig_bad": sig_bad,
         "cloud_objects": str(len(srv.list_keys())),
         "cloud_requests": str(srv.requests),
@@ -877,30 +899,29 @@ def _progdiff_data(robot: Robot, traj) -> dict:
     import tempfile
     from pathlib import Path as _Path
 
-    from orolp.cloudhttp import CloudStoreServer, HTTPCloudStore
-    from orolp.progdiff import ProgramVersionStore, program_fingerprint
+    from adapter.cloudhttp import CloudStoreServer, HTTPCloudStore
+    from service.progdiff import ProgramVersionStore, program_fingerprint
 
     def _v1():
-        return (ProgramBuilder("UR5e")
-                .moveJ([0.0, -30.0, 30.0, 0.0, 60.0, 0.0], speed=40)
-                .moveL(Pose.from_xyz_rpy(500.0, 0.0, 300.0, 0.0, 0.0, 0.0),
-                       speed=50, blend=8)
-                .setDO("gripper_close", True)
-                .waitTime(0.5)
-                .moveL(Pose.from_xyz_rpy(500.0, 200.0, 300.0, 0.0, 0.0, 0.0),
-                       speed=50))
+        return (
+            ProgramBuilder("UR5e")
+            .moveJ([0.0, -30.0, 30.0, 0.0, 60.0, 0.0], speed=40)
+            .moveL(Pose.from_xyz_rpy(500.0, 0.0, 300.0, 0.0, 0.0, 0.0), speed=50, blend=8)
+            .setDO("gripper_close", True)
+            .waitTime(0.5)
+            .moveL(Pose.from_xyz_rpy(500.0, 200.0, 300.0, 0.0, 0.0, 0.0), speed=50)
+        )
 
     def _v2():
-        return (ProgramBuilder("UR5e")
-                .moveJ([0.0, -30.0, 30.0, 0.0, 60.0, 0.0], speed=40)
-                .moveL(Pose.from_xyz_rpy(500.0, 0.0, 280.0, 0.0, 0.0, 0.0),
-                       speed=70, blend=8)
-                .moveL(Pose.from_xyz_rpy(500.0, 100.0, 280.0, 0.0, 0.0, 0.0),
-                       speed=70)
-                .setDO("gripper_close", True)
-                .waitTime(1.0)
-                .moveL(Pose.from_xyz_rpy(500.0, 200.0, 280.0, 0.0, 0.0, 0.0),
-                       speed=70))
+        return (
+            ProgramBuilder("UR5e")
+            .moveJ([0.0, -30.0, 30.0, 0.0, 60.0, 0.0], speed=40)
+            .moveL(Pose.from_xyz_rpy(500.0, 0.0, 280.0, 0.0, 0.0, 0.0), speed=70, blend=8)
+            .moveL(Pose.from_xyz_rpy(500.0, 100.0, 280.0, 0.0, 0.0, 0.0), speed=70)
+            .setDO("gripper_close", True)
+            .waitTime(1.0)
+            .moveL(Pose.from_xyz_rpy(500.0, 200.0, 280.0, 0.0, 0.0, 0.0), speed=70)
+        )
 
     tmp = _Path(tempfile.mkdtemp(prefix="rwsite-progdiff-"))
     srv = CloudStoreServer(tmp / "cloud")
@@ -959,18 +980,18 @@ def _pluginpkg_data(robot: Robot) -> dict:
 
     repo = _Path(__file__).resolve().parent.parent
     pkg_dir = repo / "examples" / "acme_post_plugin"
-    urdf = repo / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    urdf = repo / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
     script = r"""
 import json, sys
-from orolp.plugins import default_registry
-from orolp.post import list_post_processors
+from adapter.plugins import default_registry
+from adapter.post import list_post_processors
 reg = default_registry
 stats = reg.load_entry_points()
 spec = reg.get("acme_v2")
 inst = reg.create("acme_v2")
-from orolp.robot import Robot
-from orolp.program import ProgramBuilder
+from domain.robot import Robot
+from service.program import ProgramBuilder
 robot = Robot(sys.argv[1], "UR5e")
 pb = (ProgramBuilder(robot)
       .moveJ([0.0, -90.0, 90.0, -90.0, 90.0, 0.0], speed=50)
@@ -1003,9 +1024,22 @@ print("RESULT_JSON:" + json.dumps({
         shutil.copytree(pkg_dir, src, ignore=shutil.ignore_patterns("build", "*.egg-info"))
         target = tmp / "site"
         proc = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet",
-             "--no-build-isolation", "--target", str(target), str(src)],
-            capture_output=True, text=True, timeout=180, cwd=str(tmp))
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-build-isolation",
+                "--target",
+                str(target),
+                str(src),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(tmp),
+        )
         if proc.returncode != 0:
             return _fail("pip install", proc)
 
@@ -1013,21 +1047,28 @@ print("RESULT_JSON:" + json.dumps({
         env["PYTHONPATH"] = os.pathsep.join([str(target), str(repo / "python")])
         proc = subprocess.run(
             [sys.executable, "-c", script, str(urdf)],
-            capture_output=True, text=True, timeout=120, env=env, cwd=str(repo))
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+            cwd=str(repo),
+        )
         if proc.returncode != 0:
             return _fail("入口点发现", proc)
         lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT_JSON:")]
         if not lines:
             return _fail("结果解析", proc)
-        r = json.loads(lines[-1][len("RESULT_JSON:"):])
+        r = json.loads(lines[-1][len("RESULT_JSON:") :])
 
         st = r["stats"]
         code_lines = r["code"].splitlines()
         code_show = "\n".join(code_lines[:3] + ["  …"] + code_lines[-4:])
         return {
             "pkgp_install": "成功（pip install --target <临时目录>）",
-            "pkgp_stats": (f"发现 {st['discovered']} · 登记 {st['registered']} · "
-                           f"跳过 {st['skipped']} · 失败 {st['failed']}"),
+            "pkgp_stats": (
+                f"发现 {st['discovered']} · 登记 {st['registered']} · "
+                f"跳过 {st['skipped']} · 失败 {st['failed']}"
+            ),
             "pkgp_origin": f"{r['origin']}（宿主盖章，插件不自述）",
             "pkgp_lang": f"{r['lang']}（.{r['ext']}），acme_v2 已出现在 list_post_processors()",
             "pkgp_code": html.escape(code_show),
@@ -1044,13 +1085,16 @@ def _i18n_data() -> dict:
     import sys as _sys
 
     _sys.path.insert(0, "python")
-    from orolp.i18n import _CATALOG_EN
+    from support.i18n import _CATALOG_EN
 
     files = [
-        "app.py",
-        "python/orolp/program_panel.py",
-        "python/orolp/world/panel.py",
-        "python/orolp/robot_library/panel.py",
+        "main.py",
+        "app/views/property_panel.py",
+        "app/views/property_panel_ui.py",
+        "app/views/robot_renderer.py",
+        "core/program_panel.py",
+        "domain/world/panel.py",
+        "adapter/robot_library/panel.py",
     ]
     sites = {}
     for f in files:
@@ -1078,9 +1122,7 @@ def _i18n_data() -> dict:
             f"<td style='padding:3px 12px'>{html.escape(en)}</td></tr>"
         )
     total_sites = sum(sites.values())
-    site_parts = " · ".join(
-        f"{k.split('/')[-1]} {v} 处" for k, v in sites.items()
-    )
+    site_parts = " · ".join(f"{k.split('/')[-1]} {v} 处" for k, v in sites.items())
     return {
         "i18n_n_entries": str(len(_CATALOG_EN)),
         "i18n_n_sites": str(total_sites),
@@ -1100,12 +1142,12 @@ def _i18n_lib_data() -> dict:
     import sys as _sys
 
     _sys.path.insert(0, "python")
-    from orolp.i18n import _CATALOG_EN, set_language
-    from orolp.planner import TrajectoryPlanner
-    from orolp.post import get_post_processor
-    from orolp.program import Motion, MotionType, ProgramBuilder, WaitDI
+    from support.i18n import _CATALOG_EN, set_language
+    from service.planner import TrajectoryPlanner
+    from adapter.post import get_post_processor
+    from service.program import Motion, MotionType, ProgramBuilder, WaitDI
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     pb = ProgramBuilder(robot)
     pb.moveJ([0, -90, 90, -90, -90, 0])
     pose = robot.forward_kinematics([0.0, -60, 120, -90, -90, 0.0])
@@ -1120,27 +1162,35 @@ def _i18n_lib_data() -> dict:
     set_language("zh", save=False)
     zh_report = "\n".join(TrajectoryPlanner(robot).validate(prog).format().splitlines()[:3])
     zh_code = get_post_processor("fanuc_r30ib").generate(
-        [Motion(MotionType.JOINTS, [0, -90, 90, -90, -90, 0]),
-         WaitDI("gripper_closed", True, 2.0, trigger="rising")], {})
+        [
+            Motion(MotionType.JOINTS, [0, -90, 90, -90, -90, 0]),
+            WaitDI("gripper_closed", True, 2.0, trigger="rising"),
+        ],
+        {},
+    )
 
     set_language("en", save=False)
     en_report = "\n".join(TrajectoryPlanner(robot).validate(prog).format().splitlines()[:3])
     en_code = get_post_processor("fanuc_r30ib").generate(
-        [Motion(MotionType.JOINTS, [0, -90, 90, -90, -90, 0]),
-         WaitDI("gripper_closed", True, 2.0, trigger="rising")], {})
+        [
+            Motion(MotionType.JOINTS, [0, -90, 90, -90, -90, 0]),
+            WaitDI("gripper_closed", True, 2.0, trigger="rising"),
+        ],
+        {},
+    )
     set_language("zh", save=False)
 
     lib_files = [
-        "python/orolp/planner.py",
-        "python/orolp/post/base.py",
-        "python/orolp/post/fanuc_tp.py",
-        "python/orolp/post/kuka_krc4.py",
-        "python/orolp/post/ur_script.py",
-        "python/orolp/post/abb_rapid.py",
-        "python/orolp/post/estun_er.py",
-        "python/orolp/post/jaka_zu.py",
-        "python/orolp/post/huichuan_inoteach.py",
-        "python/orolp/post/__init__.py",
+        "service/planner.py",
+        "adapter/post/base.py",
+        "adapter/post/fanuc_tp.py",
+        "adapter/post/kuka_krc4.py",
+        "adapter/post/ur_script.py",
+        "adapter/post/abb_rapid.py",
+        "adapter/post/estun_er.py",
+        "adapter/post/jaka_zu.py",
+        "adapter/post/huichuan_inoteach.py",
+        "adapter/post/__init__.py",
     ]
     total = 0
     parts = []
@@ -1153,10 +1203,14 @@ def _i18n_lib_data() -> dict:
         ("✓ 程序校验通过", "✓ Program validation passed"),
         ("  估算节拍 {time:.2f} s", "  Estimated cycle time {time:.2f} s"),
         ("干涉：{detail}", "Collision: {detail}"),
-        ("该段 {progress:.0f}% 处逆解失败——目标可能超出工作空间、位于奇异位形附近，或与相邻点之间要求过大的姿态变化（{exc}）",
-         "IK failed at {progress:.0f}% of the segment — the target may be out of the workspace, near a singularity, or demand too much reorientation between adjacent points ({exc})"),
-        ("[warning] {name}: 信号 {signal} 未映射到物理地址，已输出 TODO 占位（下装前必须补全）",
-         "[warning] {name}: signal {signal} is not mapped to a physical address; a TODO placeholder was emitted (must be resolved before download)"),
+        (
+            "该段 {progress:.0f}% 处逆解失败——目标可能超出工作空间、位于奇异位形附近，或与相邻点之间要求过大的姿态变化（{exc}）",
+            "IK failed at {progress:.0f}% of the segment — the target may be out of the workspace, near a singularity, or demand too much reorientation between adjacent points ({exc})",
+        ),
+        (
+            "[warning] {name}: 信号 {signal} 未映射到物理地址，已输出 TODO 占位（下装前必须补全）",
+            "[warning] {name}: signal {signal} is not mapped to a physical address; a TODO placeholder was emitted (must be resolved before download)",
+        ),
     ]
     rows = []
     for zh, en in samples:
@@ -1185,20 +1239,20 @@ def _envelope_data() -> dict:
     对仓库里各品牌真机 URDF 真跑估算器（STL 顶点切片 vs 包络体角点半径），
     并演示逐机覆盖的解析顺序。
     """
-    from orolp.envelope import (
+    from domain.envelope import (
         envelope_estimate_details,
         estimate_envelope_tolerance_mm,
     )
-    from orolp.planner import ENVELOPE_TOLERANCE_MM
+    from service.planner import ENVELOPE_TOLERANCE_MM
 
     targets = [
-        ("UR5e", "models/ur/ur5e/ur5e.urdf"),
-        ("UR10e", "models/ur/ur10e/ur10e.urdf"),
-        ("KUKA iiwa7", "models/kuka/lbr_iiwa_7/lbr_iiwa_7.urdf"),
-        ("KUKA KR16", "models/kuka/kr16_2/kr16_2.urdf"),
-        ("ABB IRB1600", "models/abb/irb1600/irb1600.urdf"),
-        ("JAKA Zu20", "models/jaka/zu20/zu20.urdf"),
-        ("SO101（程序生成）", "models/lerobot/so101/urdf/so101.urdf"),
+        ("UR5e", "assets/models/ur/ur5e/ur5e.urdf"),
+        ("UR10e", "assets/models/ur/ur10e/ur10e.urdf"),
+        ("KUKA iiwa7", "assets/models/kuka/lbr_iiwa_7/lbr_iiwa_7.urdf"),
+        ("KUKA KR16", "assets/models/kuka/kr16_2/kr16_2.urdf"),
+        ("ABB IRB1600", "assets/models/abb/irb1600/irb1600.urdf"),
+        ("JAKA Zu20", "assets/models/jaka/zu20/zu20.urdf"),
+        ("SO101（程序生成）", "assets/models/lerobot/so101/urdf/so101.urdf"),
     ]
     rows = []
     for label, rel in targets:
@@ -1206,17 +1260,21 @@ def _envelope_data() -> dict:
             details = envelope_estimate_details(rel)
             value = estimate_envelope_tolerance_mm(rel)
         except Exception as exc:  # noqa: BLE001 — 单品牌失败不阻塞整页
-            rows.append(f"<tr><td>{html.escape(label)}</td><td>估算失败：{html.escape(str(exc)[:60])}</td><td>—</td></tr>")
+            rows.append(
+                f"<tr><td>{html.escape(label)}</td><td>估算失败：{html.escape(str(exc)[:60])}</td><td>—</td></tr>"
+            )
             continue
         if value is None:
             rows.append(
                 f"<tr><td>{html.escape(label)}</td>"
-                f"<td>无可比几何（visual 非 STL mesh）</td><td>—</td></tr>")
+                f"<td>无可比几何（visual 非 STL mesh）</td><td>—</td></tr>"
+            )
             continue
         fat = max(details.items(), key=lambda kv: kv[1]["expansion_mm"])
         rows.append(
             f"<tr><td>{html.escape(label)}</td><td><b>{value:g} mm</b></td>"
-            f"<td>{html.escape(fat[0])}（{fat[1]['expansion_mm']:g} mm）</td></tr>")
+            f"<td>{html.escape(fat[0])}（{fat[1]['expansion_mm']:g} mm）</td></tr>"
+        )
     return {
         "env_rows": "\n".join(rows),
         "env_global": f"{ENVELOPE_TOLERANCE_MM:g}",
@@ -1234,11 +1292,11 @@ def _socket_data(robot: Robot, traj) -> dict:
     诚实披露（页面上也会写）：**没有真机**。回读值来自 PlantModel 合成传动误差模型，
     `source="real"` 只表示"数据经网络从控制器侧回读"。
     """
-    from orolp.debug import DebugSession
-    from orolp.link import LinkError, SimLink, SocketLink
-    from orolp.linkstub import ControllerStubServer
-    from orolp.simulation import Trajectory
-    from orolp.twinsync import (
+    from service.debug import DebugSession
+    from domain.link import LinkError, SimLink, SocketLink
+    from adapter.linkstub import ControllerStubServer
+    from service.simulation import Trajectory
+    from service.twinsync import (
         PlantModel,
         capture_from_session,
         compare_traces,
@@ -1249,7 +1307,7 @@ def _socket_data(robot: Robot, traj) -> dict:
 
     # 控制器侧那台"机器"：同一个 URDF、**必须带上同样的 tool 偏移**——否则规划侧算
     # 的是"法兰+工具"的 TCP、控制器侧报的是法兰位姿，两条曲线会凭空差出上百毫米。
-    stub_robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    stub_robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     stub_robot.tool = robot.tool
     plant = PlantModel(joint_bias_deg=0.25, scale_error=8e-4, noise_deg=0.01, lag_tau=0.02)
 
@@ -1335,7 +1393,9 @@ def _socket_data(robot: Robot, traj) -> dict:
                 err = "（未按预期报错）"
             except LinkError as exc:
                 err = str(exc).split("——")[0]
-            faults.append((label, err, "已断开 ✓（承认断了）" if not lk.connected else "仍标记已连接"))
+            faults.append(
+                (label, err, "已断开 ✓（承认断了）" if not lk.connected else "仍标记已连接")
+            )
         finally:
             lk.disconnect()
             if srv is not None:
@@ -1405,7 +1465,7 @@ def _socket_data(robot: Robot, traj) -> dict:
 
 def _so101_dynamics() -> dict:
     """SO101（URDF 自带惯性参数）的真实力矩校验样例，供 v0.3.1 小节展示。"""
-    urdf = REPO_ROOT / "models" / "lerobot" / "so101" / "urdf" / "so101.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "lerobot" / "so101" / "urdf" / "so101.urdf"
     robot = Robot(str(urdf), "SO101")
     prog = (
         ProgramBuilder(robot)
@@ -1433,10 +1493,10 @@ def _so101_dynamics() -> dict:
 
 def _process_data() -> dict:
     """v0.3.3 工艺小节的真实数据：焊接模板 → FANUC ARCON/UR 降级出码对比。"""
-    from orolp.pose import Pose
-    from orolp.process import WeldProcess
+    from domain.pose import Pose
+    from service.process import WeldProcess
 
-    robot = Robot("models/kuka/kr16_2/kr16_2.urdf", "kr16_2")
+    robot = Robot("assets/models/kuka/kr16_2/kr16_2.urdf", "kr16_2")
     weld = WeldProcess(name="demo_weld", current=150, voltage=19.0, wire_feed=6.0)
     prog = (
         robot.moveJ([0, -30, 60, 0, 30, 0])
@@ -1452,7 +1512,14 @@ def _process_data() -> dict:
     lines_fanuc = [
         l.strip()
         for l in prog.to_post("fanuc_r30ib", metadata=meta).splitlines()
-        if ("ARCON" in l or "ARCOFF" in l or "送丝" in l or "熄弧" in l or "边沿" in l or "焊接 " in l)
+        if (
+            "ARCON" in l
+            or "ARCOFF" in l
+            or "送丝" in l
+            or "熄弧" in l
+            or "边沿" in l
+            or "焊接 " in l
+        )
     ]
     lines_ur = [
         l.strip()
@@ -1471,7 +1538,7 @@ def _cam_data() -> dict:
 
     from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 
-    from orolp.cam import (
+    from service.cam import (
         extract_seams,
         path_to_program,
         scan_deviation,
@@ -1482,7 +1549,7 @@ def _cam_data() -> dict:
     seams = extract_seams(cyl, deflection=0.05)
     circle = select_seams(seams, closed=True)[0]
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     pts = circle.points + np.array([400.0, 200.0, 300.0])
     prog = path_to_program(pts, robot, closed=True, z_lift=2.0, velocity=30.0).build()
     report = prog.validate()
@@ -1571,15 +1638,16 @@ def _compliance_data() -> dict:
     程序：力控参数、UR 原生出码、导纳仿真曲线全部来自真实 API 调用，不手写
     演示数字。
     """
-    from orolp import ComplianceSpec, ProgramBuilder
-    from orolp.compliance import (
+    from service.compliance import ComplianceSpec
+    from service.program import ProgramBuilder
+    from service.compliance import (
         force_sensitivity,
         required_depth,
         series_stiffness,
         simulate_admittance,
     )
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     spec = ComplianceSpec.constant_force("z", -30.0, stiffness=8.0)
     b = ProgramBuilder(robot)
     b.moveJ([0, -90, 0, -90, 0, 0], speed=30)
@@ -1592,8 +1660,7 @@ def _compliance_data() -> dict:
     report = prog.validate(check_dynamics=False)
     ur_code = prog.to_post("ur_polyscope")
     fm_lines = "\n".join(
-        ln for ln in ur_code.splitlines()
-        if "force_mode" in ln or "end_force_mode" in ln
+        ln for ln in ur_code.splitlines() if "force_mode" in ln or "end_force_mode" in ln
     )
 
     # 导纳仿真：30N 阶跃下 z 轴让步曲线（真实数值积分）
@@ -1670,7 +1737,7 @@ def _calibration_data() -> dict:
 
 def _svg_scene() -> str:
     """俯视布局图：世界坐标 (mm) → 屏幕坐标，与 templates.py 布局一致。"""
-    S = 0.35          # 缩放：mm → px
+    S = 0.35  # 缩放：mm → px
     OX, OY = 520.0, 620.0  # 世界原点的屏幕位置
 
     def cx(wx):
@@ -1690,7 +1757,9 @@ def _svg_scene() -> str:
             px = cx(wcx) + (dx * cos - dy * sin) * S
             py = cy(wcy) + (dx * sin + dy * cos) * S
             pts.append(f"{px:.0f},{py:.0f}")
-        out = f'<polygon points="{" ".join(pts)}" fill="{fill}" stroke="#3a4250" stroke-width="1.5"/>'
+        out = (
+            f'<polygon points="{" ".join(pts)}" fill="{fill}" stroke="#3a4250" stroke-width="1.5"/>'
+        )
         if label:
             out += (
                 f'<text x="{cx(wcx):.0f}" y="{cy(wcy) + fs * 0.36:.0f}" text-anchor="middle" '
@@ -1700,7 +1769,9 @@ def _svg_scene() -> str:
 
     parts = []
     # 标题性文字
-    parts.append(f'<text x="{cx(0):.0f}" y="{cy(-900):.0f}" text-anchor="middle" font-size="15" fill="#9aa5b5">输送带（4 工件排队上料）</text>')
+    parts.append(
+        f'<text x="{cx(0):.0f}" y="{cy(-900):.0f}" text-anchor="middle" font-size="15" fill="#9aa5b5">输送带（4 工件排队上料）</text>'
+    )
     # 输送带 2400×600，中心 (0,-400)
     parts.append(box(0, -400, 2400, 600, "#33383f"))
     # 4 工件（90×90）
@@ -1733,7 +1804,7 @@ def _svg_two_robot_cell() -> str:
     sys.path.insert(0, str(REPO_ROOT / "examples"))
     import multi_robot_cell_demo as mr  # noqa: E402
 
-    s = 0.30            # mm → px
+    s = 0.30  # mm → px
     ox, oy = 520.0, 180.0
 
     def cx(wx: float) -> float:
@@ -1838,13 +1909,13 @@ def _controller_panel_data() -> dict:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtWidgets
 
-    from orolp.controller_panel import ControllerPanel
-    from orolp.linkstub import ControllerStubServer
+    from app.views.controller_panel import ControllerPanel
+    from adapter.linkstub import ControllerStubServer
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     assert app is not None
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.tool = Pose.from_xyz_rpy(0.0, 0.0, 150.0, 0.0, 0.0, 0.0)
 
     def provider():
@@ -1905,13 +1976,13 @@ def _controller_panel_ssh_data() -> dict:
 
     from PySide6 import QtWidgets
 
-    from orolp.controller_panel import TRANSPORT_SSH, ControllerPanel
-    from orolp.sshstub import SSHStubServer
+    from app.views.controller_panel import TRANSPORT_SSH, ControllerPanel
+    from adapter.sshstub import SSHStubServer
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     assert app is not None
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.tool = Pose.from_xyz_rpy(0.0, 0.0, 150.0, 0.0, 0.0, 0.0)
 
     def provider():
@@ -1971,9 +2042,7 @@ def _controller_panel_ssh_data() -> dict:
         "cps_bytes": str(len(deployment.code.encode("utf-8")) if deployment else 0),
         "cps_verify": "一致" if (verified and verified["matches"] is True) else "未核对",
         "cps_tamper": (
-            "抓到不一致"
-            if (tampered is not None and tampered["matches"] is False)
-            else "未抓到"
+            "抓到不一致" if (tampered is not None and tampered["matches"] is False) else "未抓到"
         ),
         "cps_joints": html.escape(joints_text),
         "cps_joints_none": "是" if joints is None else "否",
@@ -1993,7 +2062,7 @@ def _trajectory_arc_data() -> dict:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtWidgets
 
-    from orolp.program_panel import ProgramPanel
+    from app.views.program_panel import ProgramPanel
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     assert app is not None
@@ -2007,7 +2076,7 @@ def _trajectory_arc_data() -> dict:
     ]
     positions = [{n: math.radians(v) for n, v in zip(joints, p)} for p in points]
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     panel = ProgramPanel()
     panel.set_robot(robot, joints)
     panel.set_taught_points(positions)
@@ -2018,9 +2087,7 @@ def _trajectory_arc_data() -> dict:
     panel.set_point_motion(2, "C")
     arc_report = panel.validate_program()
     plan, _notes = panel.motion_plan()
-    rows = "\n".join(
-        panel.point_list.item(i).text() for i in range(panel.point_list.count())
-    )
+    rows = "\n".join(panel.point_list.item(i).text() for i in range(panel.point_list.count()))
 
     # 圆弧段的 TCP：只取第 2 条指令的路径点，别把前后两段关节运动算进来
     planner = panel._planner
@@ -2063,7 +2130,7 @@ def _trajectory_arc_data() -> dict:
 
     # 故意让中间点的正解失败一次：编辑器必须说清"圆弧没了、中间点改为单独经过"
     panel2 = ProgramPanel()
-    panel2.set_robot(Robot("models/ur/ur5e/ur5e.urdf", "UR5e"), joints)
+    panel2.set_robot(Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e"), joints)
     panel2.set_taught_points(positions)
     panel2.set_point_motion(2, "C")
     real_fk = panel2._robot.forward_kinematics
@@ -2115,19 +2182,27 @@ def _iomap_data() -> dict:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtWidgets
 
-    from orolp.cell import CellConfig, Device
-    from orolp.iomap import SignalMap, used_signals
-    from orolp.plc_scl import generate_scl
-    from orolp.program import Program
+    from service.cell import CellConfig, Device
+    from service.iomap import SignalMap, used_signals
+    from service.plc_scl import generate_scl
+    from service.program import Program
 
     cell = CellConfig()
-    cell.add(Device(name="PLC_S7_1200", type="PLC", brand="Siemens",
-                    model="1214C", comm="Profinet", ip="192.168.0.10",
-                    io_map={"robot_start": "Q0.0", "robot_done": "I0.0"}))
-    cell.add(Device(name="夹爪_1", type="夹具",
-                    io_map={"gripper_open": "Q0.1", "gripper_close": "Q0.1"}))
-    cell.add(Device(name="安全回路", type="安全",
-                    io_map={"safety_ok": "I0.1", "estop": "I0.2"}))
+    cell.add(
+        Device(
+            name="PLC_S7_1200",
+            type="PLC",
+            brand="Siemens",
+            model="1214C",
+            comm="Profinet",
+            ip="192.168.0.10",
+            io_map={"robot_start": "Q0.0", "robot_done": "I0.0"},
+        )
+    )
+    cell.add(
+        Device(name="夹爪_1", type="夹具", io_map={"gripper_open": "Q0.1", "gripper_close": "Q0.1"})
+    )
+    cell.add(Device(name="安全回路", type="安全", io_map={"safety_ok": "I0.1", "estop": "I0.2"}))
 
     # 一个"现场很常见"的机器人程序：写夹爪、等工件到位、等夹爪夹紧反馈，
     # 外加一个谁都没建过地址的信号
@@ -2140,24 +2215,19 @@ def _iomap_data() -> dict:
 
     smap = SignalMap(cell)
     report = smap.validate(items)
-    error_lines = "\n".join(
-        f"✗ [{i.signal or '-'}] {i.message}" for i in report.errors
-    )
-    warn_lines = "\n".join(
-        f"⚠ [{i.signal or '-'}] {i.message}" for i in report.warnings
-    )
+    error_lines = "\n".join(f"✗ [{i.signal or '-'}] {i.message}" for i in report.errors)
+    warn_lines = "\n".join(f"⚠ [{i.signal or '-'}] {i.message}" for i in report.warnings)
 
     # 出码**先于**自动编号：这样"校验结论"与"随码交给现场的点表"描述的是同一个
     # 状态，页面上两组数字不会互相打架（自动编号单独作为下一步展示）
     usage = used_signals(items)
     scl = generate_scl(cell, program_name="CellControl", program=items)
     table_start = scl.index("(* ---------------- IO 点表")
-    table_end = scl.index('FUNCTION_BLOCK')
+    table_end = scl.index("FUNCTION_BLOCK")
     scl_block = scl[table_start:table_end].strip()[:1400]
     # 取 VAR 声明行上的那句——"留空"在现场等于"看起来没问题"，所以它必须显式写出来
     unmapped_comment = next(
-        (ln.strip() for ln in scl.splitlines()
-         if ": BOOL;" in ln and ">>> 未映射" in ln),
+        (ln.strip() for ln in scl.splitlines() if ": BOOL;" in ln and ">>> 未映射" in ln),
         next((ln.strip() for ln in scl.splitlines() if ">>> 未映射" in ln), "（无）"),
     )
 
@@ -2178,7 +2248,7 @@ def _iomap_data() -> dict:
     # 离屏截一张硬件列表：v1.1.6 的两个入口就在这一排按钮上
     shot_note = "（截图不可用）"
     try:
-        import app as rw
+        import main as rw
 
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         win = rw.MainWindow()
@@ -2208,7 +2278,9 @@ def _iomap_data() -> dict:
         "io_rows": html.escape(rows),
         "io_scl_block": html.escape(scl_block),
         "io_unmapped_comment": html.escape(unmapped_comment),
-        "io_roundtrip": "应用 {applied} / 无需改动 {unchanged} / 跳过 {skipped}".format(**roundtrip),
+        "io_roundtrip": "应用 {applied} / 无需改动 {unchanged} / 跳过 {skipped}".format(
+            **roundtrip
+        ),
         "io_signals_used": str(len(usage)),
         "io_signal_names": html.escape("、".join(usage)),
         "io_shot": shot_note,
@@ -2226,11 +2298,11 @@ def _ssh_link_data() -> dict:
     import tempfile as _tempfile
     from pathlib import Path as _Path
 
-    from orolp.link import LinkError as _LinkError
-    from orolp.link import SSHLink
-    from orolp.sshstub import SSHStubServer
+    from domain.link import LinkError as _LinkError
+    from domain.link import SSHLink
+    from adapter.sshstub import SSHStubServer
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.tool = Pose.from_xyz_rpy(0.0, 0.0, 150.0, 0.0, 0.0, 0.0)
     builder = ProgramBuilder(robot)
     builder.moveJ([0, -90, 90, -90, 0, 0], speed=50.0)
@@ -2238,12 +2310,18 @@ def _ssh_link_data() -> dict:
     builder.moveL(Pose.from_xyz_rpy(420, 180, 320, 0, 0, 0), speed=60.0)
     program = builder.build()
 
-    root = _Path(_tempfile.mkdtemp(prefix="orolp_web_ssh_"))
+    root = _Path(_tempfile.mkdtemp(prefix="core_web_ssh_"))
     stub = SSHStubServer(root, password="demo")
     out: dict = {"ssh_tests": "30"}
     try:
-        link = SSHLink("127.0.0.1", stub.port, username="operator",
-                       password="demo", remote_dir="/programs", timeout=10)
+        link = SSHLink(
+            "127.0.0.1",
+            stub.port,
+            username="operator",
+            password="demo",
+            remote_dir="/programs",
+            timeout=10,
+        )
         link.connect()
         dep = program.deploy(link, "ur_polyscope", name="web_ssh_pick")
         back = link.fetch_program("web_ssh_pick", "script")
@@ -2259,13 +2337,21 @@ def _ssh_link_data() -> dict:
         out["ssh_ls_out"] = ls.stdout.strip() or ls.stderr.strip()
         load = link.run_command("load web_ssh_pick.script", cwd="/programs")
         out["ssh_load_code"] = str(load.exit_code)
-        out["ssh_load_err"] = load.stderr.strip().splitlines()[0][:60] if load.stderr.strip() else "-"
+        out["ssh_load_err"] = (
+            load.stderr.strip().splitlines()[0][:60] if load.stderr.strip() else "-"
+        )
         out["ssh_still_connected"] = "已连接 ✓" if link.connected else "已断开 ✗"
         out["ssh_execs"] = str(link.executions)
 
         # 认证失败演练（错密码）——网络/认证级故障必须断开
-        bad = SSHLink("127.0.0.1", stub.port, username="operator",
-                      password="WRONG", remote_dir="/programs", timeout=10)
+        bad = SSHLink(
+            "127.0.0.1",
+            stub.port,
+            username="operator",
+            password="WRONG",
+            remote_dir="/programs",
+            timeout=10,
+        )
         try:
             bad.connect()
             out["ssh_auth"] = "错误密码被放行 ✗（打桩配置错误）"
@@ -2286,12 +2372,12 @@ def _dwell_data() -> dict:
     实算），加一个"驻留占用"双机场景：A 在交接点驻留、B 在窗内/窗外到达
     的冲突计数对比——全部真规划器实跑。
     """
-    from orolp import Pose
-    from orolp.multirobot import RobotJob, scan_timeline
-    from orolp.planner import TrajectoryPlanner
-    from orolp.world.scene import Scene
+    from domain.pose import Pose
+    from service.multirobot import RobotJob, scan_timeline
+    from service.planner import TrajectoryPlanner
+    from domain.world.scene import Scene
 
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
 
     def _pick_prog(dwell: float):
         b = (
@@ -2312,26 +2398,25 @@ def _dwell_data() -> dict:
     report = TrajectoryPlanner(robot).validate(prog_dwell)
 
     # 双机"驻留占用"场景：两台 UR5e 经 IK 去往同一世界点
-    urdf = "models/ur/ur5e/ur5e.urdf"
+    urdf = "assets/models/ur/ur5e/ur5e.urdf"
     Q0 = [0.0, -90.0, 90.0, -90.0, 0.0, 0.0]
     Qh = [40.0, -60.0, 80.0, -90.0, 30.0, 0.0]
     scene = Scene()
     scene.add_robot(urdf, list(Q0), name="A")
-    scene.add_robot(urdf, list(Q0), name="B",
-                    pose=Pose.from_xyz_rpy(300.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+    scene.add_robot(
+        urdf, list(Q0), name="B", pose=Pose.from_xyz_rpy(300.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    )
     robot_b = Robot(urdf, "UR5e")
     p_world = robot.forward_kinematics(Qh)
     x, y, z, rx, ry, rz = p_world.to_xyz_rpy()
-    qb = [float(v) for v in robot_b.inverse_kinematics(
-        Pose.from_xyz_rpy(x - 300.0, y, z, rx, ry, rz), guess=Qh)]
+    qb = [
+        float(v)
+        for v in robot_b.inverse_kinematics(
+            Pose.from_xyz_rpy(x - 300.0, y, z, rx, ry, rz), guess=Qh
+        )
+    ]
 
-    prog_a = (
-        ProgramBuilder(robot)
-        .moveJ(Qh, speed=80)
-        .waitTime(2.0)
-        .moveJ(Q0, speed=160)
-        .build()
-    )
+    prog_a = ProgramBuilder(robot).moveJ(Qh, speed=80).waitTime(2.0).moveJ(Q0, speed=160).build()
     pa = TrajectoryPlanner(robot)
     traj_a = pa.plan(prog_a)
     t_arrive = pa._motion_spans[0][1]
@@ -2340,8 +2425,10 @@ def _dwell_data() -> dict:
     t_b = traj_b.duration()
 
     def _jobs(b_start):
-        return [RobotJob(robot="A", trajectory=traj_a, start=0.0, label="A"),
-                RobotJob(robot="B", trajectory=traj_b, start=b_start, label="B")]
+        return [
+            RobotJob(robot="A", trajectory=traj_a, start=0.0, label="A"),
+            RobotJob(robot="B", trajectory=traj_b, start=b_start, label="B"),
+        ]
 
     rr_hit, _ = scan_timeline(scene, _jobs(max(0.0, t_leave - 0.4 - t_b)), dt=0.05, clearance=60.0)
     rr_safe, _ = scan_timeline(scene, _jobs(t_leave + t_b + 1.0), dt=0.05, clearance=60.0)
@@ -2361,12 +2448,12 @@ def _dwell_data() -> dict:
 def _placement_data() -> dict:
     """「场景拖拽摆放工件」小节的真实数据（v1.1.7）。
 
-    构建时真跑 ``orolp.world.placement``：真取托盘顶面高度、真算工件原点到底面
+    构建时真跑 ``domain.world.placement``：真取托盘顶面高度、真算工件原点到底面
     的偏移、真跑吸附（25mm 网格），并把三条拒绝路径的实际理由抓出来——
     页面上每个数字都来自这次调用。
     """
-    from orolp.world import build_grasping_workstation
-    from orolp.world import placement as P
+    from domain.world import build_grasping_workstation
+    from domain.world import placement as P
 
     cell = build_grasping_workstation()
     scene = cell.scene
@@ -2414,7 +2501,7 @@ def _ui_layout_data() -> dict:
 
     构建时真起一次主窗口（offscreen）读取左右标签结构，并把窗口缩到它能到达的
     **最小高度**，逐页读「内容最小高度 vs 可视高度」；再真跑一次法兰装夹
-    （模板场景 + ``orolp.world.placement``，含随动验证）。页面上每个数字都来自
+    （模板场景 + ``domain.world.placement``，含随动验证）。页面上每个数字都来自
     这次运行；修复前的 286px 是开发期实测值，页面已显式标注是"修复前"。
     """
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -2423,8 +2510,8 @@ def _ui_layout_data() -> dict:
 
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
-    import app as rw
-    from orolp.world import placement as P
+    import main as rw
+    from domain.world import placement as P
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
@@ -2433,15 +2520,10 @@ def _ui_layout_data() -> dict:
     win.resize(900, win.minimumSizeHint().height())
     QtWidgets.QApplication.processEvents()
 
-    left = " / ".join(
-        win.left_tabs.tabText(i) for i in range(win.left_tabs.count())
-    )
-    right = " / ".join(
-        win.right_tabs.tabText(i) for i in range(win.right_tabs.count())
-    )
+    left = " / ".join(win.left_tabs.tabText(i) for i in range(win.left_tabs.count()))
+    right = " / ".join(win.right_tabs.tabText(i) for i in range(win.right_tabs.count()))
     subtabs = " / ".join(
-        win.code_editor.sub_tabs.tabText(i)
-        for i in range(win.code_editor.sub_tabs.count())
+        win.code_editor.sub_tabs.tabText(i) for i in range(win.code_editor.sub_tabs.count())
     )
     legacy = [
         t
@@ -2472,9 +2554,13 @@ def _ui_layout_data() -> dict:
     flange = (scene.world_transform(robot) @ scene.flange_transform(robot))[:3, 3]
     part_w = scene.world_transform(part)[:3, 3]
 
-    P.apply_world_pose(scene, part, float(flange[0] + 30.0), float(flange[1]), float(flange[2]), 0.0)
+    P.apply_world_pose(
+        scene, part, float(flange[0] + 30.0), float(flange[1]), float(flange[2]), 0.0
+    )
     near = P.flange_snap_target(scene, part, 60.0)
-    P.apply_world_pose(scene, part, float(flange[0] + 200.0), float(flange[1]), float(flange[2]), 0.0)
+    P.apply_world_pose(
+        scene, part, float(flange[0] + 200.0), float(flange[1]), float(flange[2]), 0.0
+    )
     far = P.flange_snap_target(scene, part, 60.0)
 
     P.mount_to_flange(scene, part, robot)
@@ -2488,7 +2574,7 @@ def _ui_layout_data() -> dict:
     follow = float(np.linalg.norm(after_move - before_move))
 
     # ---- 截图：把模板场景装进窗口，让设备树显示真实层级
-    #（已装夹的工件出现在「机器人」节点下，这正是拖拽装夹要表达的东西）----
+    # （已装夹的工件出现在「机器人」节点下，这正是拖拽装夹要表达的东西）----
     shots = []
     win._adopt_scene(scene)
     win.scene_panel._refresh_tree()
@@ -2537,7 +2623,7 @@ def _ui_layout_data() -> dict:
 def _sequence_data() -> dict:
     """「工艺时序（动态时序）」小节的真实数据（v1.3.1）。
 
-    构建时真跑一遍 ``orolp.sequence``：建参考序列 → 真校验（干净态与"点表里没有
+    构建时真跑一遍 ``service.sequence``：建参考序列 → 真校验（干净态与"点表里没有
     这个信号"态各一次）→ 两个出口各真翻一次（机器人侧真喂 ``ProgramBuilder``，
     PLC 侧真喂 ``generate_scl``）→ 与 ``steps_from_program`` 逐字段对拍 →
     再真起一次 ``SequenceEditor`` 加四条工步、校验、离屏截图。
@@ -2547,9 +2633,9 @@ def _sequence_data() -> dict:
     """
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-    from orolp.cell import CellConfig, Device
-    from orolp.plc_scl import generate_scl, steps_from_program
-    from orolp.sequence import (
+    from service.cell import CellConfig, Device
+    from service.plc_scl import generate_scl, steps_from_program
+    from service.sequence import (
         CallStep,
         DwellStep,
         ProcessSequence,
@@ -2557,20 +2643,22 @@ def _sequence_data() -> dict:
         WaitStep,
     )
 
-    seq = ProcessSequence([
-        SignalStep("夹紧", "机器人", "gripper_close", value=True),
-        DwellStep("保压", "机器人", 0.5),
-        CallStep("抓取", "机器人", "PickPart"),
-        WaitStep("等到位", "输送带", "part_ready", trigger="level", timeout=5.0),
-        SignalStep("放行", "输送带", "conveyor_run", value=False),
-    ])
+    seq = ProcessSequence(
+        [
+            SignalStep("夹紧", "机器人", "gripper_close", value=True),
+            DwellStep("保压", "机器人", 0.5),
+            CallStep("抓取", "机器人", "PickPart"),
+            WaitStep("等到位", "输送带", "part_ready", trigger="level", timeout=5.0),
+            SignalStep("放行", "输送带", "conveyor_run", value=False),
+        ]
+    )
 
     clean = seq.validate()
     partial = seq.validate(signal_names={"gripper_close", "conveyor_run"})
     errors = [i for i in partial if i.severity == "error"]
 
     # ---- 机器人侧出口：真喂既有 ProgramBuilder ----
-    urdf = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
     builder = ProgramBuilder(Robot(str(urdf), "UR5e"))
     notes = seq.to_program(builder)
     items = builder.build().items
@@ -2587,10 +2675,13 @@ def _sequence_data() -> dict:
 
     cell = CellConfig()
     cell.add(Device(name="夹具", type="夹具", io_map={"gripper_close": "Q0.2"}))
-    cell.add(Device(
-        name="输送带", type="输送带",
-        io_map={"part_ready": "I0.4", "conveyor_run": "Q0.4"},
-    ))
+    cell.add(
+        Device(
+            name="输送带",
+            type="输送带",
+            io_map={"part_ready": "I0.4", "conveyor_run": "Q0.4"},
+        )
+    )
     scl = generate_scl(cell, program_name="CellControl", steps=from_plc)
     head = scl.split("BEGIN")[0]
     declared = [name for name in ("gripper_close", "part_ready", "conveyor_run") if name in head]
@@ -2601,7 +2692,7 @@ def _sequence_data() -> dict:
     # ---- 编辑器（offscreen）：真加四条工步 + 校验 + 截图 ----
     from PySide6 import QtWidgets
 
-    from orolp.world.panel import SequenceEditor
+    from domain.world.panel import SequenceEditor
 
     qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     ed = SequenceEditor()
@@ -2635,11 +2726,17 @@ def _sequence_data() -> dict:
                 name=st.name,
                 dev=st.device,
                 extra=(
-                    " → {} = {}".format(st.signal, st.value) if isinstance(st, SignalStep)
-                    else " → 等 {}（{} / {}s）".format(st.signal, st.trigger, st.timeout)
-                    if isinstance(st, WaitStep)
-                    else " → 调用 {}".format(st.subprogram) if isinstance(st, CallStep)
-                    else " → 驻留 {}s".format(st.seconds)
+                    " → {} = {}".format(st.signal, st.value)
+                    if isinstance(st, SignalStep)
+                    else (
+                        " → 等 {}（{} / {}s）".format(st.signal, st.trigger, st.timeout)
+                        if isinstance(st, WaitStep)
+                        else (
+                            " → 调用 {}".format(st.subprogram)
+                            if isinstance(st, CallStep)
+                            else " → 驻留 {}s".format(st.seconds)
+                        )
+                    )
                 ),
             )
             for n, st in enumerate(seq)
@@ -2693,18 +2790,18 @@ def _perf_data() -> dict:
     """
     import time as _time
 
-    from orolp import kinematics as kinmod
-    from orolp.perf import (
+    from domain import kinematics as kinmod
+    from service.perf import (
         SWEEP_BASE,
         profile_program,
         reference_link_transforms,
         scale_report,
         sweep_program,
     )
-    from orolp.planner import TrajectoryPlanner
-    from orolp.world import build_grasping_workstation
+    from service.planner import TrajectoryPlanner
+    from domain.world import build_grasping_workstation
 
-    urdf = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
     bench_robot = Robot(str(urdf), "UR5e")
     bench_robot.set_joints(list(SWEEP_BASE))
     kin = bench_robot.kinematics
@@ -2789,25 +2886,25 @@ def _collision_perf_data() -> dict:
     3. **广相/窄相账本**：单独跑一遍 10° 口径并取工作量计数差分（连接级
        AABB → 零件级粗筛 → SAT 三级漏斗 + 局部几何缓存命中率）。
     """
-    from orolp import kinematics  # noqa: F401  （确保 FK 常量缓存已就位）
-    from orolp.collision import (
+    from domain import kinematics  # noqa: F401  （确保 FK 常量缓存已就位）
+    from domain.collision import (
         CollisionChecker,
         collision_stats,
         reset_collision_stats,
         sample_indices,
     )
-    from orolp.envelope import envelope_tolerance_mm
-    from orolp.perf import (
+    from domain.envelope import envelope_tolerance_mm
+    from service.perf import (
         SWEEP_BASE,
         collision_profile,
         compare_collision_kernels,
         sweep_program,
     )
-    from orolp.planner import TrajectoryPlanner
-    from orolp.world import build_grasping_workstation
-    from orolp.world.geometry import geometry_stats, reset_geometry_stats
+    from service.planner import TrajectoryPlanner
+    from domain.world import build_grasping_workstation
+    from domain.world.geometry import geometry_stats, reset_geometry_stats
 
-    urdf = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
     cell = build_grasping_workstation()
 
     def make_planner():
@@ -2829,9 +2926,17 @@ def _collision_perf_data() -> dict:
 
     # ---- ③ 三级漏斗账本（单独一遍 10°，计数器差分） ------------------------ #
     ledger = {
-        "l1": 0, "l1_rejects": 0, "narrow": 0, "prefilter": 0, "sat": 0,
-        "hits": 0, "contacts": 0, "cache_hits": 0, "cache_misses": 0,
-        "cache_entries": 0, "samples": 0,
+        "l1": 0,
+        "l1_rejects": 0,
+        "narrow": 0,
+        "prefilter": 0,
+        "sat": 0,
+        "hits": 0,
+        "contacts": 0,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "cache_entries": 0,
+        "samples": 0,
     }
     try:
         margin = -float(envelope_tolerance_mm(robot))
@@ -2932,13 +3037,13 @@ def _incremental_data() -> dict:
     3. **对照表**——两种目标写法在同一场景下的复用率，是"能省多少取决于改哪儿"
        这句话的结构性依据。
     """
-    from orolp.incremental import (
+    from service.incremental import (
         TrajectoryCache,
         incremental_stats,
         reset_incremental_stats,
         set_cache,
     )
-    from orolp.perf import (
+    from service.perf import (
         SWEEP_BASE,
         _clone_items,
         default_edit_scenarios,
@@ -2946,18 +3051,18 @@ def _incremental_data() -> dict:
         plan_cache_profile,
         sweep_program,
     )
-    from orolp.planner import TrajectoryPlanner
-    from orolp.program import Motion, Program, ProgramBuilder
+    from service.planner import TrajectoryPlanner
+    from service.program import Motion, Program, ProgramBuilder
 
     import time as _time
 
-    from orolp.i18n import set_language, tr
+    from support.i18n import set_language, tr
 
     # 页面小节的表格一律中文（这一节不随库层语言切换）
     set_language("zh", save=False)
 
     def _factory() -> "TrajectoryPlanner":
-        r = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+        r = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
         r.set_joints(list(SWEEP_BASE))
         return TrajectoryPlanner(r)
 
@@ -2965,7 +3070,7 @@ def _incremental_data() -> dict:
         return Program(robot, list(_clone_items(items, robot).items))
 
     # ---- 1) 缓存账本 ----
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.set_joints(list(SWEEP_BASE))
     builder = ProgramBuilder(robot)
     base = list(SWEEP_BASE)
@@ -2997,23 +3102,25 @@ def _incremental_data() -> dict:
     edit_stats = incremental_stats()
 
     # ---- 2) 分场景基准 ----
-    joint_profile = plan_cache_profile(
-        _factory, lambda rb: sweep_program(rb, 120), repeats=1
-    )
-    cart_profile = plan_cache_profile(
-        _factory, lambda rb: linear_program(rb, 40), repeats=1
-    )
+    joint_profile = plan_cache_profile(_factory, lambda rb: sweep_program(rb, 120), repeats=1)
+    cart_profile = plan_cache_profile(_factory, lambda rb: linear_program(rb, 40), repeats=1)
 
     def _rows(profile) -> str:
         # 表头与场景名都是中文：str.ljust 数的是**字符**不是列宽，直接用会参差不齐
         lines = [
-            "  " + _ljust("场景", 14) + _rjust("耗时", 11) + _rjust("加速", 8)
-            + _rjust("分段复用", 11) + _rjust("整程序", 8) + _rjust("等价", 7),
+            "  "
+            + _ljust("场景", 14)
+            + _rjust("耗时", 11)
+            + _rjust("加速", 8)
+            + _rjust("分段复用", 11)
+            + _rjust("整程序", 8)
+            + _rjust("等价", 7),
             "  " + "-" * 58,
         ]
         for s in profile.scenarios:
             lines.append(
-                "  " + _ljust(s.label, 14)
+                "  "
+                + _ljust(s.label, 14)
                 + _rjust(f"{s.seconds * 1000.0:.1f} ms", 11)
                 + _rjust(f"{s.speedup:.1f}x", 8)
                 + _rjust(f"{s.segment_hits}/{s.segment_total}", 11)
@@ -3033,7 +3140,9 @@ def _incremental_data() -> dict:
             if j is None or c is None:
                 continue
             lines.append(
-                "  " + _ljust(label, 14) + _rjust(f"{j.reuse_rate:.0%}", 12)
+                "  "
+                + _ljust(label, 14)
+                + _rjust(f"{j.reuse_rate:.0%}", 12)
                 + _rjust(f"{c.reuse_rate:.0%}", 12)
             )
         return "\n".join(lines)
@@ -3083,9 +3192,10 @@ def _inc_tests() -> int:
     """``tests/test_incremental.py`` 里的用例数（页面上标注的专项测试数量）。"""
     path = Path(__file__).resolve().parents[1] / "tests" / "test_incremental.py"
     if not path.exists():
-         return 0
-    return sum(1 for line in path.read_text(encoding="utf-8").splitlines()
-               if line.startswith("def test_"))
+        return 0
+    return sum(
+        1 for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("def test_")
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -3147,15 +3257,15 @@ def _vendor_step_data() -> dict:
 
         MakeBox × 4 → TopoDS_Compound → STEPControl_Writer → *.STEP
           → load_step_components → mesh_component → write_stl_binary
-          → build_model → write_urdf → orolp.Robot（真加载 + 真算 FK）
+          → build_model → write_urdf → core.Robot（真加载 + 真算 FK）
 
-    全程在临时目录里，**绝不触碰仓库的 models/ 与 assets/**。同时把 OCP 兼容层
+    全程在临时目录里，**绝不触碰仓库的 assets/models/ 与 assets/**。同时把 OCP 兼容层
     ``describe()`` 的符号解析结果摆出来——那是「哪些 ``_s`` 改了、哪些没改」的现场证据。
     """
     import tempfile
 
-    from orolp import ocpcompat
-    from orolp.i18n import set_language
+    from adapter import ocpcompat
+    from support.i18n import set_language
 
     set_language("zh", save=False)
 
@@ -3172,15 +3282,23 @@ def _vendor_step_data() -> dict:
             if re.search(r"\b(Face_s|Edge_s|Vertex_s)\s*\(", _line):
                 guard_hits.append(f"{_name}:{_i}")
     guard_tests = sum(
-        1 for line in (REPO_ROOT / "tests" / "test_vendor_step_pipeline.py")
-        .read_text(encoding="utf-8").splitlines() if line.startswith("def test_")
+        1
+        for line in (REPO_ROOT / "tests" / "test_vendor_step_pipeline.py")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.startswith("def test_")
     )
 
-    sym_rows = ["  " + _ljust("OCP 7（旧名）", 40) + _ljust("OCP 8（现状）", 24)
-                + _ljust("结局", 8) + "用途", "  " + "-" * 92]
+    sym_rows = [
+        "  "
+        + _ljust("OCP 7（旧名）", 40)
+        + _ljust("OCP 8（现状）", 24)
+        + _ljust("结局", 8)
+        + "用途",
+        "  " + "-" * 92,
+    ]
     for old, new, fate, use in _VSC_SYMBOLS:
-        sym_rows.append("  " + _ljust(old, 40) + _ljust(new, 24)
-                        + _ljust(fate, 8) + use)
+        sym_rows.append("  " + _ljust(old, 40) + _ljust(new, 24) + _ljust(fate, 8) + use)
 
     data = {
         "vsc_symbols": "\n".join(sym_rows),
@@ -3222,11 +3340,13 @@ def _vendor_step_data() -> dict:
     info = ocpcompat.describe()
     data["vsc_ocp"] = f"{info['distribution']} {info['version']}"
     data["vsc_casts"] = " · ".join(f"TopoDS.{n}" for n in info["casts"].values())
-    data["vsc_kept"] = " · ".join(f"BRep_Tool.{v}" if k == "Triangulation"
-                                 else f"BRepBndLib.{v}" for k, v in info["functions"].items())
+    data["vsc_kept"] = " · ".join(
+        f"BRep_Tool.{v}" if k == "Triangulation" else f"BRepBndLib.{v}"
+        for k, v in info["functions"].items()
+    )
     data["vsc_ok"] = "1"
 
-    with tempfile.TemporaryDirectory(prefix="orolp-vsc-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="core-vsc-") as tmp:
         root = Path(tmp)
         step = root / "assets" / "vendor" / "vsc" / "step" / "VscBrandVSC2.STEP"
         step.parent.mkdir(parents=True, exist_ok=True)
@@ -3241,7 +3361,7 @@ def _vendor_step_data() -> dict:
             data["vsc_note"] = "合成 STEP 写出失败"
             return data
 
-        mdir = root / "models" / "vscmodel" / "vsc2"
+        mdir = root / "assets" / "models" / "vscmodel" / "vsc2"
         mdir.mkdir(parents=True, exist_ok=True)
         proc = mdir / "vsc2.urdf"
         proc.write_text(_VSC_URDF, encoding="utf-8")
@@ -3249,9 +3369,16 @@ def _vendor_step_data() -> dict:
         saved = (bv.VENDOR_STEP, bv.MODELS_DIR)
         brand = "vscbrand"
         bv.VENDOR_STEP = root / "assets" / "vendor"
-        bv.MODELS_DIR = root / "models"
-        bv.BRANDS[brand] = bv.BrandSpec(brand, "VscBrand", "vscmodel", "vsc/step",
-                                       coord="z_up_mm", verified=False, note="网页构建期合成")
+        bv.MODELS_DIR = root / "assets" / "models"
+        bv.BRANDS[brand] = bv.BrandSpec(
+            brand,
+            "VscBrand",
+            "vscmodel",
+            "vsc/step",
+            coord="z_up_mm",
+            verified=False,
+            note="网页构建期合成",
+        )
         try:
             trsf = bv._coord_trsf("z_up_mm")
             comps = bv.load_step_components(step, trsf)
@@ -3280,12 +3407,20 @@ def _vendor_step_data() -> dict:
             raw = m.read_bytes()
             n = int(np.frombuffer(raw[80:84], dtype="<u4")[0])
             dt = np.dtype([("normal", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
-            verts[m.stem] = np.frombuffer(raw[84:84 + n * 50], dtype=dt)["v"].astype(
-                np.float64).reshape(-1, 3)
+            verts[m.stem] = (
+                np.frombuffer(raw[84 : 84 + n * 50], dtype=dt)["v"]
+                .astype(np.float64)
+                .reshape(-1, 3)
+            )
 
-        rows = ["  " + _ljust("关节", 8) + _rjust("URDF 里的位移 (m)", 24)
-                + _rjust("复核：最近顶点到本连杆原点 (mm)", 34)
-                + _rjust("一致", 8), "  " + "-" * 76]
+        rows = [
+            "  "
+            + _ljust("关节", 8)
+            + _rjust("URDF 里的位移 (m)", 24)
+            + _rjust("复核：最近顶点到本连杆原点 (mm)", 34)
+            + _rjust("一致", 8),
+            "  " + "-" * 76,
+        ]
         body_names = [l for l in links if l != "tcp"]
         acc = np.zeros(3)  # 逐级累加 URDF 声明的位移 = 各连杆坐标系原点（世界系）
         for i, j in enumerate(joints[:3], start=1):
@@ -3304,9 +3439,13 @@ def _vendor_step_data() -> dict:
                 gap_mm = float(np.linalg.norm(verts[child][idx])) * 1000.0
                 dist_txt = f"{gap_mm:.4f}"
                 ok = "✓" if gap_mm < 0.1 else "✗"
-            rows.append("  " + _ljust(j.get("name"), 8)
-                        + _rjust(f"({o[0]:+.4f}, {o[1]:+.4f}, {o[2]:+.4f})", 24)
-                        + _rjust(dist_txt, 34) + _rjust(ok, 8))
+            rows.append(
+                "  "
+                + _ljust(j.get("name"), 8)
+                + _rjust(f"({o[0]:+.4f}, {o[1]:+.4f}, {o[2]:+.4f})", 24)
+                + _rjust(dist_txt, 34)
+                + _rjust(ok, 8)
+            )
         data["vsc_origins"] = "\n".join(rows)
 
         data["vsc_components"] = str(len(comps))
@@ -3335,23 +3474,23 @@ def _collision_cache_data() -> dict:
     """
     import time as _time
 
-    from orolp.collision import collision_cache_key
-    from orolp.incremental import (
+    from domain.collision import collision_cache_key
+    from service.incremental import (
         CollisionResultCache,
         TrajectoryCache,
         get_cache,
         set_cache,
     )
-    from orolp.i18n import set_language
-    from orolp.perf import SWEEP_BASE, sweep_program
-    from orolp.planner import TrajectoryPlanner
-    from orolp.pose import Pose
-    from orolp.world.templates import build_grasping_workstation
+    from support.i18n import set_language
+    from service.perf import SWEEP_BASE, sweep_program
+    from service.planner import TrajectoryPlanner
+    from domain.pose import Pose
+    from domain.world.templates import build_grasping_workstation
 
     set_language("zh", save=False)
 
     def _fresh_robot():
-        r = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+        r = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
         r.set_joints(list(SWEEP_BASE))
         return r
 
@@ -3450,11 +3589,11 @@ def _dynamics_cache_data() -> dict:
     """
     import time as _time
 
-    from orolp.incremental import DynamicsResultCache
-    from orolp.perf import SWEEP_BASE, sweep_program
-    from orolp.planner import TrajectoryPlanner
+    from service.incremental import DynamicsResultCache
+    from service.perf import SWEEP_BASE, sweep_program
+    from service.planner import TrajectoryPlanner
 
-    robot = Robot("models/lerobot/so101/urdf/so101.urdf", "SO101")
+    robot = Robot("assets/models/lerobot/so101/urdf/so101.urdf", "SO101")
     robot.set_joints(list(SWEEP_BASE))
     planner = TrajectoryPlanner(robot=robot)
     assert planner.dynamics_model.has_inertial, "夹具前提失效：SO101 应自带惯性参数"
@@ -3498,7 +3637,9 @@ def _dynamics_cache_data() -> dict:
         "dch_issues": str(len(report2.issues)),
         "dch_miss_ms": f"{miss_ms:.1f}",
         "dch_off_ms": f"{off_ms:.1f}",
-        "dch_stats": "命中 {hits} / 未命中 {misses} / 存储 {stores} / 条目 {entries}".format(**stats_end),
+        "dch_stats": "命中 {hits} / 未命中 {misses} / 存储 {stores} / 条目 {entries}".format(
+            **stats_end
+        ),
         "dch_tests": "26",
     }
 
@@ -3509,11 +3650,11 @@ def _cache_overview_data() -> dict:
     构建时真跑两段：①UR5e + 抓取工作站校验两次（规划缓存 + 干涉结果缓存
     的命中成长）；②SO101 校验两次（力矩校验结果缓存的命中——UR5e 程序
     模型不带 <inertial>，动力学走跳过分支，这本身就是要如实呈现的口径）。
-    数字全部取自 :func:`orolp.incremental.cache_overview` 的真实快照。
+    数字全部取自 :func:`service.incremental.cache_overview` 的真实快照。
     """
     import time as _time
 
-    from orolp.incremental import (
+    from service.incremental import (
         CollisionResultCache,
         DynamicsResultCache,
         TrajectoryCache,
@@ -3525,10 +3666,10 @@ def _cache_overview_data() -> dict:
         set_collision_cache,
         set_dynamics_cache,
     )
-    from orolp.i18n import set_language
-    from orolp.perf import SWEEP_BASE, sweep_program
-    from orolp.planner import TrajectoryPlanner
-    from orolp.world.templates import build_grasping_workstation
+    from support.i18n import set_language
+    from service.perf import SWEEP_BASE, sweep_program
+    from service.planner import TrajectoryPlanner
+    from domain.world.templates import build_grasping_workstation
 
     set_language("zh", save=False)
 
@@ -3538,7 +3679,7 @@ def _cache_overview_data() -> dict:
     set_dynamics_cache(DynamicsResultCache())
     try:
         # ---- ① UR5e + 工作站：规划与干涉两个缓存 ----
-        robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+        robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
         robot.set_joints(list(SWEEP_BASE))
         scene = build_grasping_workstation().scene
         planner = TrajectoryPlanner(robot, scene=scene)
@@ -3557,7 +3698,7 @@ def _cache_overview_data() -> dict:
         assert col_row["hits"] >= 1, "第二次校验必须命干涉结果缓存"
 
         # ---- ② SO101：力矩校验结果缓存（UR5e 无惯性参数走跳过分支） ----
-        so = Robot("models/lerobot/so101/urdf/so101.urdf", "SO101")
+        so = Robot("assets/models/lerobot/so101/urdf/so101.urdf", "SO101")
         so.set_joints(list(SWEEP_BASE))
         so_planner = TrajectoryPlanner(robot=so)
         so_prog = sweep_program(so, 60)
@@ -3655,7 +3796,7 @@ _TPL = """<!DOCTYPE html>
     <rect x="0" y="0" width="1040" height="1180" fill="#161a20" rx="10"/>
     @@SCENE@@
   </svg>
-  <p style="color:var(--dim);font-size:13px;margin-top:10px">机器人基座在原点；布局坐标与 <code>orolp.world.templates</code> 中 1:1 一致，加载模板即可在 GUI 中得到同款场景。</p>
+  <p style="color:var(--dim);font-size:13px;margin-top:10px">机器人基座在原点；布局坐标与 <code>domain.world.templates</code> 中 1:1 一致，加载模板即可在 GUI 中得到同款场景。</p>
 </section>
 
 <section>
@@ -3678,7 +3819,7 @@ _TPL = """<!DOCTYPE html>
   <h2>抓取随动动画（S3 已落地 · GUI 与离线脚本共用一份语义）</h2>
   <p style="font-size:14px">程序执行到 <code>gripper("close")</code> 的时刻，工件吸附到法兰并随 TCP 随动（吸附瞬间世界位姿不变）；执行 <code>gripper("open")</code> 后工件原地留在落件位姿。</p>
   <ul style="font-size:13.5px;color:var(--dim);margin:10px 0 0 18px">
-    <li><code>orolp.world.animation</code>：把夹爪 IO 指令映射到轨迹时间轴（<code>GraspAnimator</code>，无头可测，GUI 与脚本共用）</li>
+    <li><code>domain.world.animation</code>：把夹爪 IO 指令映射到轨迹时间轴（<code>GraspAnimator</code>，无头可测，GUI 与脚本共用）</li>
     <li>离线编程面板：插补回放越过抓取/释放事件时自动驱动场景工件挂载/解除</li>
     <li>示教点标记为「抓取点/放置点」后，程序自动插入 <code>gripper()</code> 指令——回放动画与品牌出码共用同一份抓取时序</li>
     <li>测试基线 @@TOTAL_TESTS@@ passed（含 14 个抓取动画专项测试）</li>
@@ -3687,7 +3828,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>GUI 一键演示（S4 已落地 · 菜单一键到动画）</h2>
-  <p style="font-size:14px">app.py「文件 → 抓取工作站演示（一键）」：构建模板场景 → 视口载入 UR5e → IK 生成五点式抓取循环示例程序（<code>orolp.world.demo</code>，无头可测）→ 自动校验显示节拍 → 自动开始回放，工件吸附/释放全程随动。</p>
+  <p style="font-size:14px">main.py「文件 → 抓取工作站演示（一键）」：构建模板场景 → 视口载入 UR5e → IK 生成五点式抓取循环示例程序（<code>domain.world.demo</code>，无头可测）→ 自动校验显示节拍 → 自动开始回放，工件吸附/释放全程随动。</p>
   <ul style="font-size:13.5px;color:var(--dim);margin:10px 0 0 18px">
     <li>示例示教点带工艺语义（接近/抓取/提升/落件/撤离），回放动画与品牌出码共用同一份抓取时序</li>
     <li>布局经过可达性校准：全部示教位姿对 UR5e 模型留 ≥27mm 距离余量（IK 有解才有演示）</li>
@@ -3745,7 +3886,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>动力学 / 力矩校验（v0.3.1 新能力）</h2>
-  <p style="font-size:14px">运动学回答"能不能到"，动力学回答"到了关节扛不扛得住"。<code>orolp.dynamics</code> 用牛顿-欧拉逆动力学逐路点计算关节力矩与机械功率，超额定直接报错、GUI 路点行标红。</p>
+  <p style="font-size:14px">运动学回答"能不能到"，动力学回答"到了关节扛不扛得住"。<code>domain.dynamics</code> 用牛顿-欧拉逆动力学逐路点计算关节力矩与机械功率，超额定直接报错、GUI 路点行标红。</p>
   <ul style="font-size:13.5px;color:var(--dim);margin:10px 0 14px 18px">
     <li><b>惯性参数双轨</b>：URDF <code>&lt;inertial&gt;</code> 自动解析（CAD 导出轨道）+ <code>set_link_inertial</code> 手动录入（手册轨道）+ <code>set_payload</code> 末端负载（平行轴定理合并）</li>
     <li><b>真实物理</b>：含重力、离心/科氏项与连杆惯性张量；单摆解析值、负载 Δτ=JᵀF、质量矩阵对称性三重交叉验证</li>
@@ -3763,7 +3904,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>STEP/CAM 轨迹生成（v0.3.2 新能力）</h2>
-  <p style="font-size:14px">CAD 模型直接变焊缝程序：<code>orolp.cam</code> 从 STEP/IGES 提取边与焊缝链，自动生成 moveL/moveC 路径，并用扫描点云比对实际偏差。下方数据全部来自真实管线（OpenCASCADE 整圆焊缝 → UR5e 校验 → URScript 出码）。</p>
+  <p style="font-size:14px">CAD 模型直接变焊缝程序：<code>service.cam</code> 从 STEP/IGES 提取边与焊缝链，自动生成 moveL/moveC 路径，并用扫描点云比对实际偏差。下方数据全部来自真实管线（OpenCASCADE 整圆焊缝 → UR5e 校验 → URScript 出码）。</p>
   <ul style="font-size:13.5px;color:var(--dim);margin:10px 0 14px 18px">
     <li><b>焊缝提取</b>：拓扑边离散（弦高容差可控）→ 端点共点串链 → 闭合回路独立成链（整圆焊缝完整保留）；按长度 / 闭合 / 序号筛选</li>
     <li><b>路径 → 程序</b>：转角检测 + 平滑段 moveC 按累计转角 ≤120° 分片（规避控制器整圆限制）+ 转角/短段 moveL；闭合路径环形分段自动回起点；<code>z_lift</code> 沿法向抬高 + 固定焊炬姿态</li>
@@ -3791,7 +3932,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>标定与手眼视觉（v0.3.4 新能力 · 相机触发抓取）</h2>
-  <p style="font-size:14px">相机看到工件之后，机器人凭什么知道去哪抓？中间隔着四道"真实世界"的换算：<b>TCP 标定</b>（吸盘中心在哪）、<b>托盘坐标系 3 点法</b>（工件摆在哪）、<b>手眼标定</b>（相机在机器人的什么位置）、<b>像素 → 抓取位姿</b>（图像坐标怎么变成机器人目标）。<code>orolp.calibration</code> 把这四步做成可计算、可校验、可落盘的能力——每一步都给<b>误差</b>，不给出"看着像对"的数。</p>
+  <p style="font-size:14px">相机看到工件之后，机器人凭什么知道去哪抓？中间隔着四道"真实世界"的换算：<b>TCP 标定</b>（吸盘中心在哪）、<b>托盘坐标系 3 点法</b>（工件摆在哪）、<b>手眼标定</b>（相机在机器人的什么位置）、<b>像素 → 抓取位姿</b>（图像坐标怎么变成机器人目标）。<code>service.calibration</code> 把这四步做成可计算、可校验、可落盘的能力——每一步都给<b>误差</b>，不给出"看着像对"的数。</p>
   <svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="calarrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -3873,7 +4014,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>多机器人协同（v1.0.1 新能力 · 两台机器人共用一条时间轴）</h2>
-  <p style="font-size:14px">两台机器人各跑各的程序，<b>单看每一台都"校验通过"</b>，放到一起却可能撞——这类问题只存在于<b>时间轴</b>上：一台在取件时另一台正伸过同一片空间，或者一台待机位形恰好挡在别人的路径上。<code>orolp.multirobot</code> 把 N 条轨迹排到同一条时间轴上按固定步长采样，分别检查<b>机器人-机器人</b>干涉（含最近连杆对与最小间距）与<b>机器人-环境</b>干涉（<b>待机位形不隐身</b>——A 在等 B 的时候，A 就停在轨迹端点，那也是真实位姿）。</p>
+  <p style="font-size:14px">两台机器人各跑各的程序，<b>单看每一台都"校验通过"</b>，放到一起却可能撞——这类问题只存在于<b>时间轴</b>上：一台在取件时另一台正伸过同一片空间，或者一台待机位形恰好挡在别人的路径上。<code>service.multirobot</code> 把 N 条轨迹排到同一条时间轴上按固定步长采样，分别检查<b>机器人-机器人</b>干涉（含最近连杆对与最小间距）与<b>机器人-环境</b>干涉（<b>待机位形不隐身</b>——A 在等 B 的时候，A 就停在轨迹端点，那也是真实位姿）。</p>
   <svg viewBox="0 0 1040 360" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <marker id="mrarw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -3918,7 +4059,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>力控柔顺（v1.0.2 新能力 · 恒力打磨 / 贴面 / 装配的规划与出码）</h2>
-  <p style="font-size:14px">位置控回答"走到哪"，力控回答"用多大力顶着走"。<code>orolp.compliance</code> 把力控里<b>该先算的数</b>一次算清——再按品牌出码（UR 原生 <code>force_mode()</code>，其余品牌诚实降级、绝不臆造语法）。</p>
+  <p style="font-size:14px">位置控回答"走到哪"，力控回答"用多大力顶着走"。<code>service.compliance</code> 把力控里<b>该先算的数</b>一次算清——再按品牌出码（UR 原生 <code>force_mode()</code>，其余品牌诚实降级、绝不臆造语法）。</p>
   <svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" style="margin-top:8px">
     <rect x="0" y="0" width="760" height="300" fill="#161a20" rx="10"/>
     <text x="60" y="34" fill="#e8a33d" font-size="14" font-weight="bold">30N 阶跃力下的 TCP 让步曲线（导纳仿真 · z 轴，刚度 8 N/mm）</text>
@@ -3952,7 +4093,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>数字孪生与云协作（v1.0.3 新能力 · 仿真 vs 真机 的偏差闭环）</h2>
-  <p style="font-size:14px">离线编程的最后一问不是"代码生成没有"，而是<b>"真机跑出来和我想的一样吗"</b>。<code>orolp.twinsync</code> 把 <code>DebugSession.deviation</code> 的逐时刻偏差采样成<b>时间序列</b>，把两条来自不同源的轨迹按时间对齐后做差分，并且——最关键——把偏差拆成<b>"标定"与"伺服"两部分</b>：低速/停点段还剩下的偏差与伺服无关（只可能来自零位、传动比、连杆尺寸、工具坐标），高速段多出来的那部分才是位置环带宽不够。<b>两者处理方式完全不同，改错方向等于白干。</b></p>
+  <p style="font-size:14px">离线编程的最后一问不是"代码生成没有"，而是<b>"真机跑出来和我想的一样吗"</b>。<code>service.twinsync</code> 把 <code>DebugSession.deviation</code> 的逐时刻偏差采样成<b>时间序列</b>，把两条来自不同源的轨迹按时间对齐后做差分，并且——最关键——把偏差拆成<b>"标定"与"伺服"两部分</b>：低速/停点段还剩下的偏差与伺服无关（只可能来自零位、传动比、连杆尺寸、工具坐标），高速段多出来的那部分才是位置环带宽不够。<b>两者处理方式完全不同，改错方向等于白干。</b></p>
   <p style="font-size:13px;color:#e8a33d;margin-top:6px">⚠️ 本页<b>没有真机</b>：真机侧是 <code>PlantModel</code> <b>合成传动误差模型</b>（零位偏置 / 传动比误差 / 编码器噪声 / 一阶伺服滞后，按物理规律作用），所有真机轨迹都标 <code>source=plant</code>。它的用途是验证整条孪生链路、以及标定"偏差多大该报警"的阈值——<b>不是现场实测数据，不能当验收依据</b>。接真机时把连接换成真机 <code>ControllerLink</code> 实现即可，报告逻辑一行不改。</p>
 
   @@TWIN_CHART_TUNED@@
@@ -4008,7 +4149,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>插件接口（v1.0.4 新能力 · 不加核心代码也能加品牌/算法/渲染层）</h2>
-  <p style="font-size:14px">上一节把"真机跑得对不对"补齐了，但还有个更日常的痛：<b>每加一个东西都要改核心仓库</b>。加一个品牌的控制语言得改后处理注册表；真机要换自己的解析解或标定几何得改运动学；现场想看的那条焊缝/那批超差点，只有使用者自己知道要画什么。<code>orolp.plugins</code> 把这三处开放成扩展点——<b>抽象早就在了（<code>post/base.py</code> 的模板 + 格式化钩子、<code>RobotKinematics</code>、覆盖层），缺的只是"从外部挂进来"的入口</b>。</p>
+  <p style="font-size:14px">上一节把"真机跑得对不对"补齐了，但还有个更日常的痛：<b>每加一个东西都要改核心仓库</b>。加一个品牌的控制语言得改后处理注册表；真机要换自己的解析解或标定几何得改运动学；现场想看的那条焊缝/那批超差点，只有使用者自己知道要画什么。<code>adapter.plugins</code> 把这三处开放成扩展点——<b>抽象早就在了（<code>post/base.py</code> 的模板 + 格式化钩子、<code>RobotKinematics</code>、覆盖层），缺的只是"从外部挂进来"的入口</b>。</p>
 
   <p style="font-size:13px;color:#9aa5b5;margin:14px 0 6px">本页运行时按真实通路登记的插件（同一进程内跑的，不是贴图）：</p>
   <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>@@PLUG_REGISTRY@@</code></pre>
@@ -4053,7 +4194,7 @@ _TPL = """<!DOCTYPE html>
   <pre style="background:#10141a;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;color:#c8d0dc;overflow-x:auto"><code>@@PLUG_EP_SNIPPET@@</code></pre>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
-    <li><b>延迟加载</b>：<code>register_*</code> 只登记元信息，工厂到 <code>create()</code> 才调用；工厂写成 <code>"module:attr"</code> 时连模块导入都推迟到那一刻——插件可以依赖 PySide6 / OpenGL / 厂商 SDK，而 <code>import orolp</code> 不能因此变重或失败</li>
+    <li><b>延迟加载</b>：<code>register_*</code> 只登记元信息，工厂到 <code>create()</code> 才调用；工厂写成 <code>"module:attr"</code> 时连模块导入都推迟到那一刻——插件可以依赖 PySide6 / OpenGL / 厂商 SDK，而 <code>import core</code> 不能因此变重或失败</li>
     <li><b>API 版本显式声明</b>：规则只有一条，<b>主版本号必须相等</b>（<code>1.2</code> 与 <code>1.5</code> 兼容，<code>1.x</code> 与 <code>2.x</code> 不兼容）。刻意选最可解释的规则——宁可偶尔多拒一个其实能跑的插件，也不要让"悄悄按新语义跑出错误轨迹"发生在工业软件里</li>
     <li><b>契约显式校验</b>：运动学插件加载时先查必需成员，缺了就拒；缺可选项只记一条警告（聚合成 1 条，不是每个成员刷 1 条），并且相关功能会明确提示而不是运行到一半崩</li>
     <li><b>演示诚实性</b>：本节所有数字都来自本页生成时真实跑过的注册与调用；<b>没有真的第三方包被安装</b>（入口点扫描结果如实显示"发现 0 个"），所以插件是用 <code>register_*</code> 直接登记的——这正是同一个注册表</li>
@@ -4124,14 +4265,14 @@ _TPL = """<!DOCTYPE html>
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>没有真机就没有真机</b>：本节所有回读值都来自随包附带的<strong>打桩控制器</strong> <code>ControllerStubServer</code>（回读复用 v1.0.3 的 <code>PlantLink</code> 合成传动误差模型：零位偏置 / 传动比误差 / 编码器噪声 / 伺服一阶滞后）。<code>source="real"</code> 只表示"数据经网络从控制器侧回读"，<strong>不代表现场实测，不能当验收依据引用</strong>——<b>Socket 通路本身也未在真机上验证过</b></li>
     <li><b>接真机要做的只有一件事</b>：在控制器侧准备一段同协议转发（UR 可用 URScript 的 <code>socket_open</code>/<code>read</code>/<code>write</code> 写小桩，或由 PC 侧代理进程把厂商 SDK / 原生协议翻译成本协议），然后把 <code>SocketLink</code> 指向它——孪生层、调试会话、后处理全部无需改动</li>
-    <li><b>打桩控制器可以自己跑</b>：<code>python -m orolp.linkstub --port 30002 --urdf models/ur/ur5e/ur5e.urdf</code>，再用 <code>SocketLink("127.0.0.1", 30002)</code> 连上去；它还支持注入<strong>乱码 / 掉线 / 拒答 / 静默</strong>四类故障做排障演练（就是上表的来源）</li>
+    <li><b>打桩控制器可以自己跑</b>：<code>python -m adapter.linkstub --port 30002 --urdf assets/models/ur/ur5e/ur5e.urdf</code>，再用 <code>SocketLink("127.0.0.1", 30002)</code> 连上去；它还支持注入<strong>乱码 / 掉线 / 拒答 / 静默</strong>四类故障做排障演练（就是上表的来源）</li>
     <li><b>一条命令可复现</b>：<code>examples/socket_link_demo.py</code> 跑通同一条闭环（含故障演练与线上对话留档）；<code>tests/test_socket_link.py</code> @@SOCK_TESTS@@ 个专项测试（含"服务端谎报关节数"必须报错、乱码/掉线/静默四类故障的连接状态、CLI 真实子进程验收），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
   </ul>
 </section>
 
 <section>
   <h2>HTTP / S3 兼容云协作（v1.0.6 新能力 · 多工位共用一套程序库与轨迹库）</h2>
-  <p style="font-size:14px">v1.0.5 解决了"连真机"，这一节解决"多台设备共享"：云协作的传输层此前只有进程内与本机目录两种实现，<strong>两个工位共用同一套程序库/轨迹库</strong>做不到。<code>cloudhttp.py</code> 三件套补上：<code>HTTPCloudStore</code>（REST 客户端，把 <code>CloudTransport</code> 四方法映射成四个 HTTP 请求）、<code>SigV4Signer</code>（AWS Signature V4，零第三方依赖——对接 S3 兼容对象存储时补上它即可）、<code>CloudStoreServer</code>（纯标准库参考服务端，<code>python -m orolp.cloudhttp --root &lt;目录&gt;</code> 即起，本机验收与自建自用两用）。失败语义与 SocketLink 同套路：<strong>连不上/5xx 是传输级故障</strong>（标记 <code>reachable=False</code>，不让断网被渲染成"云端是空的"）、<strong>404 是正常回答</strong>（对象缺失→None）、<strong>401/403 是配置问题</strong>（专门的 <code>CloudAuthError</code>，响亮报错不重试）。</p>
+  <p style="font-size:14px">v1.0.5 解决了"连真机"，这一节解决"多台设备共享"：云协作的传输层此前只有进程内与本机目录两种实现，<strong>两个工位共用同一套程序库/轨迹库</strong>做不到。<code>cloudhttp.py</code> 三件套补上：<code>HTTPCloudStore</code>（REST 客户端，把 <code>CloudTransport</code> 四方法映射成四个 HTTP 请求）、<code>SigV4Signer</code>（AWS Signature V4，零第三方依赖——对接 S3 兼容对象存储时补上它即可）、<code>CloudStoreServer</code>（纯标准库参考服务端，<code>python -m adapter.cloudhttp --root &lt;目录&gt;</code> 即起，本机验收与自建自用两用）。失败语义与 SocketLink 同套路：<strong>连不上/5xx 是传输级故障</strong>（标记 <code>reachable=False</code>，不让断网被渲染成"云端是空的"）、<strong>404 是正常回答</strong>（对象缺失→None）、<strong>401/403 是配置问题</strong>（专门的 <code>CloudAuthError</code>，响亮报错不重试）。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 本页生成时真起了一个对象存储服务端，两个工位走真 HTTP 共享程序库</h3>
   <div class="metrics" style="margin-top:12px">
@@ -4178,7 +4319,7 @@ _TPL = """<!DOCTYPE html>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>接真云只改一处</b>：把 <code>base_url / bucket / 凭证</code> 换成真的（S3 兼容存储再加一个 <code>SigV4Signer</code>），<code>CloudLink</code>、孪生层、调试会话、后处理一行不用改</li>
-    <li><b>自建自用</b>：<code>python -m orolp.cloudhttp --root /srv/rwcloud --port 8080 --token 顶智令牌</code> 就是一个可用的对象存储端点；REST 契约刻意做窄，自己实现一个兼容服务端只要几十行</li>
+    <li><b>自建自用</b>：<code>python -m adapter.cloudhttp --root /srv/rwcloud --port 8080 --token 顶智令牌</code> 就是一个可用的对象存储端点；REST 契约刻意做窄，自己实现一个兼容服务端只要几十行</li>
     <li><b>一条命令可复现</b>：<code>examples/cloud_http_demo.py</code> 跑通同一条闭环；<code>tests/test_cloudhttp.py</code> @@CLOUD_TESTS@@ 个专项测试（AWS 官方 4 组向量逐字符比对、三种传输契约一致性、真并发、CLI 真实子进程验收），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
   </ul>
 </section>
@@ -4227,8 +4368,8 @@ _TPL = """<!DOCTYPE html>
   </div>
   <pre class="code" style="font-size:12.5px">@@PKGP_CODE@@</pre>
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
-    <li><b>入口点组</b>：<code>[project.entry-points."orolp.plugins"]</code>，加载结果是"提供函数"（返回 <code>PluginSpec</code> 列表）；工厂写成 <code>"module:attr"</code> 字符串——连插件模块内部都是延迟导入</li>
-    <li><b>宿主边界</b>：<code>orolp</code> 本体由宿主环境提供，插件包不写进 <code>dependencies</code>——插件不绑架宿主的 orolp 版本</li>
+    <li><b>入口点组</b>：<code>[project.entry-points."adapter.plugins"]</code>，加载结果是"提供函数"（返回 <code>PluginSpec</code> 列表）；工厂写成 <code>"module:attr"</code> 字符串——连插件模块内部都是延迟导入</li>
+    <li><b>宿主边界</b>：<code>core</code> 本体由宿主环境提供，插件包不写进 <code>dependencies</code>——插件不绑架宿主的 core 版本</li>
     <li><b>出码同路</b>：装好后 <code>program.to_post("acme_v2")</code> 与内置 7 品牌走<strong>完全同一套</strong> <code>get_post_processor</code> 通路（含 IO 指令的诚实降级警告）</li>
     <li><b>一条命令可复现</b>：<code>tests/test_plugin_package.py</code> @@PKGP_TESTS@@ 个专项测试（含真 pip install → 真发现 → 真出码的核心验收；先复制再装，pip 就地构建绝不污染源目录），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
   </ul>
@@ -4251,7 +4392,7 @@ _TPL = """<!DOCTYPE html>
 
 <section>
   <h2>界面语言切换 · i18n（v1.0.10 新能力）</h2>
-  <p style="font-size:14px">面向开源发布的<strong>英文界面</strong>：新增 <code>orolp.i18n</code>——<code>tr()</code> 轻量运行时翻译。<strong>中文是源语言</strong>（默认恒等返回，零回归），英文查目录（未收录原样返回，绝不出现占位符）；语言经 <code>OROLP_LANG</code> 环境变量或 <code>~/.orolp/language.json</code> 显式配置（不做 locale 自动探测，行为可预期），GUI 菜单「语言 / Language」切换即持久化并提示重启。下表是构建时从目录里取出的真实译文：</p>
+  <p style="font-size:14px">面向开源发布的<strong>英文界面</strong>：新增 <code>support.i18n</code>——<code>tr()</code> 轻量运行时翻译。<strong>中文是源语言</strong>（默认恒等返回，零回归），英文查目录（未收录原样返回，绝不出现占位符）；语言经 <code>CORE_LANG</code> 环境变量或 <code>~/.core/language.json</code> 显式配置（不做 locale 自动探测，行为可预期），GUI 菜单「语言 / Language」切换即持久化并提示重启。下表是构建时从目录里取出的真实译文：</p>
   <table style="width:100%;font-size:13.5px;border-collapse:collapse;margin:12px 0">
     <tr style="color:var(--dim)"><th align="left">中文（源语言）</th><th align="left">English</th></tr>
     @@I18N_ROWS@@
@@ -4443,7 +4584,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
 
 <section>
   <h2>PLC 侧信号 ↔ 机器人 IO 点表（v1.1.6 新能力 · 现场返工最常见的原因不是算法，是点表对不上）</h2>
-  <p style="font-size:14px">机器人程序里写 <code>SetDO("gripper_close")</code>，PLC 侧这个词接在哪个地址——此前只能靠人对。<strong>TIA 能编译只说明语法没问题，不代表两侧点位对得上</strong>。v1.1.6 把这件事做成可编辑、可校验、可往返的一张表（<code>orolp/iomap.py</code>），并且<strong>SCL 出码随附点表</strong>——未映射的点直接写在文件里，而不是只在某个界面里红一下。数据源仍是 <code>CellConfig</code>：硬件列表 / PLC 逻辑 / 机器人程序共用同一份模型，<code>SignalMap</code> 只是它的视图 + 编辑器。</p>
+  <p style="font-size:14px">机器人程序里写 <code>SetDO("gripper_close")</code>，PLC 侧这个词接在哪个地址——此前只能靠人对。<strong>TIA 能编译只说明语法没问题，不代表两侧点位对得上</strong>。v1.1.6 把这件事做成可编辑、可校验、可往返的一张表（<code>service/iomap.py</code>），并且<strong>SCL 出码随附点表</strong>——未映射的点直接写在文件里，而不是只在某个界面里红一下。数据源仍是 <code>CellConfig</code>：硬件列表 / PLC 逻辑 / 机器人程序共用同一份模型，<code>SignalMap</code> 只是它的视图 + 编辑器。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 一组"看起来没问题"的单元，校验能抓出什么</h3>
   <p style="font-size:13.5px;color:var(--dim)">PLC（Q0.0/I0.0）+ 夹爪（两个信号都塞在 Q0.1——故意的）+ 安全回路；机器人程序写夹爪、等工件到位、等夹紧反馈，外加一个谁都没建过地址的信号 <code>ghost_close</code>。本页构建时真跑校验：</p>
@@ -4488,7 +4629,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
 
 <section>
   <h2>场景拖拽摆放工件（v1.1.7 新能力 · "把它放在工作台上"不该要人算高度）</h2>
-  <p style="font-size:14px">往场景里摆一个工件，此前只能手填坐标——<strong>"把它放在托盘上"这件人一秒就能做的事，界面上要口算 z = 台面高 + 工件半高</strong>。v1.1.7 补上"直接拿起来放桌上"的自然语义：<strong>左键按在工件/设备上＝抓取</strong>（不转视角），拖动保持按下那一刻的高度平面，<strong>松手自动落到支撑面</strong>。核心是一份不依赖 Qt 的纯几何模块（<code>python/orolp/world/placement.py</code>），库层也能复用。</p>
+  <p style="font-size:14px">往场景里摆一个工件，此前只能手填坐标——<strong>"把它放在托盘上"这件人一秒就能做的事，界面上要口算 z = 台面高 + 工件半高</strong>。v1.1.7 补上"直接拿起来放桌上"的自然语义：<strong>左键按在工件/设备上＝抓取</strong>（不转视角），拖动保持按下那一刻的高度平面，<strong>松手自动落到支撑面</strong>。核心是一份不依赖 Qt 的纯几何模块（<code>domain/world/placement.py</code>），库层也能复用。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 真跑一次"拖动松手"（本页构建时实测）</h3>
   <div class="metrics" style="margin-top:12px">
@@ -4518,7 +4659,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
 
 <section>
   <h2>规模与性能基准（v1.1.8 新能力 · 从"几十个示教点"到"几千个路点"）</h2>
-  <p style="font-size:14px">几十个示教点的演示跑得飞快，几千个路点的程序（激光焊 / 打磨 / 喷涂的典型形态）会把"每次改动全量重算"的代价暴露出来。v1.1.8 做了两件事：<strong>把正运动学里那些"URDF 解析后就不再改变"的量缓存起来</strong>（关节原点的欧拉角转换、转轴单位化、4×4 组装），<strong>并把 <code>motion_at</code> 的时间轴查询从顺序扫描换成二分</strong>；同时新增 <code>orolp/perf.py</code>，把规划/干涉/校验分段计时并给出规模表——所有数字都现场实算，页面不写死任何常数。</p>
+  <p style="font-size:14px">几十个示教点的演示跑得飞快，几千个路点的程序（激光焊 / 打磨 / 喷涂的典型形态）会把"每次改动全量重算"的代价暴露出来。v1.1.8 做了两件事：<strong>把正运动学里那些"URDF 解析后就不再改变"的量缓存起来</strong>（关节原点的欧拉角转换、转轴单位化、4×4 组装），<strong>并把 <code>motion_at</code> 的时间轴查询从顺序扫描换成二分</strong>；同时新增 <code>core/perf.py</code>，把规划/干涉/校验分段计时并给出规模表——所有数字都现场实算，页面不写死任何常数。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 优化不许改变结果：两份实现逐位比对</h3>
   <p style="font-size:13.5px;color:var(--dim)">基准里带了一份<strong>朴素参考实现</strong>（<code>reference_link_transforms</code>：逐次调用 scipy、逐次组装 4×4），它既是等价性的对照组，也是"关掉缓存会怎样"的实物证据。本页构建时把 @@PERF_CALLS@@ 组关节值（含零位与 ±150° 随机组）同时喂给两份实现：</p>
@@ -4547,7 +4688,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
     <li><b>每段取 repeat 次里的最小值（best-of）</b>——平均值会把系统抖动算进来；最小值最接近"没有干扰时的代价"</li>
     <li><b>各阶段耗时不构成一次总时长的分解</b>：<code>validate()</code> 内部会自己再规划一次，模块如实给出墙钟值而不是编一个"总计"</li>
     <li><b>干涉数来自 URDF <code>&lt;collision&gt;</code> 包络体</b>，不是真机几何（本仓库一贯显式披露容差放行的接触）</li>
-    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 120 --sizes 25,60,120,240</code> 或 <code>examples/perf_benchmark_demo.py</code>；<code>tests/test_perf.py</code> @@PERF_TESTS@@ 个专项测试（等价性逐位比对 / 缓存失效与只读 / scipy 调用计数 / <code>motion_at</code> 二分等价 / 基准工具语义 / CLI 与子进程），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
+    <li><b>一条命令可复现</b>：<code>python -m service.perf --motions 120 --sizes 25,60,120,240</code> 或 <code>examples/perf_benchmark_demo.py</code>；<code>tests/test_perf.py</code> @@PERF_TESTS@@ 个专项测试（等价性逐位比对 / 缓存失效与只读 / scipy 调用计数 / <code>motion_at</code> 二分等价 / 基准工具语义 / CLI 与子进程），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
   </ul>
 </section>
 
@@ -4591,7 +4732,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
     <li><b>默认口径的保证随规模变弱，且这一点此前是隐性的</b>——v1.1.9 没有改默认值（大程序上默认口径仍然最快），而是把它写进报告与文档，让"要不要更密"变成用户的显式选择</li>
     <li><b>每次采样约 0.17 ms 是这台机器上的数</b>，且随场景对象数近似线性增长；它的用途是同机横向比较与回归预警，不是跑分</li>
     <li><b>等价性对拍用的是随机基本体，不是真机几何</b>——覆盖的是内核的数值路径（含相切、包含、退化棱），不覆盖 URDF 解析与包络体生成</li>
-    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 120 --collision</code> 或 <code>examples/collision_perf_demo.py</code>；<code>tests/test_collision_perf.py</code> @@CPF_TESTS@@ 个专项测试（内核逐字段等价 / AABB 标量化 / 局部几何缓存与只读 / <code>collides_with_boxes</code> 语义 / 暴力遍历 vs <code>check_config</code> 交叉验证 / 三种采样策略 / 检查器接线 / 工作量计数 / 报告与 CLI 子进程 / en 无 CJK），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
+    <li><b>一条命令可复现</b>：<code>python -m service.perf --motions 120 --collision</code> 或 <code>examples/collision_perf_demo.py</code>；<code>tests/test_collision_perf.py</code> @@CPF_TESTS@@ 个专项测试（内核逐字段等价 / AABB 标量化 / 局部几何缓存与只读 / <code>collides_with_boxes</code> 语义 / 暴力遍历 vs <code>check_config</code> 交叉验证 / 三种采样策略 / 检查器接线 / 工作量计数 / 报告与 CLI 子进程 / en 无 CJK），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
   </ul>
 </section>
 
@@ -4630,7 +4771,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
     <li><b>交还的路点与位姿是共享对象，调用方必须当只读</b>。深拷贝 5632 个路点比重算一遍还贵，所以列表容器每次新建、关节数组一律复制，但路点对象是共享的——这条约定有测试兜着。</li>
     <li><b>失败与警告也缓存，但缓存里的文案不含指令序号与时刻</b>：序号随插入/删除而变、时刻随前缀时长而变，两者都在使用时按当下值重建（有一条测试往程序前面插一段驻留，验证同一告警的时刻跟着后移 0.5 s）。</li>
     <li><b>容量按"路点数"限容而不是"条数"</b>：一个路点约 0.6~0.7 KB，5632 路点的一份快照就是 3~4 MB——按条数限容会悄悄吃掉几百 MB。</li>
-    <li><b>一条命令可复现</b>：<code>python -m orolp.perf --motions 60 --incremental --incremental-cartesian</code> 或 <code>examples/incremental_demo.py</code>；<code>tests/test_incremental.py</code> @@INC_TESTS@@ 个专项测试（签名内容寻址 / 缓存限容与 LRU / <code>resolve_cache</code> 优先级 / 逐位等价 / 起点进键的回归守卫 / 只读共享 / 失败与警告缓存 / 报告自洽 / en 无 CJK），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
+    <li><b>一条命令可复现</b>：<code>python -m service.perf --motions 60 --incremental --incremental-cartesian</code> 或 <code>examples/incremental_demo.py</code>；<code>tests/test_incremental.py</code> @@INC_TESTS@@ 个专项测试（签名内容寻址 / 缓存限容与 LRU / <code>resolve_cache</code> 优先级 / 逐位等价 / 起点进键的回归守卫 / 只读共享 / 失败与警告缓存 / 报告自洽 / en 无 CJK），全量基线 <b>@@TOTAL_TESTS@@ passed</b></li>
   </ul>
 </section>
 
@@ -4641,15 +4782,15 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 坑在哪：OCP 8 只改了「一半」</h3>
   <p style="font-size:13.5px;color:var(--dim)">OCP 8 去掉了一批静态转型函数的 <code>_s</code> 后缀，但<strong>不是全部</strong>——所以「按版本号批量去 <code>_s</code>」和「照抄文件里的既有写法」两种做法都会错。本页构建时读到的现场解析结果：<code>@@VSC_CASTS@@</code>（新名）与 <code>@@VSC_KEPT@@</code>（仍带旧后缀），绑定版本 <b>@@VSC_OCP@@</b>。</p>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">@@VSC_SYMBOLS@@</pre>
-  <p style="font-size:13.5px;color:var(--dim)">做法是把这些符号名收进 <code>python/orolp/ocpcompat.py</code> 一处（<code>face_of</code>/<code>edge_of</code>/<code>triangulation_of</code>/<code>bbox_of</code>，新名优先、旧名兜底并缓存解析结果），下次 OCP 再改名只动那一个文件。<strong>OCP 仍是软依赖</strong>：兼容层在 import 期不碰 OCP（有子进程测试盯着 <code>OCP not in sys.modules</code>），没装 OCP 的机器照样能 import 库。</p>
+  <p style="font-size:13.5px;color:var(--dim)">做法是把这些符号名收进 <code>core/ocpcompat.py</code> 一处（<code>face_of</code>/<code>edge_of</code>/<code>triangulation_of</code>/<code>bbox_of</code>，新名优先、旧名兜底并缓存解析结果），下次 OCP 再改名只动那一个文件。<strong>OCP 仍是软依赖</strong>：兼容层在 import 期不碰 OCP（有子进程测试盯着 <code>OCP not in sys.modules</code>），没装 OCP 的机器照样能 import 库。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 现场合成一个装配体，把整条链真跑一遍</h3>
-  <p style="font-size:13.5px;color:var(--dim)">本页构建时用代码造了一个「假厂商 STEP」——@@VSC_COMPONENTS@@ 个长方体组成一个装配体，然后一路走完：<code>BRepPrimAPI_MakeBox → TopoDS_Compound → STEPControl_Writer → *.STEP → load_step_components → mesh_component → write_stl_binary → build_model → write_urdf → orolp.Robot</code>。全程在临时目录里，<strong>绝不触碰仓库的 <code>models/</code> 与 <code>assets/</code></strong>。</p>
+  <p style="font-size:13.5px;color:var(--dim)">本页构建时用代码造了一个「假厂商 STEP」——@@VSC_COMPONENTS@@ 个长方体组成一个装配体，然后一路走完：<code>BRepPrimAPI_MakeBox → TopoDS_Compound → STEPControl_Writer → *.STEP → load_step_components → mesh_component → write_stl_binary → build_model → write_urdf → core.Robot</code>。全程在临时目录里，<strong>绝不触碰仓库的 <code>assets/models/</code> 与 <code>assets/</code></strong>。</p>
   <div class="metrics" style="margin-top:12px">
     <div class="metric"><div class="v">@@VSC_COMPONENTS@@ 组件</div><div class="k">STEP 读回的顶层组件数（每个盒子 @@VSC_TRIS_PER@@ 个三角面，合计 @@VSC_TRIS@@）</div></div>
     <div class="metric"><div class="v">@@VSC_LINKS@@ 连杆 / @@VSC_JOINTS@@ 关节</div><div class="k">生成的 <code>*_real.urdf</code>：连杆链与关节命名/轴/限位全部沿用已有的程序化 URDF，只有关节原点换成 CAD 算出来的旋转中心</div></div>
     <div class="metric"><div class="v">@@VSC_MESH_KB@@ KB</div><div class="k">写出的真机网格（每个连杆一份二进制 STL，顶点已减去该连杆的旋转中心）</div></div>
-    <div class="metric"><div class="v">DOF @@VSC_DOF@@ · TCP @@VSC_FK@@</div><div class="k">把生成的 URDF 真的喂给 <code>orolp.Robot</code>：能加载、自由度对、关节角 [30,20,10]° 下能算出 TCP 位姿</div></div>
+    <div class="metric"><div class="v">DOF @@VSC_DOF@@ · TCP @@VSC_FK@@</div><div class="k">把生成的 URDF 真的喂给 <code>core.Robot</code>：能加载、自由度对、关节角 [30,20,10]° 下能算出 TCP 位姿</div></div>
   </div>
   <p style="font-size:13.5px;color:var(--dim);margin-top:10px">注意「几何是 <code>&lt;mesh&gt;</code>」这一点有代价：包络几何通道只认基本体，所以真机模型的连杆<strong>不参与干涉检查</strong>（软件的既定契约，测试里也写明了），外形用来对齐现场，碰撞校核仍要用程序化模型或补包络体。</p>
 
@@ -4697,7 +4838,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">④ 口径：它不做什么</h3>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>动力学仍不缓存</b>：v1.2.0 那句话只剩后一半还成立——力矩/功率差分照常每次真算（这也是两次校验不会快到零的原因）。</li>
-    <li><b>基准与计时必须绕开它</b>：<code>orolp.perf</code> 的三处计时（规划档的干涉段、校验段、采样口径表）与 <code>collision_perf_demo</code> 的账本都已在计时期间临时关闭结果缓存——<strong>缓存命中的"干涉检查"测的不是检查</strong>。工作量账本类测试（<code>collision_stats</code> 断言）同样绕行。</li>
+    <li><b>基准与计时必须绕开它</b>：<code>service.perf</code> 的三处计时（规划档的干涉段、校验段、采样口径表）与 <code>collision_perf_demo</code> 的账本都已在计时期间临时关闭结果缓存——<strong>缓存命中的"干涉检查"测的不是检查</strong>。工作量账本类测试（<code>collision_stats</code> 断言）同样绕行。</li>
     <li><b>其他机器人在场景里的关节角不进键</b>：沿轨迹检查只查「被查机器人 vs 环境 + 自碰撞」，其他机器人不是环境项（机器人-机器人对检查走另一条路径、不经此缓存）；挂在被查机器人下的对象被豁免，其位姿同样不进键——两条口径都与 <code>_env_items</code> 同源，并有测试钉住「改挂载件位姿仍命中、改环境位姿必未命中」。</li>
     <li><b>URDF 改了盘但场景没重建也不串味</b>：键取的是场景<strong>内存里</strong>实际持有的基本体与变换，不是 URDF 路径。</li>
     <li><b>一条命令可复现</b>：<code>pytest tests/test_collision_cache.py</code>（@@CCH_TESTS@@ 个专项测试：命中等价 / 场景签名七类变更 / 拖进路径的正确性守卫 / 副作用复现 / LRU / 开关与隔离 / 基准诚实性），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
@@ -4723,7 +4864,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 口径：它不做什么 / 基准诚实性</h3>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>键不猜</b>：缺惯性参数时校验走「跳过」分支——没算结果就没有键，缓存条目为零（有测试）。</li>
-    <li><b>基准诚实性升级（修掉 v1.2.2 的一个缺口）</b>：缓存解析的优先级里<strong>实例缓存高于全局</strong>，v1.2.2 的计时关闭只把全局换成 None——自带实例缓存的规划器在基准里照样命中。现在 <code>orolp.perf</code> 的 <code>_caches_off(planner)</code> 同时关干涉检查与动力学两路、<strong>连规划器实例开关一起否决</strong>，五处计时全部改传 planner——<strong>缓存命中的"校验"测的不是校验</strong>。</li>
+    <li><b>基准诚实性升级（修掉 v1.2.2 的一个缺口）</b>：缓存解析的优先级里<strong>实例缓存高于全局</strong>，v1.2.2 的计时关闭只把全局换成 None——自带实例缓存的规划器在基准里照样命中。现在 <code>service.perf</code> 的 <code>_caches_off(planner)</code> 同时关干涉检查与动力学两路、<strong>连规划器实例开关一起否决</strong>，五处计时全部改传 planner——<strong>缓存命中的"校验"测的不是校验</strong>。</li>
     <li><b>规划结果缓存（v1.2.0）刻意不在计时关闭之列</b>：规划基准本身就以「冷/热缓存」两种工况为观测对象，关掉反而测不出来。</li>
     <li><b>一条命令可复现</b>：<code>pytest tests/test_dynamics_cache.py</code>（@@DCH_TESTS@@ 个专项测试：键确定性 / 模型·程序·spans·effort 变更敏感性 / 命中等价 / 共享对象契约 / 三级优先级 / LRU / 计时诚实性 / 包级导出），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
   </ul>
@@ -4755,7 +4896,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
 <section>
   <h2>界面架构改版（v1.3.0 · 左侧双 Tab：场景设备库 / 设备树；把夹爪拖到臂末端就装夹）</h2>
 
-  <p style="font-size:13.5px"><code>docs/prd/ui-architecture.md</code> 是 2026-09-11 立的界面架构 PRD，但它的六条验收标准<b>此前只写在文档里、没有任何测试盯着</b>——结构被后续改动破坏（某个面板把内容直接挂到标签页、不再套滚动容器），全量测试照样是绿的。本轮把验收标准钉成 <code>tests/test_ui_layout.py</code> 的 12 条断言，并补掉两处真缺口。下面所有数字都是本页构建时<b>真起一次主窗口、真跑一次法兰装夹</b>读出来的。</p>
+  <p style="font-size:13.5px"><code>docs/develop/prd/ui-architecture.md</code> 是 2026-09-11 立的界面架构 PRD，但它的六条验收标准<b>此前只写在文档里、没有任何测试盯着</b>——结构被后续改动破坏（某个面板把内容直接挂到标签页、不再套滚动容器），全量测试照样是绿的。本轮把验收标准钉成 <code>tests/test_ui_layout.py</code> 的 12 条断言，并补掉两处真缺口。下面所有数字都是本页构建时<b>真起一次主窗口、真跑一次法兰装夹</b>读出来的。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 布局结构（构建时真读）</h3>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">左侧：@@UIL_LEFT@@
@@ -4784,7 +4925,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>守卫建立在可执行的事实上</b>：那次 286px 的修复就是把滚动容器摘掉——摘掉即红，所以它守得住；标签名、顺序、子标签同样逐条断言，改版回退会当场变红。</li>
     <li><b>顺带修掉一件真缺陷</b>：「一键导出…」自身文档写着"不要求先点生成代码"（内部直接构建程序并后处理），但 <code>set_robot</code> 只开了「生成代码」没开「一键导出」，用户必须先点一次生成代码它才亮得起来——与 PRD「无置灰不可用的按钮」直接冲突。</li>
-    <li><b>版本口径由四份手工同步减到三份</b>：GUI 窗口标题改为从 <code>orolp.__version__</code> 派生（v1.0.1 里程碑就漏过 pyproject；标题这一份从此不可能漂移）。</li>
+    <li><b>版本口径由四份手工同步减到三份</b>：GUI 窗口标题改为从 <code>core.__version__</code> 派生（v1.0.1 里程碑就漏过 pyproject；标题这一份从此不可能漂移）。</li>
     <li><b>当时仍有一项未过，已在下一节补齐</b>：PRD §6 第 6 条当时拆成两半——按钮部分已过，而「工艺时序（泳道图）」还是骨架（设备树 P1「动态时序」未实现），文档里如实未勾选；<b>v1.3.1 把它换成了真编辑器，§6 六条至此全过</b>（见下一节）。</li>
     <li><b>一条命令可复现</b>：<code>QT_QPA_PLATFORM=offscreen pytest tests/test_ui_layout.py</code>（@@UIL_TESTS@@ 个专项测试），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
   </ul>
@@ -4793,7 +4934,7 @@ $ load web_ssh_pick.script（cwd=/programs）→ 退出码 @@SSH_LOAD_CODE@@
 <section>
   <h2>工艺时序 · 动态时序（v1.3.1 · 设备树不再只有「静态挂载」，工序真的排得出来了）</h2>
 
-  <p style="font-size:13.5px">设备树此前只表达<b>静态绑定</b>（谁挂在谁下面，坐标系自动吸合，v1.3.0 落地）；PRD §4.3 P1 要的是<b>动态时序</b>——配置工序触发、信号等待、子程序调用。原来的「工艺时序（泳道图）」是个空壳，也正是 §6 第 6 条「无空占位区块」唯一没过的一项。本轮新增 <code>python/orolp/sequence.py</code>：四种工步编成一条有序序列，<b>再翻译到两个既有出口——一个新指令语法都不加</b>。下面所有数字都是本页构建时真跑出来的。</p>
+  <p style="font-size:13.5px">设备树此前只表达<b>静态绑定</b>（谁挂在谁下面，坐标系自动吸合，v1.3.0 落地）；PRD §4.3 P1 要的是<b>动态时序</b>——配置工序触发、信号等待、子程序调用。原来的「工艺时序（泳道图）」是个空壳，也正是 §6 第 6 条「无空占位区块」唯一没过的一项。本轮新增 <code>service/sequence.py</code>：四种工步编成一条有序序列，<b>再翻译到两个既有出口——一个新指令语法都不加</b>。下面所有数字都是本页构建时真跑出来的。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 序列与校验（真跑）</h3>
   <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">泳道（按首次出现序）：@@SEQ_LANES@@
@@ -4829,20 +4970,20 @@ note：@@SEQ_NOTE@@</pre>
   <div class="shots">
     <figure><img src="assets/ui_sequence_editor.png" alt="工艺时序编辑器（泳道图）"><figcaption>设备树下的「工艺时序（泳道图）」：工步表 + 泳道画布 + 添加 / 删除 / 上下移 / 校验 / 保存 / 载入（构建时离屏真抓）</figcaption></figure>
   </div>
-  <p style="font-size:13px;color:var(--dim)">信号下拉不是写死的字符串列表：<code>app.py</code> 用 <code>set_available_signals</code> 把<b>真实点表 ∪ 握手信号</b>灌进去，<b>选不到空气信号</b>；选项里没有的名字仍可手填，但校验会当场报 error（"下装前必须补上映射"）。改动经 <code>sequenceChanged</code> 转发到面板的 <code>sceneChanged</code>——时序改了就是场景改了，撤销/保存共用同一条通路。</p>
+  <p style="font-size:13px;color:var(--dim)">信号下拉不是写死的字符串列表：<code>main.py</code> 用 <code>set_available_signals</code> 把<b>真实点表 ∪ 握手信号</b>灌进去，<b>选不到空气信号</b>；选项里没有的名字仍可手填，但校验会当场报 error（"下装前必须补上映射"）。改动经 <code>sequenceChanged</code> 转发到面板的 <code>sceneChanged</code>——时序改了就是场景改了，撤销/保存共用同一条通路。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑥ 口径</h3>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>不新增指令语法</b>：两个出口翻的都是既有指令（<code>SetDO</code>/<code>WaitDI</code>/<code>WaitTime</code>）与既有工步（<code>plc_scl.Step</code>），所以序列一落地就能被后处理、校验、SCL 三处复用，不存在"时序是孤岛"。</li>
     <li><b>等价性有可执行证据</b>：PLC 出口的语义等价不是"看着像"，而是与 <code>steps_from_program</code> 逐字段对拍；SCL 出口也不是"能编译就行"，而是真跑 <code>generate_scl</code> 并断言信号被声明、0.5s 驻留真的变成 <code>T#500MS</code> 定时器。</li>
-    <li><b>本轮撞到两个「绿着的坑」</b>：①新测试把内置 UR5e 路径写成 <code>models/ur5e/ur5e.urdf</code>（真路径是 <code>models/ur/ur5e/ur5e.urdf</code>），<code>pytest.skip</code> 静默生效、4 条出口测试根本没跑——<b>skip 又是绿的</b>，与 v1.2.1 那次同类；②仓库里的 <code>.venv</code> 是缺 <code>paramiko</code> / <code>OCP</code> / <code>setuptools</code> 的<b>旁路环境</b>，<code>pytest.importorskip</code> 会让三个测试模块整块不收集，跑出 <b>1431 passed</b> 这种"看着还行"的假账（比真基线少 57 条用例）——全量基线固定用 <code>/Users/jayhan/.workbuddy/binaries/python/envs/default/bin/python</code>。</li>
+    <li><b>本轮撞到两个「绿着的坑」</b>：①新测试把内置 UR5e 路径写成 <code>assets/models/ur5e/ur5e.urdf</code>（真路径是 <code>assets/models/ur/ur5e/ur5e.urdf</code>），<code>pytest.skip</code> 静默生效、4 条出口测试根本没跑——<b>skip 又是绿的</b>，与 v1.2.1 那次同类；②仓库里的 <code>.venv</code> 是缺 <code>paramiko</code> / <code>OCP</code> / <code>setuptools</code> 的<b>旁路环境</b>，<code>pytest.importorskip</code> 会让三个测试模块整块不收集，跑出 <b>1431 passed</b> 这种"看着还行"的假账（比真基线少 57 条用例）——全量基线固定用 <code>/Users/jayhan/.workbuddy/binaries/python/envs/default/bin/python</code>。</li>
     <li><b>一条命令可复现</b>：<code>QT_QPA_PLATFORM=offscreen pytest tests/test_sequence.py</code>（@@SEQ_TESTS@@ 个专项测试），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
   </ul>
 </section>
 
 <section>
   <h2>动态时序使用体验 · 示例工程一条命令跑通（v1.3.2）</h2>
-  <p style="font-size:13.5px">v1.3.1 落地了工艺时序模型与泳道编辑器，本轮补上<b>使用体验层</b>：<code>examples/sequence_demo.py</code> 一条命令跑通「建点表 → 编排 9 条工步 → 校验 → 机器人/PLC 双出口 → JSON 往返」，配套使用文档 <code>docs/sequence.md</code> 与 <b>8 项子进程验收测试</b>（<code>tests/test_sequence_demo.py</code>）。下面所有输出都是<b>本页构建时真跑示例脚本</b>的原样产物。</p>
+  <p style="font-size:13.5px">v1.3.1 落地了工艺时序模型与泳道编辑器，本轮补上<b>使用体验层</b>：<code>examples/sequence_demo.py</code> 一条命令跑通「建点表 → 编排 9 条工步 → 校验 → 机器人/PLC 双出口 → JSON 往返」，配套使用文档 <code>docs/manual/sequence.md</code> 与 <b>8 项子进程验收测试</b>（<code>tests/test_sequence_demo.py</code>）。下面所有输出都是<b>本页构建时真跑示例脚本</b>的原样产物。</p>
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 工作单元点表 + 工序编排（四种工步，泳道 = 设备）</h3>
   <pre style="white-space:pre-wrap">@@SDEMO_STEPS@@</pre>
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 校验（点表/子程序/设备全部真实；含刻意安排的无限等待警告与未知信号自证）</h3>
@@ -4855,14 +4996,14 @@ note：@@SEQ_NOTE@@</pre>
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ JSON 往返（examples/assets/pick_sequence.json）</h3>
   <pre style="white-space:pre-wrap">@@SDEMO_JSON@@</pre>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
-    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python examples/sequence_demo.py</code>；使用文档在 <code>docs/sequence.md</code>（四种工步 / 七类校验 / 双出口 / 诚实性口径 / GUI 指引）。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python examples/sequence_demo.py</code>；使用文档在 <code>docs/manual/sequence.md</code>（四种工步 / 七类校验 / 双出口 / 诚实性口径 / GUI 指引）。</li>
     <li><b>诚实口径不变</b>：驻留合计 0.7s 是唯一可计算的时间；触发与等待的耗时取决于现场机构。</li>
   </ul>
 </section>
 
 <section>
   <h2>零件库与预置场景库（v1.3.3 落地 · v1.3.7 扩容 · PRD §4.1 P1/P2 内容就绪，入口已亮）</h2>
-  <p style="font-size:13.5px">界面 PRD 最后一项「内容就绪再开放入口」落地：**预置场景库**（P2）新增两个行业模板——分拣工位（PRD 点名）与机床上下料——随抓取工作站一起通过既有「文件 → 载入预置工作站」入口一键加载（内容驱动，不做空壳入口）；**零件库**（P1）补上自定义导入：零件库 JSON（<code>orolp.parts/1</code>）里的参数化基本体组合经「导入零件…」注册进组件目录，与内置组件同一拖拽通路。下面数字都是本页构建时真跑出来的。</p>
+  <p style="font-size:13.5px">界面 PRD 最后一项「内容就绪再开放入口」落地：**预置场景库**（P2）新增两个行业模板——分拣工位（PRD 点名）与机床上下料——随抓取工作站一起通过既有「文件 → 载入预置工作站」入口一键加载（内容驱动，不做空壳入口）；**零件库**（P1）补上自定义导入：零件库 JSON（<code>core.parts/1</code>）里的参数化基本体组合经「导入零件…」注册进组件目录，与内置组件同一拖拽通路。下面数字都是本页构建时真跑出来的。</p>
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 预置场景库：五个内置模板（构建时真建 + 真跑干涉检查）</h3>
   <table style="width:100%;font-size:12.5px;border-collapse:collapse">
     <tr style="color:#9aa5b5;text-align:left"><th style="padding:4px 8px">id</th><th>名称</th><th>说明（诚实口径）</th><th>对象数</th><th>干涉</th></tr>
@@ -4877,13 +5018,13 @@ note：@@SEQ_NOTE@@</pre>
   <p style="font-size:13px;color:#9aa5b5">组件目录现有分类：@@PLB_CATEGORIES@@（共 @@PLB_CATALOG@@）。导入是幂等的：重复导入先撤上一批；坏 schema / 非法尺寸当场报错，绝不静默吞零件。</p>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>诚实口径</b>：零件库管理的是<b>参数化基本体</b>（box/cylinder/sphere 组合，与内置组件同一几何通道），<b>不解析 STL/STEP 网格</b>——网格件走 URDF/厂商 CAD 通路；自定义零件几何固定（文件里写什么就是什么），不假装参数可调。</li>
-    <li><b>一条命令复现</b>：导入样例 <code>examples/assets/custom_parts.json</code>；模板自检 <code>PYTHONPATH=python python -m orolp.world.templates check</code>。</li>
+    <li><b>一条命令复现</b>：导入样例 <code>examples/assets/custom_parts.json</code>；模板自检 <code>PYTHONPATH=python python -m domain.world.templates check</code>。</li>
   </ul>
 </section>
 
 <section>
-  <h2>工程文件（.orolp · v1.3.4）——一次会话一个文件</h2>
-  <p style="font-size:13.5px">v1.3.0–v1.3.3 把界面侧一件件补齐（场景设备库 / 设备树 / 工艺时序 / 零件库 / 预置场景库），但每一件都只带<b>自己的</b> JSON——用户视角是"存一个活要存四个文件，回头还得记住哪四个"。v1.3.4 补的是这个缝：一个 <code>.orolp</code> 把<b>场景 / 示教程序 / 工艺时序 / 设备点表 / 零件库来源 / 标定集</b>六段收进单一文件。下面每个数字与文本都是本页构建时真跑出来的（抓取工作站模板 + 真实 IK 示教点 + 真实时序与点表）。</p>
+  <h2>工程文件（.core · v1.3.4）——一次会话一个文件</h2>
+  <p style="font-size:13.5px">v1.3.0–v1.3.3 把界面侧一件件补齐（场景设备库 / 设备树 / 工艺时序 / 零件库 / 预置场景库），但每一件都只带<b>自己的</b> JSON——用户视角是"存一个活要存四个文件，回头还得记住哪四个"。v1.3.4 补的是这个缝：一个 <code>.core</code> 把<b>场景 / 示教程序 / 工艺时序 / 设备点表 / 零件库来源 / 标定集</b>六段收进单一文件。下面每个数字与文本都是本页构建时真跑出来的（抓取工作站模板 + 真实 IK 示教点 + 真实时序与点表）。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 真存真读：六段工程落盘 → 载入 → 逐段摘要</h3>
   <table style="width:100%;font-size:12.5px;border-collapse:collapse">
@@ -4915,7 +5056,7 @@ note：@@SEQ_NOTE@@</pre>
   </table>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">⑤ 不开 GUI 也能看：CLI 摘要</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.project grasping.orolp
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m service.project grasping.core
 @@PROJ_CLI@@</pre>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
@@ -4924,13 +5065,13 @@ note：@@SEQ_NOTE@@</pre>
     <li><b>写入是原子的</b>（同目录临时文件 + <code>os.replace</code>）：写一半断电不会把上一份好工程截断成半截 JSON。<code>NaN</code>/<code>Inf</code> 在写入前就被拒绝——它们序列化出来是非法 JSON，等读的时候才发现就晚了。</li>
     <li><b>同一版本内字段缺失按可选</b>；<code>schema</code> 主版本不等则<b>明确拒收</b>（不猜）——工程文件宁可明确拒绝，也不能按错的语义打开后让用户以为"内容丢了"。</li>
     <li><b>GUI 侧把"缝"补实了</b>：<code>文件 → 保存工程…/打开工程…</code>（Ctrl+Shift+S / Ctrl+Shift+O），窗口标题显示工程名与"•未保存"；示教点的<b>抓取/放置语义</b>存在工程里——它原本只活在界面内存中，单存路径代码会丢。</li>
-    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m orolp.project &lt;工程文件&gt; [--json]</code>；测试 @@PROJ_TESTS@@ 个（<code>tests/test_project.py</code> + <code>tests/test_project_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m service.project &lt;工程文件&gt; [--json]</code>；测试 @@PROJ_TESTS@@ 个（<code>tests/test_project.py</code> + <code>tests/test_project_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
   </ul>
 </section>
 
 <section>
   <h2>会话支撑（最近打开 + 崩溃自动恢复 · v1.3.5）</h2>
-  <p style="font-size:13.5px">v1.3.4 解决了「存一个活只存一个文件」，还剩两条每天都会踩的缝：「昨天那个工程在哪来着」和「改了一下午还没保存，应用崩了」。v1.3.5 补上：<code>文件 → 最近打开</code> 子菜单 + 有未保存改动时每 60 秒自动落一份快照、下次启动询问是否恢复。下面每个数字都是本页构建时真跑出来的（配置目录重定向到临时目录，不碰真实 <code>~/.orolp</code>）。</p>
+  <p style="font-size:13.5px">v1.3.4 解决了「存一个活只存一个文件」，还剩两条每天都会踩的缝：「昨天那个工程在哪来着」和「改了一下午还没保存，应用崩了」。v1.3.5 补上：<code>文件 → 最近打开</code> 子菜单 + 有未保存改动时每 60 秒自动落一份快照、下次启动询问是否恢复。下面每个数字都是本页构建时真跑出来的（配置目录重定向到临时目录，不碰真实 <code>~/.core</code>）。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">① 最近打开：真存真读，失效条目置灰不隐藏</h3>
   <p style="font-size:13px;color:#9aa5b5">记 3 条（1 条真实工程 + 2 条已不存在的路径），保存后重新载入：</p>
@@ -4942,24 +5083,24 @@ note：@@SEQ_NOTE@@</pre>
 prune_missing()（清理失效条目的返回值）：@@SES_PRUNED@@
 清理后重新载入：@@SES_RECENT_N@@ 条</pre>
 
-  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 崩溃自动恢复：快照本身就是合法 .orolp</h3>
+  <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">② 崩溃自动恢复：快照本身就是合法 .core</h3>
   <p style="font-size:13px;color:#9aa5b5">把一份带未知段（<code>vision</code>）与未知顶层键（<code>authoring</code>）的工程写进自动保存目录，再读回元数据、把快照当普通工程载入：</p>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">快照 session.orolp：@@SES_SNAP_SIZE_KB@@ KB ｜ sidecar 元数据：
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">快照 session.core：@@SES_SNAP_SIZE_KB@@ KB ｜ sidecar 元数据：
 @@SES_META@@
 
 把快照用 Project.load 载入（与「打开工程」同一条路）：
 @@SES_SNAPSHOT_SUMMARY@@</pre>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 不开 GUI 也能看：CLI</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.session
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m app.session
 @@SES_CLI@@</pre>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
-    <li><b>恢复走的就是「打开工程」同一条路</b>：快照用 <code>Project.save</code> 原子写入，本身就是合法 <code>.orolp</code>——自动保存机制就算坏了，用户也能手动打开快照文件。</li>
+    <li><b>恢复走的就是「打开工程」同一条路</b>：快照用 <code>Project.save</code> 原子写入，本身就是合法 <code>.core</code>——自动保存机制就算坏了，用户也能手动打开快照文件。</li>
     <li><b>只在有未保存改动时才落快照</b>：干净会话没什么可救；快照用新建的 Project 收集，<b>不动正在编辑的工程对象</b>——快照落盘不能覆盖原工程路径，否则下次手动保存的建议位置会错。</li>
     <li><b>恢复后按「未保存」对待</b>：标题显示「•未保存」、自动保存继续守护；保存建议路径指回原工程；快照路径<b>不进</b>最近打开（它是内部槽位）。</li>
     <li><b>容错口径</b>：这两样都是锦上添花的机制，任何故障都「当它不存在」——快照写失败清残件不留空壳、元数据坏一律当无快照（不给来路不明的恢复选项），绝不打断启动或保存。</li>
-    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m orolp.session</code>；测试 @@SES_TESTS@@ 个（<code>tests/test_project_session.py</code> + <code>tests/test_project_session_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -m app.session</code>；测试 @@SES_TESTS@@ 个（<code>tests/test_project_session.py</code> + <code>tests/test_project_session_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
   </ul>
 </section>
 
@@ -4980,13 +5121,13 @@ prune_missing()（清理失效条目的返回值）：@@SES_PRUNED@@
   <p style="font-size:13px;color:#9aa5b5">「工程里没有：工艺时序、设备点表……」是<b>如实展示</b>——模板只收真给的东西，不写空段凑数。</p>
 
   <h3 style="font-size:15px;margin:20px 0 6px;color:#e6ecf5">③ 不开 GUI 也能看：CLI</h3>
-  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m orolp.project grasping.orolp
+  <pre style="font-size:12px;background:var(--code-bg,#141a22);color:#d6e2f0;padding:10px;border-radius:8px;white-space:pre-wrap">$ python -m service.project grasping.core
 @@TPL_CLI@@</pre>
 
   <ul style="font-size:13.5px;color:var(--dim);margin:14px 0 0 18px">
     <li><b>三条规矩</b>：模板产物就是普通 <code>Project</code>（保存/载入/摘要/保真全套契约照用）；只收模板真给的段；每次全新构建（两个同模板工程互不共享状态）。</li>
     <li><b>GUI 细节</b>：当前工程有未保存改动时先询问（默认「否」，拒绝则当前工程原样保留）；模板构建失败如实弹窗；新建的工程尚未落盘——标题显示「•未保存」、自动保存继续守护，且<b>不进最近打开</b>（它不是文件）。</li>
-    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -c "from orolp.project_templates import save_project_template; save_project_template('grasping_workstation', 'demo.orolp')"</code>；测试 @@TPL_TESTS@@ 个（<code>tests/test_project_templates.py</code> + <code>tests/test_project_templates_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
+    <li><b>一条命令复现</b>：<code>PYTHONPATH=python python -c "from service.project_templates import save_project_template; save_project_template('grasping_workstation', 'demo.core')"</code>；测试 @@TPL_TESTS@@ 个（<code>tests/test_project_templates.py</code> + <code>tests/test_project_templates_gui.py</code> 离屏真开窗口），全量基线 <b>@@TOTAL_TESTS@@ passed</b>。</li>
   </ul>
 </section>
 
@@ -5002,7 +5143,7 @@ prune_missing()（清理失效条目的返回值）：@@SES_PRUNED@@
 
 <section>
   <h2>路线图调研 · 变位机外部轴联动（v1.3.9 · 纯方案文档）</h2>
-  <p style="font-size:13.5px">汽车焊装模板的变位机目前是「单轴示意、不做联动」（诚实口径）。联动怎么做，方案已整理成 <code>docs/design/external-axis.md</code>——<b>只调研不实施</b>，实施前等三个开放问题拍板（品牌优先级 / 机械参数来源 / 联动模式是否立项）。方案要点：</p>
+  <p style="font-size:13.5px">汽车焊装模板的变位机目前是「单轴示意、不做联动」（诚实口径）。联动怎么做，方案已整理成 <code>docs/develop/design/external-axis.md</code>——<b>只调研不实施</b>，实施前等三个开放问题拍板（品牌优先级 / 机械参数来源 / 联动模式是否立项）。方案要点：</p>
   <ul style="font-size:13.5px;color:var(--dim);margin:0 0 0 18px">
     <li><b>两种模式先钉住</b>：<b>分段定位</b>（position-weld，焊前把焊缝转到合适姿态、停住再焊）工程复杂度低，现场大量使用；<b>联动焊接</b>（weld on the fly，变位机与机器人同时动）需要时间同步，另立项。</li>
     <li><b>核心设计决策</b>：外部轴位置<b>进路点</b>（路点带 <code>ext_joints</code>），不开独立指令——分段定位里「第 3 段在变位机 45° 时焊」这个绑定关系天然属于路点。</li>
@@ -5112,7 +5253,11 @@ def _sequence_demo_data() -> dict:
     )
     proc = subprocess.run(
         [sys.executable, str(root / "examples" / "sequence_demo.py")],
-        cwd=str(root), env=env, capture_output=True, text=True, timeout=300,
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if proc.returncode != 0:
         raise RuntimeError("sequence_demo.py 运行失败：" + proc.stderr[-2000:])
@@ -5120,7 +5265,7 @@ def _sequence_demo_data() -> dict:
 
     def _section(start: str, end: str) -> str:
         i, j = out.index(start), out.index(end)
-        return out[i + len(start):j]
+        return out[i + len(start) : j]
 
     def _lines(block: str, keep=None, strip_left: bool = False) -> str:
         rows = []
@@ -5158,9 +5303,9 @@ def _partslib_data() -> dict:
     校准的证据）；②枚举组件目录分类与数量；③把示例零件库真实注册进
     组件目录、真实构建几何、再撤销——页面数字全部来自这次运行。
     """
-    from orolp.world import build_template
-    from orolp.world.components import build_component, categories
-    from orolp.world.parts_library import (
+    from domain.world import build_template
+    from domain.world.components import build_component, categories
+    from domain.world.parts_library import (
         CUSTOM_ID_PREFIX,
         CustomPartsLibrary,
         register_custom_parts,
@@ -5182,20 +5327,21 @@ def _partslib_data() -> dict:
         rows.append(
             "<tr><td><code>{id}</code></td><td>{name}</td>"
             "<td>{desc}</td><td>{objs}</td><td>{hits}</td></tr>".format(
-                id=html.escape(tid), name=html.escape(label),
+                id=html.escape(tid),
+                name=html.escape(label),
                 desc=html.escape(cell.description),
-                objs=len(cell.scene.objects), hits=hits,
+                objs=len(cell.scene.objects),
+                hits=hits,
             )
         )
     preset_rows = "".join(rows)
 
     # ② 组件目录分类
-    from orolp.world.components import COMPONENTS
+    from domain.world.components import COMPONENTS
     from collections import Counter
+
     counter = Counter(s.category for s in COMPONENTS.values())
-    cat_txt = " · ".join(
-        html.escape(f"{c} {n}") for c, n in counter.most_common()
-    )
+    cat_txt = " · ".join(html.escape(f"{c} {n}") for c, n in counter.most_common())
 
     # ③ 示例零件库端到端（注册 → 构建 → 撤销）
     lib = CustomPartsLibrary.load_json(REPO_ROOT / "examples" / "assets" / "custom_parts.json")
@@ -5207,8 +5353,10 @@ def _partslib_data() -> dict:
         geo.append(
             "<tr><td>{name}</td><td><code>{cid}</code></td>"
             "<td>{kinds}</td><td>{desc}</td></tr>".format(
-                name=html.escape(part.name), cid=html.escape(cid),
-                kinds=html.escape(kinds), desc=html.escape(part.description),
+                name=html.escape(part.name),
+                cid=html.escape(cid),
+                kinds=html.escape(kinds),
+                desc=html.escape(part.description),
             )
         )
     custom_rows = "".join(geo)
@@ -5230,14 +5378,14 @@ def _tpl_data() -> dict:
 
     构建时真做三件事：①列出三个内置模板；②真构建抓取工作站模板
     （真实 IK 示教点）并落盘、载回、逐段摘要；③子进程真跑
-    ``python -m orolp.project`` 看落盘的模板工程。
+    ``python -m service.project`` 看落盘的模板工程。
     页面上每个数字与文本都来自这次运行。
     """
     import subprocess
     import tempfile
 
-    from orolp.project import Project
-    from orolp.project_templates import (
+    from service.project import Project
+    from service.project_templates import (
         build_project_template,
         list_project_templates,
         save_project_template,
@@ -5247,7 +5395,7 @@ def _tpl_data() -> dict:
     tpl_rows = []
     for tpl in templates:
         tpl_rows.append(
-            "<tr><td style=\"padding:4px 8px\">{name}</td>"
+            '<tr><td style="padding:4px 8px">{name}</td>'
             "<td><code>{tid}</code></td><td>{desc}</td></tr>".format(
                 name=html.escape(tpl["name"]),
                 tid=html.escape(tpl["id"]),
@@ -5256,8 +5404,8 @@ def _tpl_data() -> dict:
         )
     tpl_rows_html = "\n".join(tpl_rows)
 
-    base = Path(tempfile.mkdtemp(prefix="orolp-tpl-"))
-    target = save_project_template("grasping_workstation", base / "grasping.orolp")
+    base = Path(tempfile.mkdtemp(prefix="core-tpl-"))
+    target = save_project_template("grasping_workstation", base / "grasping.core")
     back = Project.load(target)
     tpl_describe = html.escape(back.describe())
     prog = back.get("program")
@@ -5274,15 +5422,17 @@ def _tpl_data() -> dict:
     )
 
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
-    )
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), str(REPO_ROOT), env.get("PYTHONPATH", "")])
     proc = subprocess.run(
-        [sys.executable, "-m", "orolp.project", str(target)],
-        cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120,
+        [sys.executable, "-m", "service.project", str(target)],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     if proc.returncode != 0:
-        raise RuntimeError("orolp.project CLI 运行失败：" + proc.stderr[-2000:])
+        raise RuntimeError("service.project CLI 运行失败：" + proc.stderr[-2000:])
     tpl_cli = html.escape(proc.stdout.strip())
 
     return {
@@ -5297,24 +5447,24 @@ def _tpl_data() -> dict:
 def _session_data() -> dict:
     """「会话支撑：最近打开 + 崩溃自动恢复」小节的真实数据（v1.3.5）。
 
-    构建时真做三件事（配置目录重定向到临时目录，不碰用户 ``~/.orolp``）：
+    构建时真做三件事（配置目录重定向到临时目录，不碰用户 ``~/.core``）：
     ①最近打开：记 3 条（1 条真实落盘的工程 + 2 条不存在的），保存 → 重载，
       取 ``existing()``/``prune_missing()`` 的真实口径；
     ②自动保存：组一个带未知段与未知顶层键的工程 → ``write_autosave`` →
       ``read_autosave`` 读回元数据 → ``Project.load(快照)`` 验证"快照本身就是
-      合法 .orolp"（未知段跟着走）；
-    ③子进程真跑 CLI ``python -m orolp.session``。
+      合法 .core"（未知段跟着走）；
+    ③子进程真跑 CLI ``python -m app.session``。
     页面上每个数字与文本都来自这次运行。
     """
     import subprocess
     import tempfile
 
-    from orolp.project import Project
-    from orolp.session import RecentProjects, read_autosave, write_autosave
+    from service.project import Project
+    from app.session import RecentProjects, read_autosave, write_autosave
 
-    base = Path(tempfile.mkdtemp(prefix="orolp-session-"))
-    old_cfg = os.environ.get("OROLP_CONFIG_DIR")
-    os.environ["OROLP_CONFIG_DIR"] = str(base)
+    base = Path(tempfile.mkdtemp(prefix="core-session-"))
+    old_cfg = os.environ.get("CORE_CONFIG_DIR")
+    os.environ["CORE_CONFIG_DIR"] = str(base)
     try:
         # 一份真实落盘的工程（临时目录内）
         real_dir = base / "work"
@@ -5330,13 +5480,13 @@ def _session_data() -> dict:
         project.set("parts", {"sources": []})
         project.raw_sections["vision"] = {"cameras": [{"id": "cam1"}]}
         project.extra["authoring"] = {"tool": "other-cad"}
-        real_path = project.save(base / "work" / "demo_session.orolp")
+        real_path = project.save(base / "work" / "demo_session.core")
 
         # ---- ① 最近打开：真存真读 ---- #
         recents = RecentProjects.load()
         recents.add(str(real_path))
-        recents.add("/some/vanished/a.orolp")
-        recents.add("/some/vanished/b.orolp")
+        recents.add("/some/vanished/a.core")
+        recents.add("/some/vanished/b.core")
         recents.save()
         recents = RecentProjects.load()
         rows = []
@@ -5344,7 +5494,7 @@ def _session_data() -> dict:
             exists = Path(p).exists()
             mark = "在" if exists else "<b>已不存在（菜单里置灰，不悄悄藏）</b>"
             rows.append(
-                "<tr><td style=\"padding:4px 8px\">{p}</td><td>{m}</td></tr>".format(
+                '<tr><td style="padding:4px 8px">{p}</td><td>{m}</td></tr>'.format(
                     p=html.escape(p), m=mark
                 )
             )
@@ -5366,9 +5516,7 @@ def _session_data() -> dict:
                 "joint_names": [],
             },
         )
-        snap = write_autosave(
-            snapshot_project, source_path=str(real_path)
-        )
+        snap = write_autosave(snapshot_project, source_path=str(real_path))
         assert snap is not None
         info = read_autosave()
         assert info is not None
@@ -5379,7 +5527,7 @@ def _session_data() -> dict:
                 src=html.escape(info.source_path),
                 saved=html.escape(info.saved_at),
                 ver=html.escape(info.app_version),
-                schema="orolp.autosave/1",
+                schema="core.autosave/1",
             )
         )
         back = Project.load(snap)
@@ -5389,21 +5537,25 @@ def _session_data() -> dict:
         # ---- ③ CLI：子进程真跑 ---- #
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join(
-            [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
+            [str(REPO_ROOT), str(REPO_ROOT), env.get("PYTHONPATH", "")]
         )
-        env["OROLP_CONFIG_DIR"] = str(base)
+        env["CORE_CONFIG_DIR"] = str(base)
         proc = subprocess.run(
-            [sys.executable, "-m", "orolp.session"],
-            cwd=str(REPO_ROOT), env=env, capture_output=True, text=True, timeout=120,
+            [sys.executable, "-m", "app.session"],
+            cwd=str(REPO_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if proc.returncode != 0:
-            raise RuntimeError("orolp.session CLI 运行失败：" + proc.stderr[-2000:])
+            raise RuntimeError("app.session CLI 运行失败：" + proc.stderr[-2000:])
         ses_cli = html.escape(proc.stdout.strip())
     finally:
         if old_cfg is None:
-            os.environ.pop("OROLP_CONFIG_DIR", None)
+            os.environ.pop("CORE_CONFIG_DIR", None)
         else:
-            os.environ["OROLP_CONFIG_DIR"] = old_cfg
+            os.environ["CORE_CONFIG_DIR"] = old_cfg
 
     return {
         "SES_RECENT_ROWS": ses_recent_rows,
@@ -5419,7 +5571,7 @@ def _session_data() -> dict:
 
 
 def _project_data() -> dict:
-    """「工程文件（.orolp）」小节的真实数据（v1.3.4）。
+    """「工程文件（.core）」小节的真实数据（v1.3.4）。
 
     构建时真做四件事：①用抓取工作站模板 + 真实 IK 示教点 + 真实时序/点表
     组成一个工程并落盘（原子写入）；②载入回来逐段核对并取摘要；③手工造一个
@@ -5431,50 +5583,68 @@ def _project_data() -> dict:
     import subprocess
     import tempfile
 
-    from orolp.cell import CellConfig, Device
-    from orolp.project import SECTION_NAMES, Project, cell_snapshot
-    from orolp.sequence import CallStep, DwellStep, ProcessSequence, SignalStep, WaitStep
-    from orolp.world.demo import demo_pick_place_points
-    from orolp.world.templates import build_grasping_workstation
+    from service.cell import CellConfig, Device
+    from service.project import SECTION_NAMES, Project, cell_snapshot
+    from service.sequence import CallStep, DwellStep, ProcessSequence, SignalStep, WaitStep
+    from domain.world.demo import demo_pick_place_points
+    from domain.world.templates import build_grasping_workstation
 
-    workdir = Path(tempfile.mkdtemp(prefix="orolp-project-"))
+    workdir = Path(tempfile.mkdtemp(prefix="core-project-"))
     cell = build_grasping_workstation()
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.tool = cell.tcp_flange
     points_deg, types = demo_pick_place_points(cell, robot)
 
     # ---- ① 组成工程（六段，其中"标定集"故意不写：页面会显示"工程里没有"）---- #
     program_code = "# OLP Path Code\n" + "".join(
-        "movej([{}], vel=80)\n".format(", ".join(f"{v:.3f}" for v in q))
-        for q in points_deg
+        "movej([{}], vel=80)\n".format(", ".join(f"{v:.3f}" for v in q)) for q in points_deg
     )
-    sequence = ProcessSequence([
-        SignalStep(name="启动循环", device="机器人", signal="robot_start", value=True),
-        WaitStep(name="等工件到位", device="传感器_1", signal="part_present", timeout=5.0),
-        CallStep(name="抓取子程序", device="机器人", subprogram="GRASP_PICK"),
-        DwellStep(name="夹具保压", device="夹具_1", seconds=0.4),
-    ])
+    sequence = ProcessSequence(
+        [
+            SignalStep(name="启动循环", device="机器人", signal="robot_start", value=True),
+            WaitStep(name="等工件到位", device="传感器_1", signal="part_present", timeout=5.0),
+            CallStep(name="抓取子程序", device="机器人", subprogram="GRASP_PICK"),
+            DwellStep(name="夹具保压", device="夹具_1", seconds=0.4),
+        ]
+    )
     device_cell = CellConfig()
-    device_cell.add(Device(name="机器人", type="机器人", brand="UR", model="UR5e",
-                           comm="Profinet", ip="192.168.1.10",
-                           io_map={"robot_start": "Q0.0", "robot_done": "I0.0"}))
-    device_cell.add(Device(name="夹具_1", type="夹具", comm="硬接线 IO",
-                           io_map={"gripper_close": "Q0.1", "gripper_open": "Q0.2"}))
-    device_cell.add(Device(name="传感器_1", type="传感器",
-                           io_map={"part_present": "I0.3"}))
+    device_cell.add(
+        Device(
+            name="机器人",
+            type="机器人",
+            brand="UR",
+            model="UR5e",
+            comm="Profinet",
+            ip="192.168.1.10",
+            io_map={"robot_start": "Q0.0", "robot_done": "I0.0"},
+        )
+    )
+    device_cell.add(
+        Device(
+            name="夹具_1",
+            type="夹具",
+            comm="硬接线 IO",
+            io_map={"gripper_close": "Q0.1", "gripper_open": "Q0.2"},
+        )
+    )
+    device_cell.add(Device(name="传感器_1", type="传感器", io_map={"part_present": "I0.3"}))
 
-    project = Project(name="grasping_workstation_demo",
-                      note="构建期真跑：场景/示教程序/时序/点表/零件来源")
+    project = Project(
+        name="grasping_workstation_demo", note="构建期真跑：场景/示教程序/时序/点表/零件来源"
+    )
     project.set("scene", cell.scene.to_dict())
-    project.set("program", {
-        "code": program_code,
-        "point_types": [t.value for t in types],
-        "joint_names": list(robot.joint_names),
-    })
+    project.set(
+        "program",
+        {
+            "code": program_code,
+            "point_types": [t.value for t in types],
+            "joint_names": list(robot.joint_names),
+        },
+    )
     project.set("sequence", sequence.to_dict())
     project.set("cell", cell_snapshot(device_cell))
     project.set("parts", {"sources": ["examples/assets/custom_parts.json"]})
-    saved = project.save(workdir / "grasping.orolp")
+    saved = project.save(workdir / "grasping.core")
 
     # ---- ② 载入回来逐段核对 ---- #
     reloaded = Project.load(saved)
@@ -5485,13 +5655,13 @@ def _project_data() -> dict:
         )
         for name, text in reloaded.summary().items()
     )
-    snippet = "\n".join(
-        saved.read_text(encoding="utf-8").splitlines()[:14]
-    )
+    snippet = "\n".join(saved.read_text(encoding="utf-8").splitlines()[:14])
     cli = subprocess.run(
-        [sys.executable, "-m", "orolp.project", str(saved)],
-        cwd=str(REPO_ROOT), capture_output=True, text=True,
-        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "python")},
+        [sys.executable, "-m", "service.project", str(saved)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT)},
     )
     cli_text = "\n".join(cli.stdout.strip().splitlines()[:6])
 
@@ -5500,9 +5670,8 @@ def _project_data() -> dict:
     raw["sections"]["sequence"] = {"steps": "这里故意写坏"}
     raw["sections"]["vision"] = {"cameras": [{"id": "cam1", "fx": 900.0}]}
     raw["authoring"] = {"tool": "hand-written", "priority": 3}
-    broken_path = workdir / "half_broken.orolp"
-    broken_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2),
-                           encoding="utf-8")
+    broken_path = workdir / "half_broken.core"
+    broken_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
     broken = Project.load(broken_path)
     broken_report = broken.load_report
     skipped_map = dict(broken_report.skipped)
@@ -5510,31 +5679,39 @@ def _project_data() -> dict:
     broken_rows = "".join(
         "<tr><td><code>{sec}</code></td><td>{state}</td><td>{reason}</td></tr>".format(
             sec=html.escape(name),
-            state="<span style='color:#e06c75'>跳过</span>"
-            if name in skipped_map
-            else ("本版本不解释" if name in broken_report.unknown else "已载入"),
+            state=(
+                "<span style='color:#e06c75'>跳过</span>"
+                if name in skipped_map
+                else ("本版本不解释" if name in broken_report.unknown else "已载入")
+            ),
             reason=html.escape(
                 skipped_map.get(name)
                 or ("原样保留（未知段）" if name in broken_report.unknown else "—")
             ),
         )
         for name in reported
-        if name in broken_report.loaded
-        or name in skipped_map
-        or name in broken_report.unknown
+        if name in broken_report.loaded or name in skipped_map or name in broken_report.unknown
     )
-    keep_path = workdir / "half_broken_resaved.orolp"
+    keep_path = workdir / "half_broken_resaved.core"
     broken.save(keep_path)
     kept = json.loads(keep_path.read_text(encoding="utf-8"))
     kept_rows = "".join(
         "<tr><td>{what}</td><td><code>{key}</code></td><td>{ok}</td></tr>".format(
-            what=what, key=html.escape(key),
-            ok="<span style='color:#7fbf7a'>原样保留</span>"
-            if present else "<span style='color:#e06c75'>丢了</span>",
+            what=what,
+            key=html.escape(key),
+            ok=(
+                "<span style='color:#7fbf7a'>原样保留</span>"
+                if present
+                else "<span style='color:#e06c75'>丢了</span>"
+            ),
         )
         for what, key, present in (
             ("未知段", "vision", kept["sections"].get("vision") == raw["sections"]["vision"]),
-            ("坏段原负载", "sequence", kept["sections"].get("sequence") == {"steps": "这里故意写坏"}),
+            (
+                "坏段原负载",
+                "sequence",
+                kept["sections"].get("sequence") == {"steps": "这里故意写坏"},
+            ),
             ("未知顶层键", "authoring", kept.get("authoring") == raw["authoring"]),
         )
     )
@@ -5559,10 +5736,29 @@ def _project_data() -> dict:
 
 
 _MOTION_KEYS = (
-    "movej", "movel", "movec", "MOVEJ", "MOVL", "MOVEC", "PTP ", "LIN ", "CIRC", "MoveJ", "MoveL", "MoveC",
+    "movej",
+    "movel",
+    "movec",
+    "MOVEJ",
+    "MOVL",
+    "MOVEC",
+    "PTP ",
+    "LIN ",
+    "CIRC",
+    "MoveJ",
+    "MoveL",
+    "MoveC",
     # IO / 工艺指令行也保留，展示抓取动作的品牌语法
-    "set_digital_out", "wait_digital_in", "$out", "wait for", "setdo",
-    "waitdi", "do[", "sleep", "wait ", "wait ",
+    "set_digital_out",
+    "wait_digital_in",
+    "$out",
+    "wait for",
+    "setdo",
+    "waitdi",
+    "do[",
+    "sleep",
+    "wait ",
+    "wait ",
 )
 
 

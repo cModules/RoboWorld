@@ -2,9 +2,9 @@
 
 被测对象：
 
-* :func:`orolp.incremental.cache_overview` —— 三类结果缓存（规划与分段 /
+* :func:`service.incremental.cache_overview` —— 三类结果缓存（规划与分段 /
   干涉检查 / 力矩校验）的统一快照；
-* :func:`orolp.incremental.reset_all_cache_stats` / :func:`orolp.incremental.clear_all_caches`
+* :func:`service.incremental.reset_all_cache_stats` / :func:`service.incremental.clear_all_caches`
   —— 全局计数归零 / 条目清空；
 * GUI「缓存状态…」对话框 —— :meth:`app.MainWindow._cache_status_text` 的
   文本与 View 菜单接线（Qt offscreen 无头跑）。
@@ -24,12 +24,12 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-import orolp  # noqa: E402
-import orolp.i18n as i18n  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.incremental import (  # noqa: E402
+# noqa: E402
+import support.i18n as i18n  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from service.incremental import (
     cache_overview,
     clear_all_caches,
     get_cache,
@@ -40,8 +40,8 @@ from orolp.incremental import (  # noqa: E402
     set_collision_cache,
     set_dynamics_cache,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
 from PySide6 import QtWidgets  # noqa: E402
 
@@ -144,11 +144,15 @@ def test_overview_reflects_validate_hits(three_link_urdf, isolated_caches):
     robot = Robot(three_link_urdf, "three_link")
     planner = TrajectoryPlanner(scene=scene, robot=robot)
     planner.dynamics_model.set_link_inertial(
-        "arm", mass=2.0, com=(0.0, 0.0, 0.1),
+        "arm",
+        mass=2.0,
+        com=(0.0, 0.0, 0.1),
         inertia=[[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.001]],
     )
     planner.dynamics_model.set_link_inertial(
-        "tool", mass=0.5, com=(0.0, 0.0, 0.05),
+        "tool",
+        mass=0.5,
+        com=(0.0, 0.0, 0.05),
         inertia=[[0.0002, 0, 0], [0, 0.0002, 0], [0, 0, 0.0002]],
     )
     robot.set_joints([0.0, 175.0])
@@ -219,11 +223,6 @@ def test_reset_and_clear_tolerate_disabled_caches(isolated_caches):
         set_dynamics_cache(saved[2])
 
 
-def test_top_level_exports():
-    for name in ("cache_overview", "reset_all_cache_stats", "clear_all_caches"):
-        assert hasattr(orolp, name), f"orolp.{name} 未导出"
-
-
 # --------------------------------------------------------------------------- #
 # 3. GUI：缓存状态对话框与菜单接线（offscreen）
 # --------------------------------------------------------------------------- #
@@ -235,7 +234,7 @@ def qapp():
 
 
 def _load_app_module():
-    spec = importlib.util.spec_from_file_location("rw_app_cache", REPO_ROOT / "app.py")
+    spec = importlib.util.spec_from_file_location("rw_app_cache", REPO_ROOT / "main.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -245,8 +244,7 @@ def test_main_window_has_cache_actions(qapp, isolated_caches):
     mod = _load_app_module()
     win = mod.MainWindow()
     try:
-        texts = [a.text() for a in win.menuBar().actions()
-                 for a in a.menu().actions()]
+        texts = [a.text() for a in win.menuBar().actions() for a in a.menu().actions()]
         assert any("缓存状态" in t for t in texts)
         assert any("清空缓存与统计" in t for t in texts)
         # 对话框文本可独立构造（不弹窗即可断言内容）
@@ -257,9 +255,7 @@ def test_main_window_has_cache_actions(qapp, isolated_caches):
         win.deleteLater()
 
 
-def test_cache_status_dialog_shows_activity(
-    qapp, three_link_urdf, isolated_caches, monkeypatch
-):
+def test_cache_status_dialog_shows_activity(qapp, three_link_urdf, isolated_caches, monkeypatch):
     """点菜单弹出的对话框内容必须反映真实缓存活动（此处为 0 活动 + 关闭态）。"""
     mod = _load_app_module()
     win = mod.MainWindow()
@@ -279,14 +275,13 @@ def test_cache_status_dialog_shows_activity(
 
 def test_cache_status_text_en(qapp, isolated_caches, monkeypatch, tmp_path):
     """en 模式下对话框文案为英文、无中文残留。"""
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_EN, save=False)
     try:
         mod = _load_app_module()
         win = mod.MainWindow()
         try:
-            texts = [a.text() for a in win.menuBar().actions()
-                     for a in a.menu().actions()]
+            texts = [a.text() for a in win.menuBar().actions() for a in a.menu().actions()]
             assert any("Cache status" in t for t in texts)
             text = win._cache_status_text()
             assert "Plan & segment cache" in text

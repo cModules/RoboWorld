@@ -32,9 +32,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.cloudhttp import (  # noqa: E402
+from adapter import cloudhttp
+from adapter.cloudhttp import (
+    HTTPCloudStore,
+    SigV4Signer,
+    CloudStoreServer,
+    CloudHTTPError,
+    CloudAuthError,
+)  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from adapter.cloudhttp import (
     CLOUD_HTTP_API_VERSION,
     SIGV4_ALGORITHM,
     SIGV4_EMPTY_PAYLOAD_SHA256,
@@ -49,7 +56,7 @@ from orolp.cloudhttp import (  # noqa: E402
     uri_encode,
     verify_sigv4,
 )
-from orolp.twinsync import (  # noqa: E402
+from service.twinsync import (
     CloudLink,
     LocalCloudStore,
     MemoryCloudStore,
@@ -60,7 +67,7 @@ from orolp.twinsync import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 PROGRAM_CODE = "// 抓取程序（中文注释）\nmovej([0,-30,30,0,60,0])\nmovej([10,-45,45,0,90,0])\n"
 
@@ -217,9 +224,7 @@ def test_sigv4_matches_official_aws_vector(key):
     v = AWS_VECTORS[key]
     signer = SigV4Signer(AWS_ACCESS_KEY, AWS_SECRET_KEY, timestamp=AWS_TS)
 
-    text, signed = signer.canonical_request_for(
-        v["method"], v["url"], v["body"], v["headers"]
-    )
+    text, signed = signer.canonical_request_for(v["method"], v["url"], v["body"], v["headers"])
     got_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     assert got_hash == v["canonical_hash"], f"规范请求哈希不一致：\n{text}"
 
@@ -247,12 +252,8 @@ def test_sigv4_unsigned_payload_skips_hashing():
 
 
 def test_sigv4_signature_changes_with_secret():
-    a = SigV4Signer("AK", "secret-a", timestamp=AWS_TS).sign(
-        "GET", "https://h.s3.amazonaws.com/o"
-    )
-    b = SigV4Signer("AK", "secret-b", timestamp=AWS_TS).sign(
-        "GET", "https://h.s3.amazonaws.com/o"
-    )
+    a = SigV4Signer("AK", "secret-a", timestamp=AWS_TS).sign("GET", "https://h.s3.amazonaws.com/o")
+    b = SigV4Signer("AK", "secret-b", timestamp=AWS_TS).sign("GET", "https://h.s3.amazonaws.com/o")
     assert a["Authorization"] != b["Authorization"]
 
 
@@ -331,9 +332,7 @@ def test_canonical_headers_trim_and_squeeze_whitespace():
 
 
 def _verify(method, path, query, headers, body, **kw):
-    return verify_sigv4(
-        method, path, query, headers, body, access_key="AK", secret_key="SK", **kw
-    )
+    return verify_sigv4(method, path, query, headers, body, access_key="AK", secret_key="SK", **kw)
 
 
 def test_verify_sigv4_accepts_freshly_signed_request():
@@ -641,9 +640,7 @@ def test_sigv4_end_to_end_against_verifying_server(make_server):
 
 
 def test_sigv4_wrong_secret_is_rejected_by_server(make_server):
-    srv = make_server(
-        s3={"access_key": AWS_ACCESS_KEY, "secret_key": AWS_SECRET_KEY}
-    )
+    srv = make_server(s3={"access_key": AWS_ACCESS_KEY, "secret_key": AWS_SECRET_KEY})
     store = HTTPCloudStore(
         f"http://{srv.address}",
         "robotworld",
@@ -667,7 +664,7 @@ def test_unreachable_cloud_is_a_transport_error_with_cli_hint():
         store.keys()
     assert not isinstance(exc.value, CloudAuthError)
     assert "不可达" in str(exc.value)
-    assert "orolp.cloudhttp" in str(exc.value)  # 直接告诉用户怎么在本机起一个
+    assert "adapter.cloudhttp" in str(exc.value)  # 直接告诉用户怎么在本机起一个
     assert store.reachable is False
     assert store.last_error is not None
 
@@ -807,12 +804,18 @@ def test_concurrent_puts_all_land(server):
 
 def test_two_workstations_share_one_program_library(server, robot):
     """现场真正要的：A 工位部署的程序，B 工位能列出来并取回同一份代码。"""
-    a = CloudLink(HTTPCloudStore(f"http://{server.address}", "robotworld"), robot, namespace="cellA")
-    b = CloudLink(HTTPCloudStore(f"http://{server.address}", "robotworld"), robot, namespace="cellA")
+    a = CloudLink(
+        HTTPCloudStore(f"http://{server.address}", "robotworld"), robot, namespace="cellA"
+    )
+    b = CloudLink(
+        HTTPCloudStore(f"http://{server.address}", "robotworld"), robot, namespace="cellA"
+    )
     a.connect()
     b.connect()
 
-    a.upload_program("PICK", PROGRAM_CODE, {"ext": "urp", "brand": "UR", "post_processor": "ur_polyscope"})
+    a.upload_program(
+        "PICK", PROGRAM_CODE, {"ext": "urp", "brand": "UR", "post_processor": "ur_polyscope"}
+    )
     assert b.list_programs() == ["PICK"]
     assert b.fetch_program("PICK", "urp") == PROGRAM_CODE
     manifest = b.program_manifest("PICK")
@@ -1000,7 +1003,7 @@ def test_cli_serves_requests_then_exits(tmp_path):
         [
             sys.executable,
             "-m",
-            "orolp.cloudhttp",
+            "adapter.cloudhttp",
             "--root",
             str(root),
             "--port",
@@ -1010,14 +1013,14 @@ def test_cli_serves_requests_then_exits(tmp_path):
             "2",
         ],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
     try:
-        # ``python -m orolp.cloudhttp`` 会先带出一行 runpy 的 RuntimeWarning
-        # （orolp/__init__ 已经 import 过本模块），ADDRESS 行在其后——扫到为止
+        # ``python -m adapter.cloudhttp`` 会先带出一行 runpy 的 RuntimeWarning
+        # （core/__init__ 已经 import 过本模块），ADDRESS 行在其后——扫到为止
         line = ""
         for _ in range(10):
             line = proc.stdout.readline().strip()
@@ -1046,12 +1049,12 @@ def test_cli_requires_both_s3_credentials(tmp_path):
 
 
 def test_exports_are_reachable_from_package_root():
-    assert orp.HTTPCloudStore is HTTPCloudStore
-    assert orp.SigV4Signer is SigV4Signer
-    assert orp.CloudStoreServer is CloudStoreServer
-    assert orp.CloudHTTPError is CloudHTTPError
-    assert orp.CloudAuthError is CloudAuthError
-    assert orp.cloudhttp.HTTPCloudStore is HTTPCloudStore
+    assert HTTPCloudStore is HTTPCloudStore
+    assert SigV4Signer is SigV4Signer
+    assert CloudStoreServer is CloudStoreServer
+    assert CloudHTTPError is CloudHTTPError
+    assert CloudAuthError is CloudAuthError
+    assert cloudhttp.HTTPCloudStore is HTTPCloudStore
 
 
 def test_example_script_runs_end_to_end():
@@ -1060,7 +1063,7 @@ def test_example_script_runs_end_to_end():
     result = subprocess.run(
         [sys.executable, str(script)],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=180,
@@ -1096,9 +1099,7 @@ class RawServer:
                 pass
 
             def _reply(self) -> None:
-                status, body = outer.routes.get(
-                    self.path.split("?")[0], (404, b"no such route")
-                )
+                status, body = outer.routes.get(self.path.split("?")[0], (404, b"no such route"))
                 self.send_response(status)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(body)))

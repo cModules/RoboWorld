@@ -19,19 +19,19 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pickplace import (  # noqa: E402
+from service.pickplace import (
     DEFAULT_SEQUENCE,
     PickPlacePlan,
     PointType,
     build_pick_place,
     default_types_for_count,
 )
-from orolp.program import Motion, Program, SetDO, WaitDI, WaitTime  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from service.program import Motion, Program, SetDO, WaitDI, WaitTime  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 #: 五个示教点（度），纯数值无含义，只用于跑通流程
 POINTS = [
@@ -61,7 +61,9 @@ def test_default_types_five_points():
 
 def test_default_types_less_than_five():
     assert default_types_for_count(3) == [
-        PointType.APPROACH, PointType.PICK, PointType.LIFT,
+        PointType.APPROACH,
+        PointType.PICK,
+        PointType.LIFT,
     ]
 
 
@@ -146,8 +148,7 @@ def test_items_feed_program_and_plan(robot):
 
 def test_explicit_types_respected():
     """显式指定的语义优先于默认推导。"""
-    types = [PointType.VIA, PointType.PICK, PointType.VIA,
-             PointType.PLACE, PointType.VIA]
+    types = [PointType.VIA, PointType.PICK, PointType.VIA, PointType.PLACE, PointType.VIA]
     plan = build_pick_place(POINTS, types)
     assert plan.pick_indices == [1]
     assert plan.place_indices == [3]
@@ -192,8 +193,8 @@ def test_generated_kuka_code_has_gripper_actions(robot):
             },
         },
     )
-    assert "$OUT[1] = TRUE" in code        # 夹紧
-    assert "$OUT[0] = TRUE" in code        # 松开
-    assert "WAIT FOR $IN[3]" in code       # 等夹紧反馈
+    assert "$OUT[1] = TRUE" in code  # 夹紧
+    assert "$OUT[0] = TRUE" in code  # 松开
+    assert "WAIT FOR $IN[3]" in code  # 等夹紧反馈
     # 夹紧指令必须出现在第二个示教点之后
     assert code.index("PTP") < code.index("$OUT[1] = TRUE")

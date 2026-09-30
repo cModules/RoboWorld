@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JAKA 真机 CAD → URDF 的回归测试（``models/jaka/<m>/<m>_real.urdf``）。
+"""JAKA 真机 CAD → URDF 的回归测试（``assets/models/jaka/<m>/<m>_real.urdf``）。
 
 这批测试守两件事：
 1. **已提交产物不被悄悄破坏**（CI 可跑，不需要 OCP/STEP）：每个型号的
@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
 
 from tools import build_vendor_urdf as bv  # noqa: E402
 
-JAKA = ROOT / "models" / "jaka"
+JAKA = ROOT / "assets" / "models" / "jaka"
 MODELS = ["zu3", "zu5", "zu7", "zu12", "zu18", "zu20", "zu30"]
 
 _HAS_OCP = importlib.util.find_spec("OCP") is not None
@@ -48,11 +48,13 @@ def _rot(axis, theta):
     x, y, z = ax
     c, s = np.cos(theta), np.sin(theta)
     # Rodrigues
-    R = np.array([
-        [c + x * x * (1 - c), x * y * (1 - c) - z * s, x * z * (1 - c) + y * s],
-        [y * x * (1 - c) + z * s, c + y * y * (1 - c), y * z * (1 - c) - x * s],
-        [z * x * (1 - c) - y * s, z * y * (1 - c) + x * s, c + z * z * (1 - c)],
-    ])
+    R = np.array(
+        [
+            [c + x * x * (1 - c), x * y * (1 - c) - z * s, x * z * (1 - c) + y * s],
+            [y * x * (1 - c) + z * s, c + y * y * (1 - c), y * z * (1 - c) - x * s],
+            [z * x * (1 - c) - y * s, z * y * (1 - c) + x * s, c + z * z * (1 - c)],
+        ]
+    )
     T = np.eye(4)
     T[:3, :3] = R
     return T
@@ -87,8 +89,9 @@ def test_structure_each_model():
         rev = [j for j in root.findall("joint") if j.get("type") != "fixed"]
         assert len(rev) == 6, f"{m}: 应有 6 个旋转关节，实际 {len(rev)}"
         fixed = [j for j in root.findall("joint") if j.get("type") == "fixed"]
-        assert any(j.find("child").get("link") == "tcp" for j in fixed), \
-            f"{m}: 没有把 tcp 用固定关节挂上"
+        assert any(
+            j.find("child").get("link") == "tcp" for j in fixed
+        ), f"{m}: 没有把 tcp 用固定关节挂上"
         for j in rev:
             assert j.find("axis") is not None, f"{m}/{j.get('name')}: 缺 axis"
             assert j.find("limit") is not None, f"{m}/{j.get('name')}: 缺 limit"

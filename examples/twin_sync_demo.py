@@ -14,19 +14,19 @@
 关于"真机数据"的诚实说明
 ------------------------
 
-**本示例没有真机**。②里的"真机"是 :class:`orolp.twinsync.PlantModel` 合成的传动
+**本示例没有真机**。②里的"真机"是 :class:`service.twinsync.PlantModel` 合成的传动
 误差模型——它按物理规律作用（常量偏置、随关节角线性的传动比误差、一阶伺服滞后
 的稳态误差 = τ·ω），因此可以用来验证整条孪生链路、也可以当作故障注入来标定
 "偏差多大该报警"，但**它的数字不是现场实测，不能当验收依据引用**。代码里所有
 这些轨迹都带 ``source="plant"``，报告抬头也照实写。
 
-接真机时：把 :class:`~orolp.link.SimLink` / :class:`~orolp.twinsync.PlantLink` 换成
-真机 :class:`~orolp.link.ControllerLink` 实现即可，孪生层与报告逻辑一行不用改。
+接真机时：把 :class:`~domain.link.SimLink` / :class:`~service.twinsync.PlantLink` 换成
+真机 :class:`~domain.link.ControllerLink` 实现即可，孪生层与报告逻辑一行不用改。
 
 运行::
 
     python examples/twin_sync_demo.py
-    # 或未安装 orolp 时：PYTHONPATH=python python examples/twin_sync_demo.py
+    # 或未安装 core 时：PYTHONPATH=python python examples/twin_sync_demo.py
 """
 
 from __future__ import annotations
@@ -36,16 +36,17 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import ProgramBuilder, Robot  # noqa: E402
-from orolp.debug import DebugSession  # noqa: E402
-from orolp.link import SimLink  # noqa: E402
-from orolp.pickplace import gripper_action_for  # noqa: E402
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.twinsync import (  # noqa: E402
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from service.debug import DebugSession  # noqa: E402
+from domain.link import SimLink  # noqa: E402
+from service.pickplace import gripper_action_for  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from service.twinsync import (
     CloudLink,
     LocalCloudStore,
     PlantModel,
@@ -54,8 +55,8 @@ from orolp.twinsync import (  # noqa: E402
     compare_traces,
     deviation_chart_svg,
 )
-from orolp.world.demo import demo_pick_place_points  # noqa: E402
-from orolp.world.templates import build_grasping_workstation  # noqa: E402
+from domain.world.demo import demo_pick_place_points  # noqa: E402
+from domain.world.templates import build_grasping_workstation  # noqa: E402
 
 PROGRAM_NAME = "GRASP_DEMO"
 

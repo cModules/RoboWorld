@@ -24,12 +24,12 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Robot  # noqa: E402
-from orolp import i18n  # noqa: E402
-from orolp import kinematics as kinmod  # noqa: E402
-from orolp.perf import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from support import i18n  # noqa: E402
+from domain import kinematics as kinmod  # noqa: E402
+from service.perf import (
     PhaseTiming,
     PlanProfile,
     SWEEP_BASE,
@@ -41,12 +41,12 @@ from orolp.perf import (  # noqa: E402
     scale_report,
     sweep_program,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.world.templates import build_grasping_workstation  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.world.templates import build_grasping_workstation  # noqa: E402
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
-KR16 = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
-IRB1600 = REPO_ROOT / "models" / "abb" / "irb1600" / "irb1600.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
+KR16 = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+IRB1600 = REPO_ROOT / "assets" / "models" / "abb" / "irb1600" / "irb1600.urdf"
 
 _CJK = re.compile(r"[\u4e00-\u9fff]")
 
@@ -118,9 +118,7 @@ def test_forward_kinematics_matches_reference(ur5e):
     kin = ur5e.kinematics
     tip = kin.chain[-1].child
     for q in _configs(kin):
-        assert np.array_equal(
-            kin.forward_kinematics(q), reference_link_transforms(kin, q)[tip]
-        )
+        assert np.array_equal(kin.forward_kinematics(q), reference_link_transforms(kin, q)[tip])
 
 
 def test_link_transforms_accepts_degrees(ur5e):
@@ -349,7 +347,7 @@ def _linear_motion_at(planner, t: float) -> int:
 
 def _program_with_failed_motion(robot):
     """含"规划失败指令"（零长区间）与"零行程指令"的程序——最容易把二分写错。"""
-    from orolp import ProgramBuilder
+    from service.program import ProgramBuilder
 
     builder = ProgramBuilder(robot)
     base = list(SWEEP_BASE)
@@ -476,7 +474,9 @@ def test_profile_program_does_not_mutate_program(ur5e):
     planner.plan(program)
     cycle_before = float(planner.plan(program).waypoints[-1].timestamp)
     profile_program(planner, program, check_collision=False)
-    assert [(type(it).__name__, repr(getattr(it, "target", None))) for it in program.items] == fingerprint
+    assert [
+        (type(it).__name__, repr(getattr(it, "target", None))) for it in program.items
+    ] == fingerprint
     assert profile_program(planner, program, check_collision=False).cycle_time == pytest.approx(
         cycle_before
     )
@@ -490,9 +490,7 @@ def test_profile_reports_cache_counters(ur5e):
     delta_computed = int(profile.cache_after["rotmat_computed"]) - int(
         profile.cache_before["rotmat_computed"]
     )
-    delta_hits = int(profile.cache_after["rotmat_hits"]) - int(
-        profile.cache_before["rotmat_hits"]
-    )
+    delta_hits = int(profile.cache_after["rotmat_hits"]) - int(profile.cache_before["rotmat_hits"])
     # 这段基准跑了几万次 FK，实算次数必须远小于调用次数（缓存命中占绝大多数）
     assert delta_hits > 0
     assert delta_computed < 50
@@ -510,9 +508,7 @@ def test_profile_to_dict_is_json_serializable(ur5e):
 
 def test_profile_format_is_readable(ur5e):
     planner = TrajectoryPlanner(ur5e)
-    text = profile_program(
-        planner, sweep_program(ur5e, 5), check_collision=False
-    ).format()
+    text = profile_program(planner, sweep_program(ur5e, 5), check_collision=False).format()
     assert "规模与性能基准" in text
     assert "UR5e" in text
     assert "ms/路点" in text or "单路点规划" in text
@@ -640,9 +636,7 @@ def test_reference_link_transforms_rejects_wrong_dof(ur5e):
 def test_profile_report_is_english_in_en_mode(ur5e, en_language):
     """en 模式下报告里不留中文（库层消息 i18n 的延续）。"""
     planner = TrajectoryPlanner(ur5e)
-    text = profile_program(
-        planner, sweep_program(ur5e, 5), check_collision=False
-    ).format()
+    text = profile_program(planner, sweep_program(ur5e, 5), check_collision=False).format()
     assert _CJK.search(text) is None, text
 
 
@@ -659,9 +653,9 @@ def test_scale_table_is_english_in_en_mode(ur5e, en_language):
 def test_cli_json_output():
     """CLI 真实子进程验收：JSON 可解析、字段齐全。"""
     proc = subprocess.run(
-        [sys.executable, "-m", "orolp.perf", "--motions", "6", "--sizes", "4,8", "--json"],
+        [sys.executable, "-m", "service.perf", "--motions", "6", "--sizes", "4,8", "--json"],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=300,
@@ -675,9 +669,9 @@ def test_cli_json_output():
 
 def test_cli_prints_human_report():
     proc = subprocess.run(
-        [sys.executable, "-m", "orolp.perf", "--motions", "4"],
+        [sys.executable, "-m", "service.perf", "--motions", "4"],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=300,
@@ -688,9 +682,9 @@ def test_cli_prints_human_report():
 
 def test_cli_missing_robot_returns_two():
     proc = subprocess.run(
-        [sys.executable, "-m", "orolp.perf", "--robot", "/nonexistent/robot.urdf"],
+        [sys.executable, "-m", "service.perf", "--robot", "/nonexistent/robot.urdf"],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=300,
@@ -720,7 +714,7 @@ def test_example_benchmark_demo_runs():
             "4,8",
         ],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=600,

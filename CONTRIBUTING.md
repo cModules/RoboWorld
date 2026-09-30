@@ -13,15 +13,15 @@ Thank you for your interest in making industrial robot programming accessible to
 ### 2. Add a Post-Processor (Easiest)
 The fastest way to contribute:
 1. Fork the repository
-2. Create `python/orolp/post/<brand>_<controller>.py`
-3. Implement `BasePostProcessor` (see `docs/post_dev_guide.md`)
-4. Add a test in `python/tests/test_post.py`
+2. Create `core/post/<brand>_<controller>.py`
+3. Implement `BasePostProcessor` (see `docs/manual/post_dev_guide.md`)
+4. Add a test in `tests/test_post.py`
 5. Submit a Pull Request with sample output
 
 ### 3. Core Engine Development
 For C++ core contributions:
 - Follow Google C++ Style Guide
-- Add unit tests in `python/tests/` or `src/core/tests/`
+- Add unit tests in `tests/`（Python 全量套件；C++ 单测目录 `core/src/tests/` 尚未建立）
 - Ensure pybind11 bindings are updated
 - Document API changes in `docs/api/`
 
@@ -40,11 +40,11 @@ source .venv/bin/activate
 pip install -e ".[dev,all]"
 
 # Run tests
-pytest python/tests/ -v
+pytest tests/ -q
 
 # Format code
-black python/
-clang-format -i src/core/*.cpp src/core/*.h
+black app/ core/ domain/ service/ adapter/
+clang-format -i core/src/*.cpp core/src/*.h
 
 # Install the hygiene pre-commit hook (blocks credentials before they land)
 python3 tools/check_no_secrets.py --install-hook

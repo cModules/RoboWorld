@@ -23,11 +23,11 @@ import pytest
 from PySide6 import QtCore, QtWidgets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def qapp():
 
 @pytest.fixture()
 def window(qapp):
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -50,7 +50,7 @@ def two(window):
     """场景里两台 UR5E（相距 2 m），各教 3 / 2 个点。"""
     if not UR5E.exists():
         pytest.skip(f"缺少测试用 URDF: {UR5E}")
-    from orolp.pose import Pose
+    from domain.pose import Pose
 
     scene = window.scene_panel.scene
     scene.clear()
@@ -89,7 +89,7 @@ def test_path_point_hit_returns_its_owner(two):
     window, scene, a, b = two
     gl = window.gl_widget
 
-    ee = gl._recorded_ee_by_robot[b][1]          # B 的 P2
+    ee = gl._recorded_ee_by_robot[b][1]  # B 的 P2
     sx, sy = gl._project(ee)
     assert gl.path_point_at(sx, sy) == (b, 1), "点错台或点错序号"
 
@@ -102,12 +102,10 @@ def test_move_to_path_point_drives_only_that_robot(two):
     window, scene, a, b = two
 
     before_a = _first_deg(window, a)
-    window.on_path_point_move_requested(b, 1)    # B → P2（-12°）
+    window.on_path_point_move_requested(b, 1)  # B → P2（-12°）
 
     assert _first_deg(window, b) == pytest.approx(-12.0, abs=0.01)
-    assert _first_deg(window, a) == pytest.approx(before_a, abs=0.01), (
-        "另一台被带着动了"
-    )
+    assert _first_deg(window, a) == pytest.approx(before_a, abs=0.01), "另一台被带着动了"
     # 场景关节也要跟着：否则法兰不动，挂在法兰上的夹爪不跟随
     assert round(scene.robots[b].joints_deg[0], 2) == pytest.approx(-12.0, abs=0.01)
 
@@ -126,9 +124,9 @@ def test_context_menu_offers_move_to_on_path_point(two, monkeypatch):
 
     ee = gl._recorded_ee_by_robot[b][0]
     sx, sy = gl._project(ee)
-    assert gl._pick_object(int(sx), int(sy)) is not None, (
-        "这个用例要先确认该点确实被对象遮挡（否则测不到回归）"
-    )
+    assert (
+        gl._pick_object(int(sx), int(sy)) is not None
+    ), "这个用例要先确认该点确实被对象遮挡（否则测不到回归）"
     # 就近可能落在相邻点上（两点投影挨得很近），以实际命中的那个为准
     owner, hit_index = gl.path_point_at(sx, sy) or (b, 0)
 
@@ -164,9 +162,7 @@ def test_context_menu_offers_move_to_on_path_point(two, monkeypatch):
         shown.clear()
         gl._right_moved = moved
         gl.contextMenuEvent(
-            QtGui.QContextMenuEvent(
-                QtGui.QContextMenuEvent.Mouse, QtCore.QPoint(int(sx), int(sy))
-            )
+            QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse, QtCore.QPoint(int(sx), int(sy)))
         )
         return shown[0] if shown else None
 
@@ -178,10 +174,68 @@ def test_context_menu_offers_move_to_on_path_point(two, monkeypatch):
     # 空白处：没有路径点，不该有菜单
     shown.clear()
     gl._right_moved = False
-    gl.contextMenuEvent(
-        QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse, QtCore.QPoint(5, 5))
-    )
+    gl.contextMenuEvent(QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse, QtCore.QPoint(5, 5)))
     assert shown == []
+
+
+def test_trackpad_jitter_is_not_treated_as_a_drag(two, monkeypatch):
+    """右键按下后抖 1~2px 仍要弹菜单——**真实**鼠标事件序列。
+
+    回归：``_right_moved`` 在 ``mouseMoveEvent`` 里**只要动了就置 True**，没有
+    位移阈值。触控板两指轻点 / 鼠标右键都会带 1~2px 抖动，于是菜单**永远弹不
+    出来**；而旧测试是直接给 ``gl._right_moved`` 赋值，绕过了真实事件序列，
+    所以一直绿的（2026-09-25 用户反馈：界面上根本看不到「移动到」）。
+    """
+    from PySide6 import QtCore, QtGui
+
+    window, scene, a, b = two
+    gl = window.gl_widget
+    ee = gl._recorded_ee_by_robot[b][0]
+    sx, sy = gl._project(ee)
+    px, py = int(sx), int(sy)
+
+    def _right_event(kind, x, y, button):
+        return QtGui.QMouseEvent(
+            kind,
+            QtCore.QPointF(x, y),
+            button,
+            QtCore.Qt.RightButton,
+            QtCore.Qt.NoModifier,
+        )
+
+    gl.mousePressEvent(
+        _right_event(QtCore.QEvent.Type.MouseButtonPress, px, py, QtCore.Qt.RightButton)
+    )
+    # 触控板/鼠标在按下与松开之间的一次微小抖动
+    gl.mouseMoveEvent(
+        _right_event(QtCore.QEvent.Type.MouseMove, px + 2, py + 1, QtCore.Qt.NoButton)
+    )
+
+    assert not gl._right_moved, "抖动 2px 就被判成拖动——真实右键点击永远弹不出「移动到」"
+
+    shown = []
+
+    class _Action:
+        def setToolTip(self, _t):
+            pass
+
+    class FakeMenu:
+        def __init__(self, parent=None):
+            self._actions = []
+
+        def addAction(self, text):
+            self._actions.append(text)
+            return _Action()
+
+        def exec(self, *_a, **_k):
+            shown.append(list(self._actions))
+            return None
+
+    monkeypatch.setattr(QtWidgets, "QMenu", FakeMenu)
+    gl.contextMenuEvent(
+        QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse, QtCore.QPoint(px + 2, py + 1))
+    )
+    assert shown and shown[0][0].startswith("移动到"), f"抖动后菜单没弹出来：{shown}"
 
 
 def test_move_to_out_of_range_point_is_ignored(two):
@@ -215,7 +269,7 @@ def test_run_line_drives_the_robot_that_owns_it(two):
     window, scene, a, b = two
     ed = window.code_editor
 
-    window.gl_widget.set_current_robot(a)        # 故意把"当前"停在 A
+    window.gl_widget.set_current_robot(a)  # 故意把"当前"停在 A
     before_a = _first_deg(window, a)
 
     ed.setPlainText(_code(b))
@@ -223,11 +277,9 @@ def test_run_line_drives_the_robot_that_owns_it(two):
 
     assert [owner for _ln, owner, _i in ed._line_map] == [b, b, b]
 
-    assert ed.run_line(5) is True                # 第 5 行 = B 的 P3（-24°）
+    assert ed.run_line(5) is True  # 第 5 行 = B 的 P3（-24°）
     assert _first_deg(window, b) == pytest.approx(-24.0, abs=0.01)
-    assert _first_deg(window, a) == pytest.approx(before_a, abs=0.01), (
-        "把 B 的行执行到了 A 身上"
-    )
+    assert _first_deg(window, a) == pytest.approx(before_a, abs=0.01), "把 B 的行执行到了 A 身上"
 
 
 def test_run_line_rejects_non_movej(two):
@@ -258,9 +310,7 @@ def _plain(n_points: int) -> str:
 
 def _headed(robot: str, n_points: int) -> str:
     """带 ``# Robot:`` 头的代码——多机时归属必须写在代码里。"""
-    return _plain(n_points).replace(
-        "# OLP Path Code\n", f"# OLP Path Code\n# Robot: {robot}\n"
-    )
+    return _plain(n_points).replace("# OLP Path Code\n", f"# OLP Path Code\n# Robot: {robot}\n")
 
 
 def test_editing_code_refreshes_viewport_path(two):
@@ -303,7 +353,7 @@ def test_moving_to_point_highlights_its_code_line(two):
     ed.setPlainText(_plain(3))
     ed._flush_code_edit()
 
-    window.on_path_point_move_requested(a, 2)      # 走到 P3
+    window.on_path_point_move_requested(a, 2)  # 走到 P3
     assert _first_deg(window, a) == pytest.approx(20.0, abs=0.01)
     cursor_line = ed.code_edit.textCursor().blockNumber() + 1
     assert cursor_line == 4, f"高亮到了第 {cursor_line} 行，P3 应在第 4 行"
@@ -317,10 +367,10 @@ def test_single_step_highlights_current_line(two):
     ed.setPlainText(_plain(3))
     ed._flush_code_edit()
 
-    window.on_playback_requested(0, a)             # 走第 1 个点
+    window.on_playback_requested(0, a)  # 走第 1 个点
     assert ed.code_edit.textCursor().blockNumber() + 1 == 2
 
-    window.on_playback_requested(2, a)             # 走第 3 个点
+    window.on_playback_requested(2, a)  # 走第 3 个点
     assert ed.code_edit.textCursor().blockNumber() + 1 == 4
 
 
@@ -339,7 +389,7 @@ def test_flush_skipped_while_playing(two):
     ed.playback_timer = timer
     try:
         assert timer.isActive()
-        ed.setPlainText(_plain(5))       # 播到一半改文本
+        ed.setPlainText(_plain(5))  # 播到一半改文本
         ed._flush_code_edit()
         assert len(ed.recorded_positions) == before, "播放中不该改写点表"
     finally:

@@ -28,38 +28,36 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.post import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from adapter.post import (
     POST_PROCESSORS,
     get_post_processor,
     list_post_processors,
     resolve_for_brand,
 )
-from orolp.post.base import BasePostProcessor, PostConfig, PostProcessError  # noqa: E402
-from orolp.program import Motion, MotionType  # noqa: E402
-
+from adapter.post.base import BasePostProcessor, PostConfig, PostProcessError  # noqa: E402
+from service.program import Motion, MotionType  # noqa: E402
 
 # ----------------------------------------------------------------------------
 # 品牌元数据：units 决定线位移单位；cmd_* 是必须出现在代码里的指令字；
 # ext 是建议文件扩展名；rotvec=True 表示姿态用旋转向量（轴角）而非欧拉角。
 # ----------------------------------------------------------------------------
 BRANDS = {
-    "ur_polyscope": dict(units="m", joint="movej", linear="movel", circ="movec",
-                         ext="script", rotvec=True),
-    "kuka_krc4": dict(units="mm", joint="PTP", linear="LIN", circ="CIRC",
-                      ext="src", rotvec=False),
-    "abb_irc5": dict(units="mm", joint="MoveJ", linear="MoveL", circ="MoveC",
-                     ext="mod", rotvec=False),
-    "estun_er": dict(units="mm", joint="MOVJ", linear="MOVL", circ="MOVC",
-                     ext="prg", rotvec=False),
-    "fanuc_r30ib": dict(units="mm", joint="J ", linear="L ", circ="C ",
-                        ext="ls", rotvec=False),
-    "huichuan_inoteach": dict(units="mm", joint="MOVJ", linear="MOVL", circ="MOVC",
-                              ext="prg", rotvec=False),
-    "jaka_zu": dict(units="m", joint="movej", linear="movel", circ="movec",
-                    ext="jks", rotvec=True),
+    "ur_polyscope": dict(
+        units="m", joint="movej", linear="movel", circ="movec", ext="script", rotvec=True
+    ),
+    "kuka_krc4": dict(units="mm", joint="PTP", linear="LIN", circ="CIRC", ext="src", rotvec=False),
+    "abb_irc5": dict(
+        units="mm", joint="MoveJ", linear="MoveL", circ="MoveC", ext="mod", rotvec=False
+    ),
+    "estun_er": dict(units="mm", joint="MOVJ", linear="MOVL", circ="MOVC", ext="prg", rotvec=False),
+    "fanuc_r30ib": dict(units="mm", joint="J ", linear="L ", circ="C ", ext="ls", rotvec=False),
+    "huichuan_inoteach": dict(
+        units="mm", joint="MOVJ", linear="MOVL", circ="MOVC", ext="prg", rotvec=False
+    ),
+    "jaka_zu": dict(units="m", joint="movej", linear="movel", circ="movec", ext="jks", rotvec=True),
 }
 
 ALL_NAMES = list(BRANDS)

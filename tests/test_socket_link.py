@@ -30,22 +30,23 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Pose, Robot  # noqa: E402
-from orolp.debug import DebugSession, _accepts_kwarg  # noqa: E402
-from orolp.link import (  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from service.debug import DebugSession, _accepts_kwarg  # noqa: E402
+from domain.link import (
     DEFAULT_SOCKET_PORT,
     DEFAULT_SOCKET_TIMEOUT,
     SOCKET_API_VERSION,
     LinkError,
     SocketLink,
 )
-from orolp.linkstub import ControllerStubServer, StubState  # noqa: E402
-from orolp.simulation import Trajectory  # noqa: E402
-from orolp.twinsync import PlantModel, capture_from_session, compare_traces  # noqa: E402
+from adapter.linkstub import ControllerStubServer, StubState  # noqa: E402
+from service.simulation import Trajectory  # noqa: E402
+from service.twinsync import PlantModel, capture_from_session, compare_traces  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 PROGRAM_CODE = "// 抓取程序（中文注释）\nmovej([0,-30,30,0,60,0])\nmovej([10,-45,45,0,90,0])\n"
 
@@ -100,7 +101,7 @@ def _free_port() -> int:
 
 def _demo_program(robot):
     return (
-        orp.ProgramBuilder(robot)
+        ProgramBuilder(robot)
         .moveJ(Q0, speed=40)
         .moveL(Pose.from_xyz_rpy(500, 0, 300, 0, 0, 0), speed=50, blend=8)
         .moveL(Pose.from_xyz_rpy(500, 200, 300, 0, 0, 0), speed=50, blend=8)
@@ -146,7 +147,7 @@ def test_handshake_negotiates_caps_dof_and_server(link):
     assert link.caps == {"programs": True, "feedback": True, "pose": True}
     assert link.dof == 6
     assert link.is_actual_feedback is True
-    assert link.server_info["server"] == "orolp.ControllerStubServer"
+    assert link.server_info["server"] == "core.ControllerStubServer"
     # 握手本身算一次请求
     assert link.requests == 1
 
@@ -184,7 +185,7 @@ def test_connect_failure_explains_where_and_how():
     assert f"127.0.0.1:{port}" in msg
     assert "连接失败" in msg
     # 报错要给出可操作的下一步，而不是只有 errno
-    assert "orolp.linkstub" in msg
+    assert "adapter.linkstub" in msg
     assert lk.connected is False
     assert lk._sock is None
 
@@ -265,7 +266,9 @@ def test_stopped_server_does_not_leave_link_lying(stub_factory):
 
 def test_upload_stores_code_and_manifest(link, stub):
     handle = link.upload_program(
-        "pick_place", PROGRAM_CODE, {"ext": "script", "brand": "ur", "post_processor": "ur_polyscope"}
+        "pick_place",
+        PROGRAM_CODE,
+        {"ext": "script", "brand": "ur", "post_processor": "ur_polyscope"},
     )
     assert handle == f"sock://127.0.0.1:{stub.port}/programs/pick_place.script"
     assert stub.state.programs["pick_place"] == PROGRAM_CODE
@@ -464,7 +467,9 @@ def test_get_pose_falls_back_to_local_fk(robot, stub_factory):
         pose = lk.get_pose()
         joints = lk.read_joints()
     assert pose is not None
-    assert np.allclose(pose.to_xyz_rpy()[:3], robot.forward_kinematics(joints).to_xyz_rpy()[:3], atol=1e-6)
+    assert np.allclose(
+        pose.to_xyz_rpy()[:3], robot.forward_kinematics(joints).to_xyz_rpy()[:3], atol=1e-6
+    )
     assert "get_pose" not in srv.state.requests  # 既然不支持位姿就别去问
 
 
@@ -613,7 +618,7 @@ def test_twin_capture_over_real_socket_and_compare_with_sim(robot, stub_factory)
             program_name="pick_place",
         )
 
-    from orolp.link import SimLink
+    from domain.link import SimLink
 
     sim = SimLink(robot)
     sim.connect()
@@ -664,7 +669,7 @@ def test_report_and_describe_are_honest(stub):
     try:
         text = lk.describe()
         assert "已连接" in text
-        assert "orolp.ControllerStubServer" in text
+        assert "core.ControllerStubServer" in text
         assert f"api=v{SOCKET_API_VERSION}" in text
         assert "feedback" in text
     finally:
@@ -698,9 +703,7 @@ def test_state_rejects_bad_base64_and_bad_joints():
     assert st.handle({"op": "set_joints"})["ok"] is False
     assert st.handle({"op": "set_joints", "joints": ["x"] * 6})["ok"] is False
     assert st.handle({"op": "set_joints", "joints": [0.0] * 5})["ok"] is False
-    good = st.handle(
-        {"op": "upload", "name": "p", "code_b64": base64.b64encode(b"hi").decode()}
-    )
+    good = st.handle({"op": "upload", "name": "p", "code_b64": base64.b64encode(b"hi").decode()})
     assert good["ok"] is True
     assert st.programs["p"] == "hi"
 
@@ -765,13 +768,10 @@ def test_state_dialog_can_be_disabled():
     assert st.dialog == []
 
 
-def test_exports_are_reachable_from_package_root():
-    """包根要能拿到这两个名字——否则用户得先知道模块布局才用得起来。"""
-    import orolp
-
-    assert orolp.SocketLink is SocketLink
-    assert orolp.linkstub.ControllerStubServer is ControllerStubServer
-    assert "SocketLink" in orolp.__all__
+# 注：`test_exports_are_reachable_from_package_root` 已随兼容门面下线删除
+# （2026-09-26，ADR-008）：它断言的是 `core.SocketLink` / `core.linkstub.*` /
+# `core.__all__`——门面本身不存在了，"包根可及"这个诉求也已按决策放弃，
+# 调用方直接写 `from adapter.linkstub import SocketLink`。
 
 
 # --------------------------------------------------------------------------- #
@@ -781,12 +781,12 @@ def test_exports_are_reachable_from_package_root():
 
 def test_cli_serves_and_exits_by_itself():
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO_ROOT / "python") + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.Popen(
         [
             sys.executable,
             "-m",
-            "orolp.linkstub",
+            "adapter.linkstub",
             "--port",
             "0",
             "--print-address",
@@ -829,7 +829,7 @@ def test_cli_serves_and_exits_by_itself():
 def test_example_script_runs_end_to_end():
     """示例脚本必须真能跑完（README/网页都指着它说"一条命令可复现"）。"""
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO_ROOT / "python") + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
     env.setdefault("PYTHONIOENCODING", "utf-8")
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "examples/socket_link_demo.py")],
@@ -839,7 +839,7 @@ def test_example_script_runs_end_to_end():
         text=True,
         timeout=300,
     )
-    assert proc.returncode == 0, (proc.stdout[-3000:] + proc.stderr[-3000:])
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
     out = proc.stdout
     assert "SocketLink[127.0.0.1:" in out
     assert "逐字节一致" in out
@@ -914,8 +914,10 @@ class RawStub:
                 reply = reply(line)
             if reply is None:
                 return
-            payload = reply if isinstance(reply, bytes) else (
-                json.dumps(reply, ensure_ascii=False).encode("utf-8") + b"\n"
+            payload = (
+                reply
+                if isinstance(reply, bytes)
+                else (json.dumps(reply, ensure_ascii=False).encode("utf-8") + b"\n")
             )
             try:
                 conn.sendall(payload)

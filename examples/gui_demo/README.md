@@ -32,7 +32,7 @@ sudo apt install qt6-base-dev libqt6opengl6-dev libqt6openglwidgets6 \
 mkdir build && cd build
 cmake .. -DBUILD_GUI=ON -DBUILD_PYTHON_BINDINGS=ON
 make -j$(nproc)
-./bin/orolp_viewer ../examples/assets/test_6dof.urdf
+./bin/core_viewer ../examples/assets/test_6dof.urdf
 ```
 
 
@@ -56,7 +56,7 @@ make -j$(nproc)
 
 ### 运行
 ```bash
-./bin/orolp_viewer ../examples/assets/test_6dof.urdf
+./bin/core_viewer ../examples/assets/test_6dof.urdf
 ```
 
 ## 功能特性

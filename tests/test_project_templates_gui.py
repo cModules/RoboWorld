@@ -20,11 +20,11 @@ import pytest
 from PySide6 import QtWidgets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 _POINTS = [
     [0, -90, 90, -90, 90, 0],
@@ -40,9 +40,9 @@ def qapp():
 @pytest.fixture()
 def window(qapp, tmp_path, monkeypatch):
     """带独立配置目录的主窗口（最近打开等用户级状态不串场）。"""
-    import app as rw
+    import main as rw
 
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     win = rw.MainWindow()
     yield win
     try:
@@ -55,19 +55,15 @@ def window(qapp, tmp_path, monkeypatch):
 
 @pytest.fixture()
 def silent_dialogs(monkeypatch):
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox, "exec", lambda self: QtWidgets.QMessageBox.Ok
-    )
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", lambda self: QtWidgets.QMessageBox.Ok)
     for name in ("information", "warning", "critical"):
-        monkeypatch.setattr(
-            QtWidgets.QMessageBox, name, staticmethod(lambda *a, **k: None)
-        )
+        monkeypatch.setattr(QtWidgets.QMessageBox, name, staticmethod(lambda *a, **k: None))
     return monkeypatch
 
 
 def _menu_texts(window) -> list:
     """「文件」菜单的条目——标题已中文化，按当前语言的译文找。"""
-    from orolp.i18n import tr
+    from support.i18n import tr
 
     wanted = tr("文件(&F)").replace("&", "")
     for action in window.menuBar().actions():
@@ -105,7 +101,7 @@ def test_new_from_template_applies_scene_and_program(window):
     assert window._project_dirty
     assert "未保存" in window.windowTitle()
     assert window.project.path is None
-    from orolp.session import RecentProjects
+    from app.session import RecentProjects
 
     assert RecentProjects.load().paths == []
 
@@ -133,7 +129,8 @@ def test_dirty_project_yes_discards_and_applies(window, monkeypatch):
         pytest.skip("内置 UR5e 模型缺失")
     window.scene_panel.add_component("worktable")
     monkeypatch.setattr(
-        QtWidgets.QMessageBox, "question",
+        QtWidgets.QMessageBox,
+        "question",
         staticmethod(lambda *a, **k: QtWidgets.QMessageBox.Yes),
     )
     assert window.new_project_from_template("grasping_workstation") is True
@@ -149,7 +146,8 @@ def test_unknown_template_id_fails_honestly(window, silent_dialogs):
 
 def test_template_dialog_cancel_returns_none(window, monkeypatch):
     monkeypatch.setattr(
-        QtWidgets.QDialog, "exec",
+        QtWidgets.QDialog,
+        "exec",
         lambda self: QtWidgets.QDialog.Rejected,
     )
     assert window._choose_project_template() is None

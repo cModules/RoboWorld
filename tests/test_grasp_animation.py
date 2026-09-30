@@ -25,19 +25,19 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.pickplace import PointType, gripper_action_for  # noqa: E402
-from orolp.program import Motion, MotionType, Program, SetDO  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
-from orolp.world import Scene  # noqa: E402
-from orolp.world.animation import GraspAnimator, GripperEvent, gripper_events  # noqa: E402
-from orolp.world.scene import ROBOT_NAME  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from service.pickplace import PointType, gripper_action_for  # noqa: E402
+from service.program import Motion, MotionType, Program, SetDO  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.world import Scene  # noqa: E402
+from domain.world.animation import GraspAnimator, GripperEvent, gripper_events  # noqa: E402
+from domain.world.scene import ROBOT_NAME  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 WORKPIECE = "工件1"
 
@@ -103,24 +103,14 @@ def test_event_before_first_motion_at_time_zero(robot):
 
 def test_reset_signal_is_not_an_event(robot):
     """互锁复位（gripper_close=False / gripper_open=False）不构成事件。"""
-    prog = (
-        robot.moveJ([0, 0, 0, 0, 0, 0])
-        .gripper("close")
-        .setDO("gripper_close", False)
-        .build()
-    )
+    prog = robot.moveJ([0, 0, 0, 0, 0, 0]).gripper("close").setDO("gripper_close", False).build()
     planner = _plan(robot, prog)
     assert [e.action for e in gripper_events(prog, planner)] == ["close"]
 
 
 def test_consecutive_duplicate_actions_deduped(robot):
     """连续两次同向夹爪动作只保留首次——重复置位没有动画语义。"""
-    prog = (
-        robot.moveJ([0, 0, 0, 0, 0, 0])
-        .gripper("close")
-        .gripper("close", confirm=False)
-        .build()
-    )
+    prog = robot.moveJ([0, 0, 0, 0, 0, 0]).gripper("close").gripper("close", confirm=False).build()
     planner = _plan(robot, prog)
     assert [e.action for e in gripper_events(prog, planner)] == ["close"]
 
@@ -206,9 +196,7 @@ def test_attach_keeps_world_then_follows_robot(scene):
     GraspAnimator.apply(scene, WORKPIECE, "close")
     assert scene.objects[WORKPIECE].parent == ROBOT_NAME
     # 被夹住的瞬间：世界位姿不变
-    np.testing.assert_allclose(
-        scene.world_transform(WORKPIECE), wp_before, atol=1e-6
-    )
+    np.testing.assert_allclose(scene.world_transform(WORKPIECE), wp_before, atol=1e-6)
 
     # 机器人换位形 → 工件世界位姿跟着变（随动）
     scene.set_robot_joints([0, -45, 45, 0, 45, 0])
@@ -224,9 +212,7 @@ def test_detach_leaves_workpiece_in_place(scene):
 
     p_released = scene.world_transform(WORKPIECE).copy()
     scene.set_robot_joints([10, -30, 30, 0, 30, 0])
-    np.testing.assert_allclose(
-        scene.world_transform(WORKPIECE), p_released, atol=1e-9
-    )
+    np.testing.assert_allclose(scene.world_transform(WORKPIECE), p_released, atol=1e-9)
 
 
 def test_attach_to_missing_workpiece_raises(scene):

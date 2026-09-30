@@ -14,7 +14,7 @@
 
     python examples/incremental_demo.py
     python examples/incremental_demo.py --motions 120
-    PYTHONPATH=python python examples/incremental_demo.py   # 未安装 orolp 时
+    PYTHONPATH=python python examples/incremental_demo.py   # 未安装 core 时
 """
 
 from __future__ import annotations
@@ -25,29 +25,29 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import Robot  # noqa: E402
-from orolp import i18n  # noqa: E402
-from orolp.incremental import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from support import i18n  # noqa: E402
+from service.incremental import (
     TrajectoryCache,
     incremental_stats,
     reset_incremental_stats,
     set_cache,
 )
-from orolp.perf import (  # noqa: E402
+from service.perf import (
     SWEEP_BASE,
     _clone_items,
     linear_program,
     plan_cache_profile,
     sweep_program,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.program import Motion, Program, ProgramBuilder, WaitTime  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from service.program import Motion, Program, ProgramBuilder, WaitTime  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 def section(title: str) -> None:
@@ -174,7 +174,7 @@ def _fmt(stats: dict) -> str:
 
 
 def _scenarios():
-    from orolp.perf import default_edit_scenarios
+    from service.perf import default_edit_scenarios
 
     return default_edit_scenarios()
 

@@ -33,29 +33,28 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import i18n  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.world import placement  # noqa: E402
-from orolp.world.components import Part  # noqa: E402
-from orolp.world.geometry import Box  # noqa: E402
-from orolp.world.scene import (  # noqa: E402
+from support import i18n  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.world import placement  # noqa: E402
+from domain.world.components import Part  # noqa: E402
+from domain.world.geometry import Box  # noqa: E402
+from domain.world.scene import (
     GEOMETRY_COLLISION,
     ROBOT_NAME,
     Scene,
     SceneObject,
 )
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QMouseEvent  # noqa: E402
 
 
-def _box_object(name, size, xyz, *, locked=False, parent=None, parts=None,
-                visible=True):
+def _box_object(name, size, xyz, *, locked=False, parent=None, parts=None, visible=True):
     """造一个"裸几何"场景对象（不走组件注册表，测试自持）。"""
     obj = SceneObject(
         name=name,
@@ -114,8 +113,7 @@ def test_support_ignores_descendants_of_the_ignored_object(scene):
     自己夹爪的顶面上——夹爪又随基座一起上升，于是每点一次就往上蹿一层。
     """
     # 料箱是工作台的**子对象**：局部 z=460 → 世界 400+460=860，正好坐在台面上
-    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460),
-                                        parent="工作台")
+    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460), parent="工作台")
     # 只排除自己时，料箱是工作台的子对象 → 也不该入选
     z, name = placement.support_height_at(scene, 0.0, 0.0, ignore=("工作台",))
     assert (z, name) == (0.0, placement.GROUND_NAME)
@@ -125,31 +123,27 @@ def test_support_ignores_descendants_of_the_ignored_object(scene):
 
 
 def test_descendants_of_collects_nested_children(scene):
-    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460),
-                                        parent="工作台")
-    scene.objects["垫块"] = _box_object("垫块", (40, 40, 20), (0, 0, 70),
-                                        parent="料箱")
+    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460), parent="工作台")
+    scene.objects["垫块"] = _box_object("垫块", (40, 40, 20), (0, 0, 70), parent="料箱")
     assert set(placement.descendants_of(scene, "工作台")) == {"料箱", "垫块"}
     assert placement.descendants_of(scene, "工件") == []
 
 
 def test_place_on_support_is_stable_when_clicked_repeatedly(scene):
     """没有拖动只是"点一下"时，位姿必须原地不动——不能越点越高。"""
-    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460),
-                                        parent="工作台")
+    scene.objects["料箱"] = _box_object("料箱", (100, 100, 120), (0, 0, 460), parent="工作台")
     before = scene.objects["工作台"].pose
     for _ in range(3):
         result = placement.place_on_support(scene, "工作台", 0.0, 0.0)
         assert result.moved is True
-        assert result.z == pytest.approx(400.0)   # 落在地面，而不是自己孩子头上
+        assert result.z == pytest.approx(400.0)  # 落在地面，而不是自己孩子头上
     after = scene.objects["工作台"].pose
     assert np.allclose(after.matrix, before.matrix, atol=1e-9)
 
 
 def test_support_skips_robots_and_invisible_objects(scene):
     scene.set_robot(URDF, joints_deg=[0.0] * 6)
-    scene.objects["隐形箱"] = _box_object("隐形箱", (400, 300, 1600), (0, 0, 800),
-                                          visible=False)
+    scene.objects["隐形箱"] = _box_object("隐形箱", (400, 300, 1600), (0, 0, 800), visible=False)
     # 机器人与不可见对象都不算支承——工件不该"落在机器人头上"
     z, name = placement.support_height_at(scene, 0.0, 0.0, ignore=("工件",))
     assert (z, name) == (800.0, "工作台")
@@ -195,7 +189,7 @@ def test_place_on_table_lands_bottom_on_top(scene):
 def test_place_off_table_lands_on_ground(scene):
     result = placement.place_on_support(scene, "工件", 1000.0, 0.0)
     assert result.support == placement.GROUND_NAME
-    assert result.z == pytest.approx(20.0)   # 底面贴地：0 - (-20)
+    assert result.z == pytest.approx(20.0)  # 底面贴地：0 - (-20)
 
 
 def test_place_snaps_xy_when_step_given(scene):
@@ -223,8 +217,7 @@ def test_place_locked_object_is_rejected_with_reason(scene):
 
 
 def test_place_mounted_object_is_rejected(scene):
-    scene.objects["法兰件"] = _box_object("法兰件", (30, 30, 30), (0, 0, 850),
-                                          parent="工作台")
+    scene.objects["法兰件"] = _box_object("法兰件", (30, 30, 30), (0, 0, 850), parent="工作台")
     result = placement.place_on_support(scene, "法兰件", 0.0, 0.0)
     assert result.moved is False
     assert "挂载" in result.reason
@@ -256,7 +249,7 @@ def test_place_unknown_object_is_rejected(scene):
 
 def test_grabbable_rules(scene):
     assert placement.grabbable(scene, "工件") is True
-    assert placement.grabbable(scene, "机器人") is False          # 场景里没有
+    assert placement.grabbable(scene, "机器人") is False  # 场景里没有
     assert placement.grabbable(scene, None) is False
     scene.objects["锁件"] = _box_object("锁件", (10, 10, 10), (0, 0, 900), locked=True)
     assert placement.grabbable(scene, "锁件") is False
@@ -267,8 +260,7 @@ def test_apply_world_pose_with_rotated_parent():
     s = Scene()
     s.objects["底座"] = _box_object("底座", (200, 200, 200), (1000, 0, 100))
     s.objects["底座"].pose = Pose.from_xyz_rpy(1000, 0, 100, 0, 0, 90.0)
-    s.objects["子件"] = _box_object("子件", (40, 40, 40), (0, 0, 240),
-                                    parent="底座")
+    s.objects["子件"] = _box_object("子件", (40, 40, 40), (0, 0, 240), parent="底座")
     placement.apply_world_pose(s, "子件", 1000.0, 500.0, 260.0, 30.0)
     tf = s.world_transform("子件")
     assert np.allclose(tf[:3, 3], [1000.0, 500.0, 260.0], atol=1e-9)
@@ -299,7 +291,7 @@ def qapp():
 
 @pytest.fixture()
 def window(qapp):
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -343,7 +335,7 @@ def test_left_press_on_workpiece_starts_grab(gl_scene):
     gl.mousePressEvent(_mouse(QEvent.MouseButtonPress, x, y))
     assert gl._grab_active is True
     assert gl.selected_object == "工件"
-    assert gl.dragging is False          # 不能同时转视角
+    assert gl.dragging is False  # 不能同时转视角
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x, y))
 
 
@@ -351,7 +343,7 @@ def test_left_press_on_empty_space_still_orbits(gl_scene):
     gl, _scene = gl_scene
     gl.mousePressEvent(_mouse(QEvent.MouseButtonPress, 5, 5))
     assert gl._grab_active is False
-    assert gl.dragging is True           # 空白处保持"拖 = 旋转视角"
+    assert gl.dragging is True  # 空白处保持"拖 = 旋转视角"
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, 5, 5))
 
 
@@ -364,15 +356,13 @@ def test_left_press_on_robot_grabs(gl_scene):
     gl, scene = gl_scene
     scene.set_robot(URDF, joints_deg=[0.0] * 6)
     robot = scene.robot_names[0]
-    scene.objects["工件"].visible = False   # 别让工件挡住射向机器人的视线
+    scene.objects["工件"].visible = False  # 别让工件挡住射向机器人的视线
     # 工作台从机器人脚下挪开：否则射线先穿台面，命中的是工作台而不是机器人
     scene.objects["工作台"].pose = Pose.from_xyz_rpy(3000, 0, 400, 0, 0, 0)
 
     parts = [
         p
-        for group in scene.robot_world_link_parts(
-            robot, source=GEOMETRY_COLLISION
-        ).values()
+        for group in scene.robot_world_link_parts(robot, source=GEOMETRY_COLLISION).values()
         for p in group
     ]
     assert len(parts) > 1, "机器人应有多个碰撞包络参与拾取，否则点机身选不中"
@@ -381,7 +371,7 @@ def test_left_press_on_robot_grabs(gl_scene):
     x, y = gl._project(p)
     gl.mousePressEvent(_mouse(QEvent.MouseButtonPress, x, y))
     assert gl._grab_active is True
-    assert gl.dragging is False          # 不再是"选中 + 旋转视角"
+    assert gl.dragging is False  # 不再是"选中 + 旋转视角"
     assert gl.selected_object == robot
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x, y))
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x, y))
@@ -396,7 +386,7 @@ def test_drag_moves_xy_and_keeps_height(gl_scene):
     x1, y1 = gl._project(target * gl.MM_TO_M)
     gl.mouseMoveEvent(_mouse(QEvent.MouseMove, x1, y1))
     xyz = scene.objects["工件"].pose.to_xyz_rpy()[:3]
-    assert xyz[2] == pytest.approx(820.0)        # 拖动中 Z 不变
+    assert xyz[2] == pytest.approx(820.0)  # 拖动中 Z 不变
     # XY 有像素取整 + 透视视差（事件坐标是整数像素），毫米级误差属正常
     assert xyz[0] == pytest.approx(-50.0, abs=6.0)
     assert xyz[1] == pytest.approx(30.0, abs=6.0)
@@ -416,7 +406,7 @@ def test_release_drops_on_support_and_emits_summary(gl_scene):
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x1, y1))
 
     xyz = scene.objects["工件"].pose.to_xyz_rpy()[:3]
-    assert xyz[2] == pytest.approx(820.0)        # 松手落到台面：底面贴 800
+    assert xyz[2] == pytest.approx(820.0)  # 松手落到台面：底面贴 800
     assert len(seen) == 1
     assert "工件" in seen[0] and "落在 工作台 上" in seen[0]
     assert gl._grab_active is False
@@ -433,7 +423,7 @@ def test_release_on_empty_ground_drops_to_floor(gl_scene):
     gl.mouseMoveEvent(_mouse(QEvent.MouseMove, x1, y1))
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x1, y1))
     xyz = scene.objects["工件"].pose.to_xyz_rpy()[:3]
-    assert xyz[2] == pytest.approx(20.0)         # 地面：0 - (-20)
+    assert xyz[2] == pytest.approx(20.0)  # 地面：0 - (-20)
     assert scene.objects["工件"].pose.to_xyz_rpy()[0] == pytest.approx(500.0, abs=6.0)
 
 
@@ -448,8 +438,8 @@ def test_snap_step_applies_on_release(gl_scene):
     gl.mouseMoveEvent(_mouse(QEvent.MouseMove, x1, y1))
     gl.mouseReleaseEvent(_mouse(QEvent.MouseButtonRelease, x1, y1))
     xyz = scene.objects["工件"].pose.to_xyz_rpy()[:3]
-    assert xyz[0] == pytest.approx(-50.0)        # -50 本就是 25 的倍数
-    assert xyz[1] == pytest.approx(25.0)         # 30 → 25
+    assert xyz[0] == pytest.approx(-50.0)  # -50 本就是 25 的倍数
+    assert xyz[1] == pytest.approx(25.0)  # 30 → 25
     assert xyz[2] == pytest.approx(820.0)
 
 
@@ -474,36 +464,54 @@ def test_right_gizmo_still_works_after_grab_feature(gl_scene):
 
     gl, scene = gl_scene
     x0, y0 = _screen_of(gl, scene, "工件")
-    press = QMouseEvent(QEvent.MouseButtonPress, QPointF(x0, y0),
-                        Qt.RightButton, Qt.RightButton, Qt.NoModifier)
+    press = QMouseEvent(
+        QEvent.MouseButtonPress, QPointF(x0, y0), Qt.RightButton, Qt.RightButton, Qt.NoModifier
+    )
     gl.mousePressEvent(press)
     assert gl.selected_object == "工件"
 
     before = scene.world_transform("工件")[:3, 3].copy()
     before_rz = math.atan2(before[1], before[0])
     # 第一段移动：锁定模式（对象中心命中的是 Z 轴竖条或 XY 方块）
-    gl.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPointF(x0 + 2, y0 - 2),
-                                  Qt.RightButton, Qt.RightButton, Qt.NoModifier))
+    gl.mouseMoveEvent(
+        QMouseEvent(
+            QEvent.MouseMove, QPointF(x0 + 2, y0 - 2), Qt.RightButton, Qt.RightButton, Qt.NoModifier
+        )
+    )
     mode = gl.drag_mode
     assert mode in ("xy", "z", "rz")
     # 第二段移动：执行变换
-    gl.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPointF(x0 + 60, y0 - 30),
-                                  Qt.RightButton, Qt.RightButton, Qt.NoModifier))
-    gl.mouseReleaseEvent(QMouseEvent(
-        QEvent.MouseButtonRelease, QPointF(x0 + 60, y0 - 30),
-        Qt.RightButton, Qt.NoButton, Qt.NoModifier))
+    gl.mouseMoveEvent(
+        QMouseEvent(
+            QEvent.MouseMove,
+            QPointF(x0 + 60, y0 - 30),
+            Qt.RightButton,
+            Qt.RightButton,
+            Qt.NoModifier,
+        )
+    )
+    gl.mouseReleaseEvent(
+        QMouseEvent(
+            QEvent.MouseButtonRelease,
+            QPointF(x0 + 60, y0 - 30),
+            Qt.RightButton,
+            Qt.NoButton,
+            Qt.NoModifier,
+        )
+    )
 
     after = scene.world_transform("工件")[:3, 3]
     after_rz = math.atan2(after[1], after[0])
     changed = (not np.allclose(before, after)) or not math.isclose(
-        before_rz, after_rz, abs_tol=1e-12)
+        before_rz, after_rz, abs_tol=1e-12
+    )
     assert changed, f"模式 {mode} 的 gizmo 变换没有改变对象位姿"
     assert gl.drag_mode is None
 
 
 def test_en_summary_has_no_chinese(gl_scene, monkeypatch, tmp_path):
     """en 界面：状态栏小结零中文残留。"""
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_EN, save=False)
     try:
         gl, scene = gl_scene
@@ -511,7 +519,9 @@ def test_en_summary_has_no_chinese(gl_scene, monkeypatch, tmp_path):
         text = placement.placement_summary(result)
         assert "落在" not in text
         assert "placed on" in text or "工作台" in text  # 对象名是数据，保留原样
-        assert not any("\u4e00" <= c <= "\u9fff" for c in text.replace("工件", "").replace("工作台", ""))
+        assert not any(
+            "\u4e00" <= c <= "\u9fff" for c in text.replace("工件", "").replace("工作台", "")
+        )
     finally:
         i18n.set_language(i18n.LANG_ZH, save=False)
 
@@ -540,14 +550,16 @@ def test_flange_snap_target_hits_only_within_radius(scene):
     scene.set_robot(URDF, joints_deg=[0.0] * 6)
     robot = scene.robot_names[0]
     flange = _flange_world(scene, robot)
-    g = _add_box(scene, "夹爪", (40, 40, 60),
-                 (float(flange[0]), float(flange[1]), float(flange[2])))
+    g = _add_box(
+        scene, "夹爪", (40, 40, 60), (float(flange[0]), float(flange[1]), float(flange[2]))
+    )
 
     assert placement.flange_snap_target(scene, "夹爪", 60.0) == robot
 
     # 挪出判定半径之外即不再命中——否则会因为"某个机器人离得近"而误装
-    g.pose = Pose.from_xyz_rpy(float(flange[0]) + 500.0, float(flange[1]),
-                               float(flange[2]), 0, 0, 0)
+    g.pose = Pose.from_xyz_rpy(
+        float(flange[0]) + 500.0, float(flange[1]), float(flange[2]), 0, 0, 0
+    )
     assert placement.flange_snap_target(scene, "夹爪", 60.0) is None
 
 
@@ -579,8 +591,7 @@ def test_release_near_flange_mounts_instead_of_dropping(gl_scene):
     scene.set_robot(URDF, joints_deg=[0.0] * 6)
     robot = scene.robot_names[0]
     flange = _flange_world(scene, robot)
-    _add_box(scene, "夹爪", (40, 40, 60),
-             (float(flange[0]), float(flange[1]), float(flange[2])))
+    _add_box(scene, "夹爪", (40, 40, 60), (float(flange[0]), float(flange[1]), float(flange[2])))
 
     x0, y0 = _screen_of(gl, scene, "夹爪")
     # 夹爪正贴法兰时射线会先命中机器人的碰撞包络，这里直接起拖，专注于验证
@@ -596,7 +607,7 @@ def test_release_near_flange_mounts_instead_of_dropping(gl_scene):
 
 def test_device_tree_reparent_mounts_on_flange(qapp):
     """设备树拖拽：挂到机器人＝装夹到法兰并对齐坐标系。"""
-    from orolp.world.panel import ScenePanel
+    from domain.world.panel import ScenePanel
 
     s = Scene()
     s.set_robot(URDF, joints_deg=[0.0] * 6)
@@ -610,13 +621,12 @@ def test_device_tree_reparent_mounts_on_flange(qapp):
         panel.deleteLater()
 
     assert s.objects[g.name].parent == robot
-    assert np.allclose(s.world_transform(g.name)[:3, 3],
-                       _flange_world(s, robot), atol=1e-6)
+    assert np.allclose(s.world_transform(g.name)[:3, 3], _flange_world(s, robot), atol=1e-6)
 
 
 def test_device_tree_reparent_keeps_world_for_plain_parent(qapp):
     """挂到普通对象＝保持世界位姿建立随动（不能瞬移）。"""
-    from orolp.world.panel import ScenePanel
+    from domain.world.panel import ScenePanel
 
     s = Scene()
     table = s.add("worktable", pose=Pose.from_xyz_rpy(0, 0, 400, 0, 0, 0))
@@ -635,14 +645,15 @@ def test_device_tree_reparent_keeps_world_for_plain_parent(qapp):
 
 def test_device_tree_reparent_robot_sits_on_base_top(qapp):
     """树里把机器人拖到底座上：应坐到上表面中心（接线必须生效）。"""
-    from orolp.world.panel import ScenePanel
-    from orolp.world.placement import ground_offset, world_aabb
+    from domain.world.panel import ScenePanel
+    from domain.world.placement import ground_offset, world_aabb
 
     s = Scene()
     s.set_robot(URDF, joints_deg=[0.0] * 6)
     robot = s.robot_names[0]
     base = s.add(
-        "worktable", name="底座",
+        "worktable",
+        name="底座",
         params={"length": 400.0, "width": 400.0, "height": 200.0},
         pose=Pose.from_xyz_rpy(1000.0, 0.0, 0.0, 0.0, 0.0, 0.0),
     )
@@ -657,14 +668,12 @@ def test_device_tree_reparent_robot_sits_on_base_top(qapp):
     box = world_aabb(s, base.name)
     p = s.world_transform(robot)[:3, 3]
     assert p[0] == pytest.approx(0.5 * (box.lo[0] + box.hi[0]), abs=1e-6)
-    assert p[2] == pytest.approx(
-        float(box.hi[2]) - ground_offset(s, robot), abs=1e-6
-    )
+    assert p[2] == pytest.approx(float(box.hi[2]) - ground_offset(s, robot), abs=1e-6)
 
 
 def test_device_tree_reparent_rejects_robot_on_robot_flange(qapp):
     """整机挂到另一台机器人的法兰上没有意义，必须拦下。"""
-    from orolp.world.panel import ScenePanel
+    from domain.world.panel import ScenePanel
 
     s = Scene()
     a = s.add_robot(URDF, [0.0] * 6, name="机器人A")
@@ -704,7 +713,7 @@ def test_device_tree_type_matches_library_category(qapp):
     回归两处：① 判定用 ``name == ROBOT_NAME``，多机时第二台「机器人_2」会
     落到"自定义"；② 显示的是组件名（"两指夹爪"）而不是分类（"末端工具"）。
     """
-    from orolp.world.panel import ScenePanel
+    from domain.world.panel import ScenePanel
 
     s = Scene()
     s.set_robot(URDF, [0.0] * 6)
@@ -751,9 +760,7 @@ def test_two_robots_have_independent_renderers_and_joints(window):
     window._sync_scene_joints()
 
     assert scene.robots[a].joints_deg[0] == pytest.approx(math.degrees(0.9))
-    assert scene.robots[b].joints_deg == pytest.approx(before_b), (
-        "拖 A 的关节把 B 也改了"
-    )
+    assert scene.robots[b].joints_deg == pytest.approx(before_b), "拖 A 的关节把 B 也改了"
 
 
 def test_lazy_renderer_matches_its_own_urdf_and_scene_joints(window):
@@ -804,17 +811,12 @@ def test_adding_second_robot_appends_instead_of_replacing(window):
 
     window.load_robot(str(URDF))
 
-    assert len(scene.robot_names) == 2, (
-        f"第二台机器人把已有的顶掉了: {scene.robot_names}"
-    )
+    assert len(scene.robot_names) == 2, f"第二台机器人把已有的顶掉了: {scene.robot_names}"
     first, second = scene.robot_names
     assert first == ROBOT_NAME and second != first
     # 每台都要有各自的渲染器，且渲染基座位姿互不相同（不能叠在一起）
     assert set(window.gl_widget.renderers) >= set(scene.robot_names)
-    xs = [
-        float(window.gl_widget._robot_base_pose_m(n)[0, 3])
-        for n in scene.robot_names
-    ]
+    xs = [float(window.gl_widget._robot_base_pose_m(n)[0, 3]) for n in scene.robot_names]
     assert abs(xs[0] - xs[1]) > 1e-6, "两台机器人渲染基座位姿相同"
 
 
@@ -830,7 +832,8 @@ def test_robot_render_base_follows_mount(window):
 
     before = gl._robot_base_pose_m()[:3, 3].copy()
     base = scene.add(
-        "worktable", name="底座",
+        "worktable",
+        name="底座",
         pose=Pose.from_xyz_rpy(1000.0, 500.0, 0.0, 0.0, 0.0, 0.0),
     )
     scene.attach(robot, base.name, keep_world=True)
@@ -840,6 +843,4 @@ def test_robot_render_base_follows_mount(window):
 
     # 底座挪走后，渲染基座位姿必须跟着挪（mm → m）
     base.pose = Pose.from_xyz_rpy(2000.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    assert np.allclose(
-        gl._robot_base_pose_m()[:3, 3] - before, [1.0, -0.5, 0.0], atol=1e-6
-    )
+    assert np.allclose(gl._robot_base_pose_m()[:3, 3] - before, [1.0, -0.5, 0.0], atol=1e-6)

@@ -15,9 +15,7 @@ SCRIPT = REPO_ROOT / "examples" / "grasping_workstation_demo.py"
 
 def _run_demo() -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
-    )
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), str(REPO_ROOT), env.get("PYTHONPATH", "")])
     return subprocess.run(
         [sys.executable, str(SCRIPT)],
         cwd=str(REPO_ROOT),
@@ -39,8 +37,16 @@ def test_demo_script_runs_clean():
 def test_demo_script_full_pipeline_sections():
     out = _run_demo().stdout
     # 全流程 5 个阶段都有分段输出
-    for marker in ("[1] 工作站模板", "[2] 示例示教点", "[3] 程序校验",
-                   "[4] 仿真完成", "URScript", "KUKA KRL", "ABB RAPID", "FANUC TP"):
+    for marker in (
+        "[1] 工作站模板",
+        "[2] 示例示教点",
+        "[3] 程序校验",
+        "[4] 仿真完成",
+        "URScript",
+        "KUKA KRL",
+        "ABB RAPID",
+        "FANUC TP",
+    ):
         assert marker in out, f"缺少分段输出: {marker}"
     # 校验通过、节拍非零
     assert "程序校验: 通过" in out
@@ -54,7 +60,7 @@ def test_demo_script_discloses_envelope_contacts():
     模型误差；演示放行 ≤``ENVELOPE_TOLERANCE_MM`` 的接触，但必须打印
     容差值与放行条数，否则用户会以为"零错误 == 绝对不碰"。
     """
-    from orolp.planner import ENVELOPE_TOLERANCE_MM
+    from service.planner import ENVELOPE_TOLERANCE_MM
 
     out = _run_demo().stdout
     assert "包络容差" in out
@@ -73,10 +79,10 @@ def test_demo_script_workstation_contents():
 def test_demo_script_brand_io_syntax():
     out = _run_demo().stdout
     # 抓取时序在各品牌出码中都有真实 IO（不是 TODO 注释代替）
-    assert "set_digital_out(1, True)" in out   # UR 夹爪闭合
-    assert "WAIT FOR $IN[3]" in out            # KUKA 等待夹紧反馈
+    assert "set_digital_out(1, True)" in out  # UR 夹爪闭合
+    assert "WAIT FOR $IN[3]" in out  # KUKA 等待夹紧反馈
     assert "SetDO" in out or "\\SetDO" in out  # ABB 置位
-    assert "DO[" in out                        # FANUC 直接输出
+    assert "DO[" in out  # FANUC 直接输出
     # 出码里不允许出现"指令降级为注释"的占位（S2 的验收标准延续到示例：
     # post/base.py 信号未映射时输出 TODO_<信号名> 占位）
     for brand_block in out.split("--- ")[1:]:

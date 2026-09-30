@@ -21,12 +21,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
 from PySide6 import QtWidgets, QtCore  # noqa: E402
 
-import app  # noqa: E402
+import main  # noqa: E402
 
 
 def main() -> int:
@@ -45,15 +45,15 @@ def main() -> int:
         )
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-    window = app.MainWindow()
+    window = main.MainWindow()
     window.resize(1680, 1050)
     window.show()
     for _ in range(20):
-        app.processEvents()
+        main.processEvents()
 
     window.load_grasping_workstation_demo()
     for _ in range(30):
-        app.processEvents()
+        main.processEvents()
 
     saved = []
 
@@ -77,14 +77,14 @@ def main() -> int:
     timer.timeout.connect(lambda: done.update(flag=True))
     timer.start(2200)
     while not done["flag"]:
-        app.processEvents()
+        main.processEvents()
     window.raise_()
     grab(window.gl_widget, "grasping_playback.png")
 
     # 3) 离线编程面板：校验报告 + 节拍
     window.right_tabs.setCurrentWidget(window.program_panel)
     for _ in range(20):
-        app.processEvents()
+        main.processEvents()
     grab(window, "grasping_offline_programming.png")
 
     window.program_panel.stop_playback()

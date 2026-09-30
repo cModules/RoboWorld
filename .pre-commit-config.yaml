@@ -9,7 +9,7 @@ repos:
   - repo: local
     hooks:
       - id: arch-rules
-        name: 架构规则（依赖方向 H1-H4 / 行数分档 L1）
+        name: 架构规则（H1-H8：GUI 归宿/C++ 边界/分层纯净/棘轮 + L1 行数分档）
         entry: python3 tools/check_arch_rules.py
         language: system
         pass_filenames: false

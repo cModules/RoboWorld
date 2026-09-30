@@ -3,7 +3,7 @@
 
 为什么需要这个文件
 ------------------
-``tests/test_vendor_jaka.py`` 守的是**已提交产物**（``models/jaka/*/*_real.urdf``）与
+``tests/test_vendor_jaka.py`` 守的是**已提交产物**（``assets/models/jaka/*/*_real.urdf``）与
 工具的纯函数，而生成链路本身挂在「本地没有厂商 STEP 就 skip」的冒烟测试后面。于是
 2026-09-14 装上 ``cadquery-ocp 8.0.1``（OCP 8 把 ``TopoDS.Face_s`` 改名为
 ``TopoDS.Face``）之后，``tools/build_vendor_urdf.py`` 与 ``tools/vendor_cad_import.py``
@@ -13,7 +13,7 @@
 
     BRepPrimAPI_MakeBox × N → TopoDS_Compound → STEPControl_Writer → *.STEP
       → load_step_components → mesh_component → write_stl_binary
-      → build_model → write_urdf → <model>_real.urdf → orolp.Robot
+      → build_model → write_urdf → <model>_real.urdf → core.Robot
     （另一条分支：vendor_cad_import.convert → grp_NN.stl）
 
 因此不再依赖厂商 CAD 是否投放，改名/接线错误会当场失败。它同时也是 v0.2.3
@@ -22,14 +22,14 @@
 
 覆盖的边界
 ----------
-① OCP 版本兼容层（``orolp.ocpcompat``）：符号解析、软依赖（import 期不加载 OCP）、
+① OCP 版本兼容层（``adapter.ocpcompat``）：符号解析、软依赖（import 期不加载 OCP）、
    ``Face_s``/``Edge_s`` 改名后工具侧不得再出现裸调用；
 ② STEP 读写往返：组件数与**顺序**（base→tip）、单位缩放；
 ③ 网格写出与回读：二进制 STL 头/面数/法线/顶点；
 ④ 端到端 ``build_model``：连杆链与关节（轴/限位/parent-child）来自程序化 URDF、
    每个关节原点确实是「子网格中离父连杆质心最近的顶点」且与写出的 STL 一致、
    额外组件并入末连杆；
-⑤ 生成的 ``_real.urdf`` 能被 ``orolp.Robot`` 真加载（DOF 与 FK 可用）；
+⑤ 生成的 ``_real.urdf`` 能被 ``core.Robot`` 真加载（DOF 与 FK 可用）；
 ⑥ ``vendor_cad_import.convert`` / ``convert_all`` 的分组 STL 产物；
 ⑦ CLI（``--probe`` / ``--all``）在进程内跑通；
 ⑧ 仓库级交叉约束：程序化 URDF 的关节 origin rpy 必须全为 0——否则
@@ -65,8 +65,9 @@ from OCP.TopExp import TopExp_Explorer  # noqa: E402
 from OCP.TopoDS import TopoDS_Compound  # noqa: E402
 from OCP.gp import gp_Pnt  # noqa: E402
 
-from orolp import cam, ocpcompat  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from adapter import ocpcompat
+from service import cam  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 from tools import build_vendor_urdf as bv  # noqa: E402
 from tools import vendor_cad_import as vc  # noqa: E402
 
@@ -74,7 +75,7 @@ from tools import vendor_cad_import as vc  # noqa: E402
 # 合成装配体：source 为 Z-up mm（coord="z_up_mm" 只缩放不换轴，断言最直观）
 # --------------------------------------------------------------------------- #
 BRAND = "tbtest"
-BRAND_LABEL = "OrolpTestBrand"
+BRAND_LABEL = "CoreTestBrand"
 MODEL_DIR = "tbsynth"
 MODEL = "tb2"
 STEP_SUBDIR = "tb/step"
@@ -84,10 +85,10 @@ OTHER_MODEL = "tb9"  # 有程序化 URDF、但没有 STEP —— 验证 --all �
 #: (角点 mm, 尺寸 mm)，base→tip；各盒子的垂直跨度刻意不以上一盒质心对称，
 #: 使「离父连杆质心最近的顶点」唯一（不然最近点会并列、断言随遍历顺序漂）
 BOXES: Tuple[Tuple[Tuple[float, float, float], Tuple[float, float, float]], ...] = (
-    ((0.0, 0.0, 0.0), (300.0, 200.0, 100.0)),      # base
-    ((250.0, 10.0, 90.0), (70.0, 120.0, 510.0)),   # link_1
+    ((0.0, 0.0, 0.0), (300.0, 200.0, 100.0)),  # base
+    ((250.0, 10.0, 90.0), (70.0, 120.0, 510.0)),  # link_1
     ((310.0, 20.0, 550.0), (210.0, 140.0, 70.0)),  # link_2
-    ((530.0, 30.0, 570.0), (40.0, 60.0, 40.0)),    # tool0
+    ((530.0, 30.0, 570.0), (40.0, 60.0, 40.0)),  # tool0
 )
 #: 第 5 个组件（超出刚体数）——应被并入最后一个刚体
 EXTRA_BOX = ((600.0, 30.0, 570.0), (30.0, 60.0, 40.0))
@@ -105,7 +106,7 @@ EXPECTED_ORIGINS = np.array(
     ]
 )
 
-#: 合成程序化 URDF（运动学骨架的来源）。口径与 models/<brand>/<model>/<model>.urdf 一致：
+#: 合成程序化 URDF（运动学骨架的来源）。口径与 assets/models/<brand>/<model>/<model>.urdf 一致：
 #: ``<joint name=".." type="..">``（type 紧跟在 name 之后，解析器依赖这一点）、
 #: ``<origin xyz=.. rpy=..>``、``<axis xyz=..>``、``<limit ..>``，tcp 走 fixed 关节。
 PROGRAMMATIC_URDF = """<?xml version="1.0" encoding="utf-8"?>
@@ -177,7 +178,7 @@ def read_stl(path: Path) -> np.ndarray:
     raw = path.read_bytes()
     n = int(np.frombuffer(raw[80:84], dtype="<u4")[0])
     dt = np.dtype([("normal", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
-    tris = np.frombuffer(raw[84:84 + n * 50], dtype=dt)
+    tris = np.frombuffer(raw[84 : 84 + n * 50], dtype=dt)
     assert len(tris) == n, "STL 头里的面数与实际字节数不符"
     return tris["v"].astype(np.float64)
 
@@ -186,7 +187,7 @@ def read_stl_normals(path: Path) -> np.ndarray:
     raw = path.read_bytes()
     n = int(np.frombuffer(raw[80:84], dtype="<u4")[0])
     dt = np.dtype([("normal", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
-    return np.frombuffer(raw[84:84 + n * 50], dtype=dt)["normal"].astype(np.float64)
+    return np.frombuffer(raw[84 : 84 + n * 50], dtype=dt)["normal"].astype(np.float64)
 
 
 def joint_map(urdf: Path) -> Dict[str, dict]:
@@ -229,18 +230,25 @@ class Synth:
 def synth(tmp_path, monkeypatch) -> Synth:
     """把 ``assets/vendor`` 与 ``models`` 重定向到临时目录，并注册一个合成品牌。"""
     step = make_assembly(tmp_path / "assets" / "vendor" / STEP_SUBDIR / STEP_NAME)
-    mdir = tmp_path / "models" / MODEL_DIR / MODEL
+    mdir = tmp_path / "assets" / "models" / MODEL_DIR / MODEL
     mdir.mkdir(parents=True, exist_ok=True)
     proc = mdir / f"{MODEL}.urdf"
     proc.write_text(PROGRAMMATIC_URDF, encoding="utf-8")
 
     monkeypatch.setattr(bv, "VENDOR_STEP", tmp_path / "assets" / "vendor")
-    monkeypatch.setattr(bv, "MODELS_DIR", tmp_path / "models")
+    monkeypatch.setattr(bv, "MODELS_DIR", tmp_path / "assets" / "models")
     monkeypatch.setitem(
         bv.BRANDS,
         BRAND,
-        bv.BrandSpec(BRAND, BRAND_LABEL, MODEL_DIR, STEP_SUBDIR,
-                     coord="z_up_mm", verified=False, note="合成装配体（测试）"),
+        bv.BrandSpec(
+            BRAND,
+            BRAND_LABEL,
+            MODEL_DIR,
+            STEP_SUBDIR,
+            coord="z_up_mm",
+            verified=False,
+            note="合成装配体（测试）",
+        ),
     )
     return Synth(tmp_path, step, proc, mdir / f"{MODEL}_real.urdf", mdir / "meshes_real")
 
@@ -252,11 +260,12 @@ def test_ocpcompat_import_does_not_load_ocp():
     """软依赖承诺：只 import 兼容层不该把 OCP 拖进来（启动不该因此慢几百毫秒）。"""
     code = (
         "import sys; sys.path.insert(0, 'python'); "
-        "import orolp.ocpcompat as m; "
+        "import adapter.ocpcompat as m; "
         "print('OCP' in sys.modules, m.has_ocp())"
     )
-    out = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT),
-                         capture_output=True, text=True)
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=str(ROOT), capture_output=True, text=True
+    )
     assert out.returncode == 0, out.stderr
     assert out.stdout.split() == ["False", "True"]
 
@@ -304,11 +313,13 @@ def test_tools_have_no_legacy_static_cast_calls():
     """
     offenders = []
     for name in ("build_vendor_urdf.py", "vendor_cad_import.py"):
-        for i, line in enumerate((ROOT / "tools" / name).read_text(encoding="utf-8").splitlines(), 1):
+        for i, line in enumerate(
+            (ROOT / "tools" / name).read_text(encoding="utf-8").splitlines(), 1
+        ):
             if re.search(r"\b(Face_s|Edge_s|Vertex_s)\s*\(", line):
                 offenders.append(f"{name}:{i}: {line.strip()}")
-    assert offenders == [], (
-        "OCP 7 时代的静态转型写法必须走 orolp.ocpcompat：\n  " + "\n  ".join(offenders)
+    assert offenders == [], "OCP 7 时代的静态转型写法必须走 adapter.ocpcompat：\n  " + "\n  ".join(
+        offenders
     )
 
 
@@ -322,7 +333,7 @@ def test_programmatic_urdfs_have_zero_joint_rpy():
     rpy 不在此列，它们与关节朝向无关）。
     """
     bad = []
-    for p in sorted(ROOT.glob("models/*/*/*.urdf")):
+    for p in sorted(ROOT.glob("assets/models/*/*/*.urdf")):
         if p.name.endswith("_real.urdf"):
             continue
         for j in ET.parse(p).getroot().findall("joint"):
@@ -394,9 +405,9 @@ def test_step_round_trip_y_up_convention_is_proper_and_vertical(synth):
     comps = bv.load_step_components(synth.step, bv._coord_trsf("y_up_mm"))
     lo, hi = ocpcompat.bbox_of(comps[1][1])
     dst_span = hi - lo
-    assert abs(dst_span[2] - src_span[1]) < 1e-6, (
-        f"源的竖直 Y 跨度 {src_span[1]} 没有落到目标 Z 轴（实得 {dst_span[2]}）"
-    )
+    assert (
+        abs(dst_span[2] - src_span[1]) < 1e-6
+    ), f"源的竖直 Y 跨度 {src_span[1]} 没有落到目标 Z 轴（实得 {dst_span[2]}）"
     assert np.allclose(np.sort(dst_span), np.sort(src_span), atol=1e-6)
 
 
@@ -408,14 +419,22 @@ def test_mesh_component_triangle_count_and_units(synth):
     assert np.allclose(verts.min(axis=0), lo, atol=1e-9)
     assert np.allclose(verts.max(axis=0), hi, atol=1e-9)
 
+
 # --------------------------------------------------------------------------- #
 # ③ 网格写出与回读
 # --------------------------------------------------------------------------- #
 def test_write_stl_binary_round_trip(tmp_path):
-    verts = np.array([
-        [0, 0, 0], [1, 0, 0], [0, 1, 0],
-        [0, 0, 0], [0, 1, 0], [0, 0, 1],
-    ], dtype=np.float64)
+    verts = np.array(
+        [
+            [0, 0, 0],
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ],
+        dtype=np.float64,
+    )
     out = tmp_path / "tri.stl"
     bv.write_stl_binary(out, verts)
     assert out.stat().st_size == 84 + 2 * 50
@@ -451,8 +470,8 @@ def test_step_path_for_finds_synthetic_step(synth):
 
 def test_match_step_does_not_cross_models():
     bn, mn = bv._norm(BRAND_LABEL), bv._norm(MODEL)
-    assert bv._match_step(bn, mn, bv._norm("OrolpTestBrandTB2"))
-    assert not bv._match_step(bn, mn, bv._norm("OrolpTestBrandTB29"))  # 下一位是数字 → 另一个型号
+    assert bv._match_step(bn, mn, bv._norm("CoreTestBrandTB2"))
+    assert not bv._match_step(bn, mn, bv._norm("CoreTestBrandTB29"))  # 下一位是数字 → 另一个型号
     assert not bv._match_step(bn, mn, bv._norm("OtherBrandTB2"))
 
 
@@ -516,9 +535,9 @@ def test_generated_urdf_joint_origins_match_expected_frames(synth):
     gen = joint_map(synth.real_urdf)
     for i, name in enumerate(("j1", "j2", "j3"), start=1):
         expected = EXPECTED_ORIGINS[i] - EXPECTED_ORIGINS[i - 1]
-        assert np.allclose(gen[name]["xyz"], expected, atol=1e-5), (
-            f"{name} 原点 {gen[name]['xyz']} != 预期 {expected}"
-        )
+        assert np.allclose(
+            gen[name]["xyz"], expected, atol=1e-5
+        ), f"{name} 原点 {gen[name]['xyz']} != 预期 {expected}"
     # 关节朝向仍按程序化约定硬编码为 0（见 test_programmatic_urdfs_have_zero_joint_rpy）
     for name in ("j1", "j2", "j3"):
         assert np.allclose(gen[name]["rpy"], [0, 0, 0])
@@ -551,16 +570,15 @@ def test_joint_origin_is_a_vertex_of_the_child_mesh_and_the_nearest_one(synth):
         # ① 本地原点处必须真有顶点
         d_origin = np.linalg.norm(verts[i], axis=1)
         assert d_origin.min() < 1e-5, (
-            f"{name}: {BODIES[i]} 的网格里没有顶点落在关节原点上"
-            f"（最近 {d_origin.min():.6f} m）"
+            f"{name}: {BODIES[i]} 的网格里没有顶点落在关节原点上" f"（最近 {d_origin.min():.6f} m）"
         )
 
         # ② 且它就是离父连杆质心最近的顶点
         prev_centroid = world[i - 1].mean(axis=0)
         d_prev = np.linalg.norm(verts[i] - (prev_centroid - o_i), axis=1)
-        assert int(np.argmin(d_origin)) == int(np.argmin(d_prev)), (
-            f"{name}: 关节原点不是离父连杆质心最近的顶点"
-        )
+        assert int(np.argmin(d_origin)) == int(
+            np.argmin(d_prev)
+        ), f"{name}: 关节原点不是离父连杆质心最近的顶点"
 
 
 def test_link_mesh_is_written_in_its_joint_frame(synth):
@@ -591,7 +609,7 @@ def test_mesh_vertex_cloud_matches_expected_size(synth):
         assert np.allclose(got_hi, src_hi, atol=1e-4), body
 
 
-def test_generated_urdf_is_loadable_by_orolp_robot(synth):
+def test_generated_urdf_is_loadable_by_core_robot(synth):
     """最终目的：这个 URDF 能被库真加载，DOF 对、FK 能算、关节真带动末端。"""
     bv.build_model(BRAND, MODEL, 0.01, 0.5)
     robot = Robot(str(synth.real_urdf), "tb2_synth")
@@ -625,7 +643,7 @@ def test_extra_components_are_merged_into_last_body(synth, monkeypatch):
     # 第二个 STEP：多出一个组件（5 个 > 4 个刚体）。注意文件名带尾部 X，
     # 仍会被 _match_step 认作同一型号（前缀后的字符不是数字）
     extra_step = make_assembly(
-        synth.root / "assets" / "vendor" / STEP_SUBDIR / "OrolpTestBrandTB2X.STEP",
+        synth.root / "assets" / "vendor" / STEP_SUBDIR / "CoreTestBrandTB2X.STEP",
         BOXES + (EXTRA_BOX,),
     )
     comps = bv.load_step_components(extra_step, bv._coord_trsf("z_up_mm"))
@@ -651,8 +669,9 @@ def test_build_model_without_programmatic_urdf_returns_one(synth):
 
 
 def test_build_model_warns_when_components_fewer_than_bodies(synth, monkeypatch, capsys):
-    two = make_assembly(synth.root / "assets" / "vendor" / STEP_SUBDIR / "OrolpTestBrandTB2Y.STEP",
-                        BOXES[:2])
+    two = make_assembly(
+        synth.root / "assets" / "vendor" / STEP_SUBDIR / "CoreTestBrandTB2Y.STEP", BOXES[:2]
+    )
     monkeypatch.setattr(bv, "step_path_for", lambda b, m: two)
     assert bv.build_model(BRAND, MODEL, 0.01, 0.5) == 1
     assert "组件数" in capsys.readouterr().out
@@ -670,15 +689,16 @@ def test_probe_step_reports_ocp_and_components(synth, capsys):
 
 
 def test_cli_probe_runs_in_process(synth, monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["build_vendor_urdf.py", "--brand", BRAND,
-                                      "--model", MODEL, "--probe"])
+    monkeypatch.setattr(
+        sys, "argv", ["build_vendor_urdf.py", "--brand", BRAND, "--model", MODEL, "--probe"]
+    )
     assert bv.main() == 0
     assert "组件数=4" in capsys.readouterr().out
 
 
 def test_cli_all_generates_every_model_with_step(synth, monkeypatch):
     # 再放一个「有程序化 URDF、没有 STEP」的型号：--all 必须跳过它
-    other = synth.root / "models" / MODEL_DIR / OTHER_MODEL
+    other = synth.root / "assets" / "models" / MODEL_DIR / OTHER_MODEL
     other.mkdir(parents=True)
     (other / f"{OTHER_MODEL}.urdf").write_text(PROGRAMMATIC_URDF, encoding="utf-8")
     assert bv.models_with_step(BRAND) == [MODEL]
@@ -715,13 +735,13 @@ def test_vendor_cad_import_convert_writes_grouped_stl(synth, tmp_path):
 
 def test_vendor_cad_import_convert_all_writes_per_model_subdir(tmp_path):
     src = tmp_path / "step"
-    make_assembly(src / "OrolpTestBrandTB2.STEP")
-    make_assembly(src / "OrolpTestBrandTB9.STEP")
+    make_assembly(src / "CoreTestBrandTB2.STEP")
+    make_assembly(src / "CoreTestBrandTB9.STEP")
     outroot = tmp_path / "out"
     vc.convert_all(src, outroot, rel_deflection=0.01, angular_deflection=0.5)
     got = sorted(p.name for p in outroot.iterdir() if p.is_dir())
-    assert got == ["OrolpTestBrandTB2", "OrolpTestBrandTB9"]
-    assert len(list((outroot / "OrolpTestBrandTB2").glob("grp_*.stl"))) == len(BOXES)
+    assert got == ["CoreTestBrandTB2", "CoreTestBrandTB9"]
+    assert len(list((outroot / "CoreTestBrandTB2").glob("grp_*.stl"))) == len(BOXES)
 
 
 def test_vendor_cad_import_convert_all_empty_dir_is_noop(tmp_path, capsys):
@@ -749,7 +769,7 @@ def test_cam_edge_extraction_still_uses_compat_layer():
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("brand", sorted(bv.BRANDS))
 def test_real_vendor_step_probes_cleanly(brand, capsys):
-    """对每个「真有 STEP」的品牌跑一次 ``--probe``（只读，不写 models/）。
+    """对每个「真有 STEP」的品牌跑一次 ``--probe``（只读，不写 assets/models/）。
 
     没有 STEP 时 skip —— 但链路本身已被上面的合成用例覆盖，这里的价值是：
     用户把官方 CAD 投放进来之后，**第一次**跑测试就能知道轴系/组件数是否可读。

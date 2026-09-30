@@ -24,19 +24,20 @@ import numpy as np
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Pose, Robot  # noqa: E402
-from orolp.debug import DebugSession  # noqa: E402
-from orolp.link import FileLink, SimLink  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from service.debug import DebugSession  # noqa: E402
+from domain.link import FileLink, SimLink  # noqa: E402
 
 # 各品牌代表性模型 + 默认后处理器
 BRANDS = {
-    "ur": ("models/ur/ur5e/ur5e.urdf", "ur_polyscope"),
-    "kuka": ("models/kuka/kr16_2/kr16_2.urdf", "kuka_krc4"),
-    "abb": ("models/abb/irb1200/irb1200.urdf", "abb_irc5"),
-    "fanuc": ("models/fanuc/m20ia_35m/m20ia_35m.urdf", "fanuc_r30ib"),
-    "estun": ("models/estun/er20_1780/er20_1780.urdf", "estun_er"),
-    "jaka": ("models/jaka/zu3/zu3.urdf", "jaka_zu"),
+    "ur": ("assets/models/ur/ur5e/ur5e.urdf", "ur_polyscope"),
+    "kuka": ("assets/models/kuka/kr16_2/kr16_2.urdf", "kuka_krc4"),
+    "abb": ("assets/models/abb/irb1200/irb1200.urdf", "abb_irc5"),
+    "fanuc": ("assets/models/fanuc/m20ia_35m/m20ia_35m.urdf", "fanuc_r30ib"),
+    "estun": ("assets/models/estun/er20_1780/er20_1780.urdf", "estun_er"),
+    "jaka": ("assets/models/jaka/zu3/zu3.urdf", "jaka_zu"),
 }
 
 
@@ -53,7 +54,7 @@ def build_program(robot: Robot):
     pose_b = robot.forward_kinematics(b)
     pose_c = robot.forward_kinematics(c)
     return (
-        orp.ProgramBuilder(robot)
+        ProgramBuilder(robot)
         .moveJ(a.tolist(), speed=40)
         .moveL(pose_b, speed=60, blend=10)
         .moveL(pose_c, speed=60, blend=10)

@@ -27,22 +27,22 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 from PySide6 import QtWidgets  # noqa: E402
 
-from orolp import Robot  # noqa: E402
-from orolp.i18n import set_language  # noqa: E402
-from orolp.pickplace import PointType  # noqa: E402
-from orolp.planner import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from support.i18n import set_language  # noqa: E402
+from service.pickplace import PointType  # noqa: E402
+from service.planner import (
     SEVERITY_ERROR,
     Issue,
     ProgramReport,
 )
-from orolp.program import MotionType  # noqa: E402
-from orolp.program_panel import ProgramPanel  # noqa: E402
+from service.program import MotionType  # noqa: E402
+from app.views.program_panel import ProgramPanel  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 JOINTS = [f"joint_{i}" for i in range(1, 7)]
 
@@ -67,10 +67,7 @@ def qapp():
 
 
 def _positions(joints_list):
-    return [
-        {name: math.radians(v) for name, v in zip(JOINTS, joints)}
-        for joints in joints_list
-    ]
+    return [{name: math.radians(v) for name, v in zip(JOINTS, joints)} for joints in joints_list]
 
 
 @pytest.fixture()
@@ -311,9 +308,7 @@ def _break_fk_for(panel, joints_deg, times=None):
     state = {"left": times}
 
     def flaky(joints, *args, **kwargs):
-        hit = len(joints) == len(bad) and all(
-            abs(float(x) - y) < 1e-9 for x, y in zip(joints, bad)
-        )
+        hit = len(joints) == len(bad) and all(abs(float(x) - y) < 1e-9 for x, y in zip(joints, bad))
         if hit and (state["left"] is None or state["left"] > 0):
             if state["left"] is not None:
                 state["left"] -= 1
@@ -412,7 +407,7 @@ def test_arc_brand_output(panel, brand, marker):
 
 def test_arc_export_writes_arc_code(panel, tmp_path):
     """一键导出走真实出码通路，落盘内容里圆弧指令在场。"""
-    import orolp.post as post_module
+    import adapter.post as post_module
 
     post = post_module.get_post_processor("ur_polyscope")
     panel.set_point_motion(2, ARC)

@@ -58,10 +58,10 @@ python examples/pick_and_place.py
 
 **代码要点：**
 ```python
-import orolp as orp
+import core as orp
 
 # 加载机器人
-robot = orp.Robot("models/ur/ur5e.urdf", name="UR5_1")
+robot = orp.Robot("assets/models/ur/ur5e.urdf", name="UR5_1")
 
 # 设置工具坐标系
 robot.tool = orp.Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
@@ -228,7 +228,7 @@ python examples/pick_and_place.py
 
 ## 常见问题
 
-### Q: 运行 pick_and_place.py 提示 "No module named 'orolp'"
+### Q: 运行 pick_and_place.py 提示 "No module named 'core'"
 
 **A:** 需要先编译 C++ 核心模块。请按照上述"完整编译"步骤操作。
 
@@ -248,7 +248,7 @@ python examples/pick_and_place.py
 
 ## 进阶学习
 
-- [后处理器开发指南](../docs/post_dev_guide.md)
+- [后处理器开发指南](../docs/manual/post_dev_guide.md)
 - [API 文档](https://openrobolp.readthedocs.io)
 - [贡献指南](../CONTRIBUTING.md)
 

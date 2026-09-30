@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""把已完成的开发计划从 .codebuddy/plans 归档到 docs/plan。
+"""把已完成的开发计划从 .codebuddy/plans 归档到 docs/develop/design。
 
 背景
 ----
 CodeBuddy 生成的开发计划存放在 ``.codebuddy/plans/``，属于过程性目录。
-计划执行完成后应沉淀为项目资产，归档到仓库的 ``docs/plan/`` 并同步索引。
+计划执行完成后应沉淀为项目资产，归档到仓库的 ``docs/develop/design/`` 并同步索引。
 
 判定依据
 --------
@@ -19,8 +19,8 @@ CodeBuddy 生成的开发计划存放在 ``.codebuddy/plans/``，属于过程性
 
 特性
 ----
-* 归档为 ``docs/plan/<name>.md``（去掉文件名末尾 8 位 hash 与「(未完成)」标记）
-* 自动在 ``docs/SPECS.md`` 的「开发计划」索引表新增/更新条目
+* 归档为 ``docs/develop/design/<name>.md``（去掉文件名末尾 8 位 hash 与「(未完成)」标记）
+* 自动在 ``docs/develop/INDEX.md`` 的「开发计划」索引表新增/更新条目
 * 幂等：同名目标内容相同则跳过；内容不同则加 hash 后缀保留，绝不覆盖
 * frontmatter 解析优先用 PyYAML，缺失时降级为手写解析
 """
@@ -38,8 +38,8 @@ from typing import Dict, List, Optional, Tuple
 #: 仓库根目录（本文件位于 <root>/tools/）
 ROOT = Path(__file__).resolve().parent.parent
 PLANS_DIR = ROOT / ".codebuddy" / "plans"
-SPEC_PLAN_DIR = ROOT / "docs" / "plan"
-SPEC_README = ROOT / "docs" / "SPECS.md"
+SPEC_PLAN_DIR = ROOT / "docs" / "develop" / "design"
+SPEC_README = ROOT / "docs" / "develop" / "INDEX.md"
 
 #: 终态：处于这些状态的 todo 不会再变动
 TERMINAL_STATES = {"completed", "cancelled"}
@@ -50,12 +50,13 @@ _HASH_SUFFIX = re.compile(r"_[0-9a-f]{8}$")
 _UNFINISHED_MARK = re.compile(r"[（(]\s*未完成\s*[)）]")
 
 INDEX_HEADER = "| 文档 | 主题 | 状态 |"
-PLAN_SECTION = "### 开发计划"
+PLAN_SECTION = "### 技术设计与开发计划索引"
 
 
 # --------------------------------------------------------------------------- #
 # frontmatter 解析
 # --------------------------------------------------------------------------- #
+
 
 def _parse_with_yaml(text: str) -> Optional[dict]:
     try:
@@ -110,15 +111,13 @@ def parse_frontmatter(path: Path) -> Optional[dict]:
 # 判定与命名
 # --------------------------------------------------------------------------- #
 
+
 def is_completed(meta: dict) -> Tuple[bool, int]:
     """判定是否完成，返回 ``(是否完成, 未完成条目数)``。"""
     todos = meta.get("todos") or []
     if not todos:
         return False, 0
-    remaining = sum(
-        1 for t in todos
-        if str(t.get("status", "")).lower() not in TERMINAL_STATES
-    )
+    remaining = sum(1 for t in todos if str(t.get("status", "")).lower() not in TERMINAL_STATES)
     return remaining == 0, remaining
 
 
@@ -152,8 +151,9 @@ def topic_of(meta: dict, fallback: str) -> str:
 # 索引更新
 # --------------------------------------------------------------------------- #
 
+
 def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
-    """在 docs/SPECS.md 的「开发计划」表中插入或更新一行。
+    """在 docs/develop/INDEX.md 的「技术设计与开发计划」表中插入或更新一行。
 
     Returns:
         成功返回 True；找不到表头返回 False（此时**不改动**文件）。
@@ -163,7 +163,7 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
     try:
         sec = lines.index(PLAN_SECTION)
     except ValueError:
-        print("[warn] docs/SPECS.md 找不到 '### 开发计划' 小节，跳过索引更新")
+        print("[warn] docs/develop/INDEX.md 找不到 '### 开发计划' 小节，跳过索引更新")
         return False
 
     header_at = None
@@ -172,15 +172,15 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
             header_at = i
             break
     if header_at is None:
-        print("[warn] docs/SPECS.md 找不到开发计划索引表头，跳过索引更新")
+        print("[warn] docs/develop/INDEX.md 找不到开发计划索引表头，跳过索引更新")
         return False
 
-    rel = f"plan/{doc_name}"
+    rel = f"design/{doc_name}"
     new_row = f"| [`{rel}`]({rel}) | {topic} | {status} |"
 
     # 已存在同名条目则替换
     for i in range(header_at + 1, len(lines)):
-        if f"plan/{doc_name}" in lines[i]:
+        if f"design/{doc_name}" in lines[i]:
             lines[i] = new_row
             break
     else:
@@ -199,6 +199,7 @@ def update_index(doc_name: str, topic: str, status: str, dry_run: bool) -> bool:
 # 主流程
 # --------------------------------------------------------------------------- #
 
+
 def _same_content(a: Path, b: Path) -> bool:
     if not b.exists():
         return False
@@ -208,9 +209,8 @@ def _same_content(a: Path, b: Path) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="归档已完成的开发计划到 docs/plan")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="只打印将要执行的操作，不改动任何文件")
+    ap = argparse.ArgumentParser(description="归档已完成的开发计划到 docs/develop/design")
+    ap.add_argument("--dry-run", action="store_true", help="只打印将要执行的操作，不改动任何文件")
     args = ap.parse_args()
 
     if not PLANS_DIR.is_dir():
@@ -229,8 +229,7 @@ def main() -> int:
 
         done, remaining = is_completed(meta)
         if not done:
-            reason = "无 todos" if not (meta.get("todos") or []) \
-                else f"仍有 {remaining} 项未完成"
+            reason = "无 todos" if not (meta.get("todos") or []) else f"仍有 {remaining} 项未完成"
             skipped.append((path.name, reason))
             continue
 
@@ -250,7 +249,7 @@ def main() -> int:
             continue
 
         action = "将归档" if args.dry_run else "已归档"
-        print(f"{action}: {path.name}  ->  docs/plan/{target.name}")
+        print(f"{action}: {path.name}  ->  docs/develop/design/{target.name}")
         if not args.dry_run:
             shutil.move(str(path), str(target))
             update_index(
@@ -262,8 +261,10 @@ def main() -> int:
         archived.append(target.name)
 
     print()
-    print(f"归档 {len(archived)} 个，跳过 {len(skipped)} 个"
-          + ("（--dry-run 预览，未改动文件）" if args.dry_run else ""))
+    print(
+        f"归档 {len(archived)} 个，跳过 {len(skipped)} 个"
+        + ("（--dry-run 预览，未改动文件）" if args.dry_run else "")
+    )
     for name, why in skipped:
         print(f"  跳过 {name}：{why}")
 

@@ -15,13 +15,13 @@
    的真实参数；只把每个关节原点改成 CAD 实际姿态算出来的旋转中心，让真机外形
    与既有运动学对齐。
 4. 每个连杆网格存成「相对本连杆坐标系」的 STL（顶点减去旋转中心），写进
-   ``models/<brand>/<model>/meshes_real/``，并生成 ``<model>_real.urdf``。
+   ``assets/models/<brand>/<model>/meshes_real/``，并生成 ``<model>_real.urdf``。
 
 这样产出的机器人：外形是真机的，关节轴/限位是验证过的，零位姿态就是 CAD 出厂
 姿态，且能正确摆动（每个关节绕真实的连杆连接中心旋转）。
 
 多品牌：所有品牌共用同一套代码，差异只在 ``BRANDS`` 配置表（轴系约定、目录、
-已验证标记）。新品牌只需在表里加一行。运动学来源是 ``models/<brand>/<model>/
+已验证标记）。新品牌只需在表里加一行。运动学来源是 ``assets/models/<brand>/<model>/
 <model>.urdf``（程序化模型）。没有 STEP 时可用 ``--probe`` 先看组件数与包围盒，
 用来确认轴系约定。
 
@@ -49,14 +49,14 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR_STEP = REPO_ROOT / "assets" / "vendor"  # gitignored，可重新生成
-MODELS_DIR = REPO_ROOT / "models"
+MODELS_DIR = REPO_ROOT / "assets" / "models"
 
 # 复用库侧的 OCP 版本兼容层（不自己写一套 getattr）——它同时也是「哪一代绑定
-# 该用哪个符号名」的唯一出处，见 python/orolp/ocpcompat.py 的模块说明。
-if str(REPO_ROOT / "python") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "python"))
+# 该用哪个符号名」的唯一出处，见 core/ocpcompat.py 的模块说明。
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.ocpcompat import bbox_of, describe, face_of, triangulation_of  # noqa: E402
+from adapter.ocpcompat import bbox_of, describe, face_of, triangulation_of  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -65,11 +65,11 @@ from orolp.ocpcompat import bbox_of, describe, face_of, triangulation_of  # noqa
 @dataclass
 class BrandSpec:
     key: str
-    label: str            # 厂商名（也用于 STEP 文件名归一化匹配）
-    model_dir: str        # models/<model_dir>/<model>/<model>.urdf
-    step_subdir: str      # assets/vendor/<step_subdir>/*.STEP
-    coord: str = "z_up_mm"   # y_up_mm | z_up_mm | z_up_m
-    verified: bool = False    # 是否已用真实 STEP 验证过轴系/组件映射
+    label: str  # 厂商名（也用于 STEP 文件名归一化匹配）
+    model_dir: str  # assets/models/<model_dir>/<model>/<model>.urdf
+    step_subdir: str  # assets/vendor/<step_subdir>/*.STEP
+    coord: str = "z_up_mm"  # y_up_mm | z_up_mm | z_up_m
+    verified: bool = False  # 是否已用真实 STEP 验证过轴系/组件映射
     note: str = ""
 
 
@@ -78,16 +78,51 @@ class BrandSpec:
 #   z_up_mm —— 源 Z-up（多数工业 CAD），仅 mm→m 缩放 0.001
 #   z_up_m  —— 源 Z-up 且单位已是 m，无缩放
 BRANDS: Dict[str, BrandSpec] = {
-    "jaka":  BrandSpec("jaka",  "JAKA",  "jaka",  "jaka/step",  coord="y_up_mm", verified=True,
-                       note="已验证：7 型号全过，Y-up mm→Z-up m；组件即连杆（base+link_1..5+tool0），多出的并入 tool0"),
-    "kuka":  BrandSpec("kuka",  "KUKA",  "kuka",  "kuka/step",  coord="z_up_mm", verified=False,
-                       note="待验证：KUKA CAD 多为 Z-up mm；组件映射待 STEP 到位后调"),
-    "abb":   BrandSpec("abb",   "ABB",   "abb",   "abb/step",   coord="z_up_mm", verified=False,
-                       note="待验证：ABB CAD 多为 Z-up mm；组件映射待 STEP 到位后调"),
-    "fanuc": BrandSpec("fanuc", "FANUC", "fanuc", "fanuc/step", coord="z_up_mm", verified=False,
-                       note="待验证：FANUC CAD 多为 Z-up mm；组件映射待 STEP 到位后调"),
-    "estun": BrandSpec("estun", "ESTUN", "estun", "estun/step", coord="z_up_mm", verified=False,
-                       note="待验证：Estun CAD 多 Z-up mm；组件映射待 STEP 到位后调"),
+    "jaka": BrandSpec(
+        "jaka",
+        "JAKA",
+        "jaka",
+        "jaka/step",
+        coord="y_up_mm",
+        verified=True,
+        note="已验证：7 型号全过，Y-up mm→Z-up m；组件即连杆（base+link_1..5+tool0），多出的并入 tool0",
+    ),
+    "kuka": BrandSpec(
+        "kuka",
+        "KUKA",
+        "kuka",
+        "kuka/step",
+        coord="z_up_mm",
+        verified=False,
+        note="待验证：KUKA CAD 多为 Z-up mm；组件映射待 STEP 到位后调",
+    ),
+    "abb": BrandSpec(
+        "abb",
+        "ABB",
+        "abb",
+        "abb/step",
+        coord="z_up_mm",
+        verified=False,
+        note="待验证：ABB CAD 多为 Z-up mm；组件映射待 STEP 到位后调",
+    ),
+    "fanuc": BrandSpec(
+        "fanuc",
+        "FANUC",
+        "fanuc",
+        "fanuc/step",
+        coord="z_up_mm",
+        verified=False,
+        note="待验证：FANUC CAD 多为 Z-up mm；组件映射待 STEP 到位后调",
+    ),
+    "estun": BrandSpec(
+        "estun",
+        "ESTUN",
+        "estun",
+        "estun/step",
+        coord="z_up_mm",
+        verified=False,
+        note="待验证：Estun CAD 多 Z-up mm；组件映射待 STEP 到位后调",
+    ),
 }
 
 
@@ -212,7 +247,8 @@ def write_stl_binary(path: Path, verts: np.ndarray) -> None:
 @dataclass
 class Kinematics:
     """从程序化 URDF 取出的运动学骨架。"""
-    bodies: List[str] = field(default_factory=list)      # base→tip 的刚体顺序
+
+    bodies: List[str] = field(default_factory=list)  # base→tip 的刚体顺序
     joints: Dict[str, dict] = field(default_factory=dict)  # joint名→{parent,child,axis,limit,xyz}
     tcp_offset: Optional[List[float]] = None
 
@@ -297,7 +333,7 @@ def _match_step(brand_norm: str, model_norm: str, stem_norm: str) -> bool:
     pref = brand_norm + model_norm
     if not stem_norm.startswith(pref):
         return False
-    nxt = stem_norm[len(pref):len(pref) + 1]
+    nxt = stem_norm[len(pref) : len(pref) + 1]
     return nxt == "" or not nxt.isdigit()
 
 
@@ -349,8 +385,10 @@ def probe_step(brand: str, model: Optional[str]) -> int:
             return 1
 
     info = describe()
-    print(f"[probe] OCP: {info['distribution']} {info['version']}  "
-          f"TopoDS.{info['casts']['Face']}  BRep_Tool.{info['functions']['Triangulation']}")
+    print(
+        f"[probe] OCP: {info['distribution']} {info['version']}  "
+        f"TopoDS.{info['casts']['Face']}  BRep_Tool.{info['functions']['Triangulation']}"
+    )
 
     trsf = _coord_trsf(bspec.coord)
     for step in steps:
@@ -366,10 +404,14 @@ def probe_step(brand: str, model: Optional[str]) -> int:
             lo, hi = bb
             allmin = np.minimum(allmin, lo)
             allmax = np.maximum(allmax, hi)
-            print(f"  {name}: x[{lo[0]:+.3f},{hi[0]:+.3f}] "
-                  f"y[{lo[1]:+.3f},{hi[1]:+.3f}] z[{lo[2]:+.3f},{hi[2]:+.3f}]")
-        print(f"  总包围盒: x[{allmin[0]:+.3f},{allmax[0]:+.3f}] "
-              f"y[{allmin[1]:+.3f},{allmax[1]:+.3f}] z[{allmin[2]:+.3f},{allmax[2]:+.3f}]")
+            print(
+                f"  {name}: x[{lo[0]:+.3f},{hi[0]:+.3f}] "
+                f"y[{lo[1]:+.3f},{hi[1]:+.3f}] z[{lo[2]:+.3f},{hi[2]:+.3f}]"
+            )
+        print(
+            f"  总包围盒: x[{allmin[0]:+.3f},{allmax[0]:+.3f}] "
+            f"y[{allmin[1]:+.3f},{allmax[1]:+.3f}] z[{allmin[2]:+.3f},{allmax[2]:+.3f}]"
+        )
     return 0
 
 
@@ -386,8 +428,10 @@ def build_model(brand: str, model: str, rel_deflection: float, angular: float) -
 
     kin = parse_kinematics(proc_urdf)
     print(f"\n=== {brand}/{model} ===  刚体顺序: {kin.bodies}")
-    print(f"  关节: " + ", ".join(
-        f"{j}:{d['axis']}" for j, d in kin.joints.items() if d['type'] != 'fixed'))
+    print(
+        f"  关节: "
+        + ", ".join(f"{j}:{d['axis']}" for j, d in kin.joints.items() if d["type"] != "fixed")
+    )
 
     trsf = _coord_trsf(bspec.coord)
     comps = load_step_components(step, trsf)
@@ -404,8 +448,10 @@ def build_model(brand: str, model: str, rel_deflection: float, angular: float) -
         v = mesh_component(sh, rel_deflection, angular)
         meshes.append(v)
         centroids.append(v.mean(axis=0))
-        print(f"    {name:8} tris={v.shape[0]//3:<7} centroid=({centroids[-1][0]:+.3f},"
-              f"{centroids[-1][1]:+.3f},{centroids[-1][2]:+.3f})")
+        print(
+            f"    {name:8} tris={v.shape[0]//3:<7} centroid=({centroids[-1][0]:+.3f},"
+            f"{centroids[-1][1]:+.3f},{centroids[-1][2]:+.3f})"
+        )
 
     compute_frames._verts = meshes  # 供 compute_frames 用
     origins = compute_frames(centroids)
@@ -425,23 +471,40 @@ def build_model(brand: str, model: str, rel_deflection: float, angular: float) -
         rel = ev - origins[-1]
         write_stl_binary(out_dir / f"{kin.bodies[-1]}_extra{k}.stl", rel)
 
-    write_urdf(MODELS_DIR / bspec.model_dir / model / f"{model}_real.urdf",
-               brand, model, kin, origins, out_dir, meshes, extra_v)
+    write_urdf(
+        MODELS_DIR / bspec.model_dir / model / f"{model}_real.urdf",
+        brand,
+        model,
+        kin,
+        origins,
+        out_dir,
+        meshes,
+        extra_v,
+    )
     return 0
 
 
-def write_urdf(path: Path, brand: str, model: str, kin: Kinematics,
-               origins: List[np.ndarray], out_dir: Path,
-               meshes: List[np.ndarray], extra_v: List[np.ndarray]) -> None:
+def write_urdf(
+    path: Path,
+    brand: str,
+    model: str,
+    kin: Kinematics,
+    origins: List[np.ndarray],
+    out_dir: Path,
+    meshes: List[np.ndarray],
+    extra_v: List[np.ndarray],
+) -> None:
     chain = kin.bodies
     joint_by_child = {d["child"]: (j, d) for j, d in kin.joints.items()}
     robot_name = f"{brand}_{model}_real"
 
-    lines = [f'<?xml version="1.0" encoding="utf-8"?>',
-             f'<robot name="{robot_name}">',
-             f'  <!-- {BRANDS[brand].label} {model} — 真机 CAD（厂商官网 STEP，'
-             f'{Path(__file__).name} 生成，coord={BRANDS[brand].coord}）。'
-             f'几何为真实外形，运动学（轴/限位）复用程序化 URDF。 -->']
+    lines = [
+        f'<?xml version="1.0" encoding="utf-8"?>',
+        f'<robot name="{robot_name}">',
+        f"  <!-- {BRANDS[brand].label} {model} — 真机 CAD（厂商官网 STEP，"
+        f"{Path(__file__).name} 生成，coord={BRANDS[brand].coord}）。"
+        f"几何为真实外形，运动学（轴/限位）复用程序化 URDF。 -->",
+    ]
 
     materials = {
         "metal": "0.80 0.82 0.85 1",
@@ -452,32 +515,38 @@ def write_urdf(path: Path, brand: str, model: str, kin: Kinematics,
 
     for i, body in enumerate(chain):
         lines.append(f'  <link name="{body}">')
-        lines.append('    <visual>')
+        lines.append("    <visual>")
         lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         lines.append(f'      <geometry><mesh filename="meshes_real/{body}.stl"/></geometry>')
-        lines.append(f'      <material name="{body}_m"><color rgba="{materials["metal"]}"/></material>')
-        lines.append('    </visual>')
+        lines.append(
+            f'      <material name="{body}_m"><color rgba="{materials["metal"]}"/></material>'
+        )
+        lines.append("    </visual>")
         if i == len(chain) - 1:
             for k in range(len(extra_v)):
-                lines.append('    <visual>')
+                lines.append("    <visual>")
                 lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
-                lines.append(f'      <geometry><mesh filename="meshes_real/{body}_extra{k}.stl"/></geometry>')
-                lines.append(f'      <material name="{body}_ex{k}"><color rgba="{materials["dark"]}"/></material>')
-                lines.append('    </visual>')
-        lines.append('    <collision>')
+                lines.append(
+                    f'      <geometry><mesh filename="meshes_real/{body}_extra{k}.stl"/></geometry>'
+                )
+                lines.append(
+                    f'      <material name="{body}_ex{k}"><color rgba="{materials["dark"]}"/></material>'
+                )
+                lines.append("    </visual>")
+        lines.append("    <collision>")
         lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         lines.append(f'      <geometry><mesh filename="meshes_real/{body}.stl"/></geometry>')
-        lines.append('    </collision>')
-        lines.append('  </link>')
+        lines.append("    </collision>")
+        lines.append("  </link>")
 
     if kin.tcp_offset is not None:
         lines.append('  <link name="tcp">')
-        lines.append('    <visual>')
+        lines.append("    <visual>")
         lines.append('      <origin xyz="0 0 0" rpy="0 0 0"/>')
         lines.append('      <geometry><sphere radius="0.008"/></geometry>')
         lines.append('      <material name="tcp_m"><color rgba="0.15 0.85 0.55 1"/></material>')
-        lines.append('    </visual>')
-        lines.append('  </link>')
+        lines.append("    </visual>")
+        lines.append("  </link>")
 
     for i in range(1, len(chain)):
         child = chain[i]
@@ -490,15 +559,19 @@ def write_urdf(path: Path, brand: str, model: str, kin: Kinematics,
         lines.append(f'  <joint name="{jname}" type="{d["type"]}">')
         lines.append(f'    <parent link="{d["parent"]}"/>')
         lines.append(f'    <child link="{child}"/>')
-        lines.append(f'    <origin xyz="{origin_xyz[0]:g} {origin_xyz[1]:g} {origin_xyz[2]:g}" rpy="0 0 0"/>')
+        lines.append(
+            f'    <origin xyz="{origin_xyz[0]:g} {origin_xyz[1]:g} {origin_xyz[2]:g}" rpy="0 0 0"/>'
+        )
         lines.append(f'    <axis xyz="{ax}"/>')
         if d["type"] != "fixed":
             lo = d.get("lower", -6.283185)
             hi = d.get("upper", 6.283185)
             eff = d.get("effort", 58)
             vel = d.get("velocity", 3.141593)
-            lines.append(f'    <limit lower="{lo:g}" upper="{hi:g}" effort="{eff:g}" velocity="{vel:g}"/>')
-        lines.append('  </joint>')
+            lines.append(
+                f'    <limit lower="{lo:g}" upper="{hi:g}" effort="{eff:g}" velocity="{vel:g}"/>'
+            )
+        lines.append("  </joint>")
 
     if kin.tcp_offset is not None:
         off = " ".join(f"{x:g}" for x in kin.tcp_offset)
@@ -506,9 +579,9 @@ def write_urdf(path: Path, brand: str, model: str, kin: Kinematics,
         lines.append('    <parent link="tool0"/>')
         lines.append('    <child link="tcp"/>')
         lines.append(f'    <origin xyz="{off}" rpy="0 0 0"/>')
-        lines.append('  </joint>')
+        lines.append("  </joint>")
 
-    lines.append('</robot>')
+    lines.append("</robot>")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     total = sum(meshes[i].shape[0] // 3 for i in range(len(meshes)))
     size = sum((out_dir / f"{b}.stl").stat().st_size for b in chain) / 1024
@@ -517,15 +590,21 @@ def write_urdf(path: Path, brand: str, model: str, kin: Kinematics,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="把厂商真机 STEP 接成 URDF（多品牌）")
-    ap.add_argument("--brand", default="jaka",
-                    help="品牌键，见 BRANDS：jaka/kuka/abb/fanuc/estun（默认 jaka）")
+    ap.add_argument(
+        "--brand", default="jaka", help="品牌键，见 BRANDS：jaka/kuka/abb/fanuc/estun（默认 jaka）"
+    )
     ap.add_argument("--model", help="型号，如 zu3 / kr6_r900")
-    ap.add_argument("--all", action="store_true",
-                    help="对该品牌所有「有 STEP」的型号，或（无 --brand 之外的）所有品牌")
-    ap.add_argument("--probe", action="store_true",
-                    help="只探查 STEP 的组件数与包围盒，不生成 URDF")
-    ap.add_argument("--rel-deflection", type=float, default=0.01,
-                    help="相对弦高（默认 0.01，越小越细）")
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="对该品牌所有「有 STEP」的型号，或（无 --brand 之外的）所有品牌",
+    )
+    ap.add_argument(
+        "--probe", action="store_true", help="只探查 STEP 的组件数与包围盒，不生成 URDF"
+    )
+    ap.add_argument(
+        "--rel-deflection", type=float, default=0.01, help="相对弦高（默认 0.01，越小越细）"
+    )
     ap.add_argument("--angular-deflection", type=float, default=0.5)
     args = ap.parse_args()
 
@@ -549,8 +628,10 @@ def main() -> int:
         return 0
 
     if not models:
-        print("没有找到任何「型号 + STEP」组合。把厂商 STEP 放进 "
-              f"{VENDOR_STEP}/<brand>/step/ 后再试。")
+        print(
+            "没有找到任何「型号 + STEP」组合。把厂商 STEP 放进 "
+            f"{VENDOR_STEP}/<brand>/step/ 后再试。"
+        )
         return 1
 
     rc = 0

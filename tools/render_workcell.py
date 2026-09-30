@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "python"))
+sys.path.insert(0, str(_REPO_ROOT))
 
 import matplotlib
 
@@ -33,9 +33,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection  # noqa: E402
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.world.geometry import Box, Cylinder, Sphere  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.world.geometry import Box, Cylinder, Sphere  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
 CYL_SEGMENTS = 24
 
@@ -73,8 +73,14 @@ def _box_faces(size):
     sx, sy, sz = (float(v) / 2.0 for v in size)
     v = np.array(
         [
-            [-sx, -sy, -sz], [sx, -sy, -sz], [sx, sy, -sz], [-sx, sy, -sz],
-            [-sx, -sy, sz], [sx, -sy, sz], [sx, sy, sz], [-sx, sy, sz],
+            [-sx, -sy, -sz],
+            [sx, -sy, -sz],
+            [sx, sy, -sz],
+            [-sx, sy, -sz],
+            [-sx, -sy, sz],
+            [sx, -sy, sz],
+            [sx, sy, sz],
+            [-sx, sy, sz],
         ]
     )
     return [
@@ -107,12 +113,14 @@ def _cylinder_mesh(radius: float, length: float):
 def _sphere_mesh(radius: float, seg: int = 16, ring: int = 10):
     """球面的三角网格（局部坐标）。"""
     tris = []
+
     def pt(phi, theta):
         return [
             radius * np.sin(phi) * np.cos(theta),
             radius * np.sin(phi) * np.sin(theta),
             radius * np.cos(phi),
         ]
+
     for i in range(ring):
         p0, p1 = np.pi * i / ring, np.pi * (i + 1) / ring
         for k in range(seg):
@@ -187,15 +195,27 @@ def build_demo_scene(urdf: str) -> Scene:
     """
     scene = Scene()
     scene.set_robot(urdf, [0, 15, 45, 0, 25, 0])
-    scene.add("worktable", pose=Pose.from_xyz_rpy(1100, 0, 0, 0, 0, 0),
-              params={"length": 1600, "width": 900, "height": 800})
-    scene.add("workpiece_box", pose=Pose.from_xyz_rpy(1100, 0, 800, 0, 0, 0),
-              params={"length": 500, "width": 350, "height": 220})
+    scene.add(
+        "worktable",
+        pose=Pose.from_xyz_rpy(1100, 0, 0, 0, 0, 0),
+        params={"length": 1600, "width": 900, "height": 800},
+    )
+    scene.add(
+        "workpiece_box",
+        pose=Pose.from_xyz_rpy(1100, 0, 800, 0, 0, 0),
+        params={"length": 500, "width": 350, "height": 220},
+    )
     scene.add("vise", pose=Pose.from_xyz_rpy(1100, -220, 800, 0, 0, 0))
-    scene.add("conveyor", pose=Pose.from_xyz_rpy(0, -1500, 0, 0, 0, 0),
-              params={"length": 3500, "width": 700, "height": 800})
-    scene.add("fence", pose=Pose.from_xyz_rpy(0, 1900, 0, 0, 0, 0),
-              params={"length": 3000, "height": 2000})
+    scene.add(
+        "conveyor",
+        pose=Pose.from_xyz_rpy(0, -1500, 0, 0, 0, 0),
+        params={"length": 3500, "width": 700, "height": 800},
+    )
+    scene.add(
+        "fence",
+        pose=Pose.from_xyz_rpy(0, 1900, 0, 0, 0, 0),
+        params={"length": 3000, "height": 2000},
+    )
     scene.add("cabinet", pose=Pose.from_xyz_rpy(-1800, 800, 0, 0, 0, 0))
     return scene
 
@@ -203,10 +223,14 @@ def build_demo_scene(urdf: str) -> Scene:
 def main() -> int:
     parser = argparse.ArgumentParser(description="渲染工作单元场景")
     parser.add_argument("--scene", help="场景 JSON 文件；缺省渲染内置演示场景")
-    parser.add_argument("--robot", default=str(_REPO_ROOT / "models/kuka/kr16_2/kr16_2.urdf"),
-                        help="演示场景使用的机器人 URDF")
-    parser.add_argument("--out", default=str(_REPO_ROOT / "docs/preview/workcell.png"),
-                        help="输出图片路径")
+    parser.add_argument(
+        "--robot",
+        default=str(_REPO_ROOT / "assets/models/kuka/kr16_2/kr16_2.urdf"),
+        help="演示场景使用的机器人 URDF",
+    )
+    parser.add_argument(
+        "--out", default=str(_REPO_ROOT / "docs/preview/workcell.png"), help="输出图片路径"
+    )
     parser.add_argument("--dpi", type=int, default=130)
     args = parser.parse_args()
 

@@ -5,7 +5,7 @@ GUI 侧（菜单/定时器/恢复询问）在 ``tests/test_project_session_gui.p
 
 * 最近打开：去重、最新在前、上限、持久化往返、坏文件当空、失效条目；
 * 自动保存：快照写入/读回/清除，sidecar 元数据，快照本身就是合法
-  ``.orolp``（``Project.load`` 能读、未知段跟着走）；
+  ``.core``（``Project.load`` 能读、未知段跟着走）；
 * **容错口径**：任何一步坏了都"当它不存在"——机制坏了不能让主流程报错。
 
 跑法::
@@ -22,12 +22,13 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-import orolp
-from orolp.session import (
+from service.project import Project
+from support import __version__
+from app.session import (
     AUTOSAVE_SCHEMA,
     RecentProjects,
     autosave_dir,
@@ -41,8 +42,8 @@ from orolp.session import (
 @pytest.fixture()
 def cfg_dir(tmp_path, monkeypatch):
     """把用户级配置目录重定向到临时目录（每次调用都重新解析环境变量）。"""
-    base = tmp_path / "orolp-config"
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(base))
+    base = tmp_path / "core-config"
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(base))
     return base
 
 
@@ -57,8 +58,8 @@ def test_recents_empty_when_no_file(cfg_dir):
 
 
 def test_recents_add_dedupe_and_most_recent_first(cfg_dir, tmp_path):
-    a = str(Path(tmp_path / "a.orolp").resolve())
-    b = str(Path(tmp_path / "b.orolp").resolve())
+    a = str(Path(tmp_path / "a.core").resolve())
+    b = str(Path(tmp_path / "b.core").resolve())
     recents = RecentProjects.load()
     recents.add(a)
     recents.add(b)
@@ -69,22 +70,22 @@ def test_recents_add_dedupe_and_most_recent_first(cfg_dir, tmp_path):
 def test_recents_relative_path_resolved_to_absolute(cfg_dir, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     recents = RecentProjects.load()
-    recents.add("cell.orolp")
-    assert recents.paths == [str(Path(tmp_path / "cell.orolp").resolve())]
+    recents.add("cell.core")
+    assert recents.paths == [str(Path(tmp_path / "cell.core").resolve())]
 
 
 def test_recents_cap_at_max(cfg_dir, tmp_path):
     recents = RecentProjects.load()
     for i in range(15):
-        recents.add(str(Path(tmp_path / f"p{i}.orolp").resolve()))
+        recents.add(str(Path(tmp_path / f"p{i}.core").resolve()))
     assert len(recents.paths) == 10
-    assert recents.paths[0].endswith("p14.orolp")  # 最新在前
-    assert recents.paths[-1].endswith("p5.orolp")  # 最旧的 5 条被挤掉
+    assert recents.paths[0].endswith("p14.core")  # 最新在前
+    assert recents.paths[-1].endswith("p5.core")  # 最旧的 5 条被挤掉
 
 
 def test_recents_roundtrip_and_corrupt_file_is_empty(cfg_dir, tmp_path):
-    a = str(Path(tmp_path / "a.orolp").resolve())
-    b = str(Path(tmp_path / "b.orolp").resolve())
+    a = str(Path(tmp_path / "a.core").resolve())
+    b = str(Path(tmp_path / "b.core").resolve())
     recents = RecentProjects.load()
     recents.add(a)
     recents.add(b)
@@ -98,9 +99,9 @@ def test_recents_roundtrip_and_corrupt_file_is_empty(cfg_dir, tmp_path):
 
 
 def test_recents_clear_and_existing_and_prune(cfg_dir, tmp_path):
-    live = tmp_path / "live.orolp"
+    live = tmp_path / "live.core"
     live.write_text("x", encoding="utf-8")
-    gone_path = str(Path(tmp_path / "gone.orolp").resolve())
+    gone_path = str(Path(tmp_path / "gone.core").resolve())
     recents = RecentProjects.load()
     recents.add(str(live))
     recents.add(gone_path)
@@ -118,9 +119,11 @@ def test_recents_clear_and_existing_and_prune(cfg_dir, tmp_path):
 
 
 def _demo_project(name="demo"):
-    project = orolp.Project(name=name)
-    project.set("program", {"code": "# OLP\nmovej([0,-90,90,-90,90,0])\n",
-                            "point_types": ["via"], "joint_names": []})
+    project = Project(name=name)
+    project.set(
+        "program",
+        {"code": "# OLP\nmovej([0,-90,90,-90,90,0])\n", "point_types": ["via"], "joint_names": []},
+    )
     project.set("parts", {"sources": []})
     return project
 
@@ -132,7 +135,7 @@ def test_autosave_dir_follows_config_redirect(cfg_dir):
 
 
 def test_write_read_clear_autosave_roundtrip(cfg_dir):
-    source = "/somewhere/my_cell.orolp"
+    source = "/somewhere/my_cell.core"
     snapshot = write_autosave(_demo_project(), source_path=source)
     assert snapshot is not None
     assert snapshot.exists()
@@ -143,7 +146,7 @@ def test_write_read_clear_autosave_roundtrip(cfg_dir):
     assert info.snapshot == snapshot
     assert info.source_path == source
     assert info.saved_at  # 有可靠的时间说法
-    assert info.app_version == orolp.__version__
+    assert info.app_version == __version__
 
     clear_autosave()
     assert has_autosave() is False
@@ -153,10 +156,10 @@ def test_write_read_clear_autosave_roundtrip(cfg_dir):
 def test_autosave_snapshot_is_a_valid_project_file(cfg_dir):
     project = _demo_project()
     project.raw_sections["vision"] = {"cameras": [{"id": "cam1"}]}  # 未知段跟着走
-    snapshot = write_autosave(project, source_path="/somewhere/x.orolp")
+    snapshot = write_autosave(project, source_path="/somewhere/x.core")
     assert snapshot is not None
 
-    loaded = orolp.Project.load(snapshot)
+    loaded = Project.load(snapshot)
     assert loaded.has("program")
     assert loaded.get("program")["point_types"] == ["via"]
     assert loaded.raw("vision") == {"cameras": [{"id": "cam1"}]}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v0.3.2 STEP/CAM 轨迹生成测试（``orolp.cam``）。
+"""v0.3.2 STEP/CAM 轨迹生成测试（``service.cam``）。
 
 覆盖三个能力块：
 1. PLY 点云导入（ASCII / 二进制大小端 / 带面与额外属性）；
@@ -21,9 +21,9 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.cam import (  # noqa: E402
+from service.cam import (
     SeamPath,
     chain_polylines,
     detect_corners,
@@ -34,10 +34,10 @@ from orolp.cam import (  # noqa: E402
     scan_deviation,
     select_seams,
 )
-from orolp.pose import Pose  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 _HAS_OCP = True
 try:
@@ -101,7 +101,8 @@ def test_ply_with_normals_and_faces(tmp_path, sample_points):
     """额外属性（法线/颜色）与后续 face element 均被正确跳过。"""
     p = tmp_path / "c.ply"
     _write_ply_ascii(
-        p, sample_points,
+        p,
+        sample_points,
         extra_header=["element face 1"],
         extra_cols=lambda i: f" 0 0 1 255",
     )
@@ -113,7 +114,9 @@ def test_ply_with_normals_and_faces(tmp_path, sample_points):
 def test_ply_missing_axis_raises(tmp_path, sample_points):
     p = tmp_path / "d.ply"
     with open(p, "w") as f:
-        f.write("ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nend_header\n1 2\n")
+        f.write(
+            "ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nend_header\n1 2\n"
+        )
     with pytest.raises(ValueError):
         load_ply(p)
 
@@ -192,7 +195,10 @@ def test_detect_corners_closed_includes_wrap_corner():
 # 路径 → 程序
 # --------------------------------------------------------------------------- #
 def _motion_kinds(prog):
-    return [getattr(i, "type", None).name if hasattr(i, "type") else type(i).__name__ for i in prog.items]
+    return [
+        getattr(i, "type", None).name if hasattr(i, "type") else type(i).__name__
+        for i in prog.items
+    ]
 
 
 def test_path_to_program_closed_circle_uses_arc_chunks(robot):
@@ -207,9 +213,7 @@ def test_path_to_program_closed_circle_uses_arc_chunks(robot):
 
 
 def test_path_to_program_rectangle_corners_all_linear(robot):
-    rect = np.array(
-        [[500, 0, 400], [700, 0, 400], [700, 100, 400], [500, 100, 400]], dtype=float
-    )
+    rect = np.array([[500, 0, 400], [700, 0, 400], [700, 100, 400], [500, 100, 400]], dtype=float)
     prog = path_to_program(rect, robot, closed=True, corner_angle_deg=10).build()
     kinds = _motion_kinds(prog)
     assert all(k == "LINEAR" for k in kinds)
@@ -262,7 +266,7 @@ def test_chain_polylines_merges_and_closes():
     a = np.array([[0, 0, 0], [10, 0, 0]], dtype=float)
     b = np.array([[10, 0, 0], [10, 10, 0]], dtype=float)  # 顺向衔接
     c = np.array([[10, 10, 0], [0, 10, 0]], dtype=float)  # 继续延伸
-    d = np.array([[0, 10, 0], [0, 0, 0]], dtype=float)    # 反向衔接回起点 → 闭合
+    d = np.array([[0, 10, 0], [0, 0, 0]], dtype=float)  # 反向衔接回起点 → 闭合
     iso = np.array([[50, 50, 0], [60, 50, 0]], dtype=float)  # 孤立段
     seams = chain_polylines([a, b, c, d, iso], tol=1e-6)
     assert len(seams) == 2
@@ -285,7 +289,7 @@ def test_seam_path_length_closed_and_open():
 # --------------------------------------------------------------------------- #
 @pytest.mark.skipif(not _HAS_OCP, reason="需要 cadquery-ocp")
 def test_load_cad_unsupported_suffix():
-    from orolp.cam import load_cad
+    from service.cam import load_cad
 
     with pytest.raises(ValueError):
         load_cad("/tmp/not_a_cad.stl")
@@ -387,6 +391,6 @@ def test_scan_deviation_against_real_seam(tmp_path):
 # 内部工具
 # --------------------------------------------------------------------------- #
 def load_shape(path):
-    from orolp.cam import load_cad
+    from service.cam import load_cad
 
     return load_cad(path)

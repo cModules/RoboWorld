@@ -2,8 +2,8 @@
 """RobotWorld 示例：真机连接（Socket）全流程（v1.0.5）。
 
 离线编程的最后一公里此前只有两种**离线**形态（`FileLink` 落盘、`SimLink` 进程内
-仿真）。本示例走的是**真 TCP socket**：客户端 :class:`orolp.link.SocketLink` 连到
-一个跑在本机的 :class:`orolp.linkstub.ControllerStubServer`（打桩控制器），把
+仿真）。本示例走的是**真 TCP socket**：客户端 :class:`domain.link.SocketLink` 连到
+一个跑在本机的 :class:`adapter.linkstub.ControllerStubServer`（打桩控制器），把
 
     起打桩控制器 → 握手（版本/能力/dof） → 下发程序 → 列清单/取回核对
       → 逐点下发（时刻过线） + 回读实际位置 → 偏差 → 孪生轨迹采集 → 跨源比对
@@ -15,21 +15,21 @@
 --------------------
 
 **本示例没有真机，也没有连过真机**。打桩控制器的关节回读用
-:class:`~orolp.twinsync.PlantModel` 的**合成传动误差模型**（零位偏置 / 传动比误差 /
+:class:`~service.twinsync.PlantModel` 的**合成传动误差模型**（零位偏置 / 传动比误差 /
 编码器噪声 / 一阶伺服滞后）产生，所以偏差曲线的形状是可解释的、可复现的，但
 **它的数字不是现场实测，不能当验收依据引用**（代码里这条轨迹带 ``source="real"``
 只表示"数据是经网络从控制器侧回读的"，抬头另附合成模型说明）。
 
 接真机时要做的**只有一件事**：在控制器侧准备一段同协议转发（UR 可用 URScript 的
 ``socket_open``/``read``/``write`` 写一个小桩，或由 PC 侧代理进程把厂商 SDK/原生
-协议翻译成这个协议），然后把 :class:`~orolp.link.SocketLink` 指向它即可——孪生层、
+协议翻译成这个协议），然后把 :class:`~domain.link.SocketLink` 指向它即可——孪生层、
 调试会话、后处理一行都不用改。协议本身只有一问一答的单行 JSON，见
 ``link.SocketLink`` 的类文档。
 
 运行::
 
     python examples/socket_link_demo.py
-    # 或未安装 orolp 时：PYTHONPATH=python python examples/socket_link_demo.py
+    # 或未安装 core 时：PYTHONPATH=python python examples/socket_link_demo.py
 """
 
 from __future__ import annotations
@@ -41,25 +41,27 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 import numpy as np  # noqa: E402
 
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp.debug import DebugSession  # noqa: E402
-from orolp.link import LinkError, SimLink, SocketLink  # noqa: E402
-from orolp.linkstub import ControllerStubServer  # noqa: E402
-from orolp.simulation import Trajectory  # noqa: E402
-from orolp.twinsync import (  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from service.debug import DebugSession  # noqa: E402
+from domain.link import LinkError, SimLink, SocketLink  # noqa: E402
+from adapter.linkstub import ControllerStubServer  # noqa: E402
+from service.simulation import Trajectory  # noqa: E402
+from service.twinsync import (
     PlantModel,
     capture_from_session,
     compare_traces,
     deviation_chart_svg,
 )
 
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 PROGRAM_NAME = "socket_pick"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
@@ -141,7 +143,7 @@ def main() -> int:
     program = _build_program(robot)
     traj_full = program.plan()
     traj = _thin(traj_full)
-    out_dir = Path(tempfile.mkdtemp(prefix="orolp_socket_"))
+    out_dir = Path(tempfile.mkdtemp(prefix="core_socket_"))
 
     # 打桩控制器：一台"带传动误差的 UR5e"，回读由 PlantLink 产生
     stub = ControllerStubServer(port=0, robot=robot, plant=PLANT)
@@ -271,7 +273,7 @@ def main() -> int:
     print("  · Socket 通路**未在真机上验证过**。接真机只需在控制器侧准备一段同协议转发")
     print("    （UR 用 URScript 的 socket_open/read/write，或 PC 侧代理翻译厂商 SDK），")
     print("    孪生层/调试会话/后处理无需改动。")
-    print("  · 想自己动手：`python -m orolp.linkstub --port 30002 --urdf models/ur/ur5e/ur5e.urdf`")
+    print("  · 想自己动手：`python -m adapter.linkstub --port 30002 --urdf assets/models/ur/ur5e/ur5e.urdf`")
     print("    起一个打桩控制器，然后把 SocketLink 指向 127.0.0.1:30002。")
     return 0
 

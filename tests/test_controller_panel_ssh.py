@@ -26,24 +26,24 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 pytest.importorskip("paramiko", reason="SSH 打桩服务端与 SSHLink 都需要 paramiko")
 
 from PySide6 import QtWidgets  # noqa: E402
 
-import orolp.i18n as i18n  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.controller_panel import (  # noqa: E402
+import support.i18n as i18n  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from app.views.controller_panel import (
     TRANSPORT_SOCKET,
     TRANSPORT_SSH,
     ControllerPanel,
 )
-from orolp.link import DEFAULT_SSH_PORT, DEFAULT_SSH_TIMEOUT, SSHLink  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
-from orolp.sshstub import SSHStubServer  # noqa: E402
+from domain.link import DEFAULT_SSH_PORT, DEFAULT_SSH_TIMEOUT, SSHLink  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from adapter.sshstub import SSHStubServer  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 HOME = [0.0, -90.0, 90.0, -90.0, 0.0, 0.0]
 SECOND = [15.0, -80.0, 80.0, -85.0, 10.0, 0.0]
 REMOTE_DIR = "/programs"
@@ -107,6 +107,7 @@ def _log_text(panel):
 # 传输切换
 # --------------------------------------------------------------------------- #
 
+
 def test_default_transport_is_socket(panel):
     """默认仍是 Socket——v1.1.1 的行为对既有用户零变化。"""
     fresh = ControllerPanel()
@@ -151,6 +152,7 @@ def test_unknown_transport_rejected(panel):
 # 连接
 # --------------------------------------------------------------------------- #
 
+
 def test_connect_over_ssh_builds_ssh_link(panel, stub):
     assert panel.connect_to_controller() is True
     assert panel.is_connected
@@ -193,6 +195,7 @@ def test_connect_ssh_without_credentials_fails_honestly(panel, stub):
 # 部署（SFTP 真落盘）
 # --------------------------------------------------------------------------- #
 
+
 def test_deploy_over_ssh_lands_in_remote_root(panel, stub):
     panel.connect_to_controller()
     deployment = panel.deploy_current_program()
@@ -208,7 +211,7 @@ def test_deploy_over_ssh_lands_in_remote_root(panel, stub):
 
 def test_deploy_note_is_honest_for_each_transport(panel, robot, tmp_path):
     """部署备注按连接形态如实说话——往真机部署时说"离线导出"是误导。"""
-    from orolp.link import FileLink
+    from domain.link import FileLink
 
     panel.connect_to_controller()
     notes_ssh = panel.deploy_current_program().notes
@@ -226,6 +229,7 @@ def test_deploy_note_is_honest_for_each_transport(panel, robot, tmp_path):
 # --------------------------------------------------------------------------- #
 # 取回核对（v1.1.4 新能力）
 # --------------------------------------------------------------------------- #
+
 
 def test_verify_reports_byte_identical(panel, stub):
     panel.connect_to_controller()
@@ -275,6 +279,7 @@ def test_verify_without_connection_warns(panel):
 # 回读：SSH 形态没有通道
 # --------------------------------------------------------------------------- #
 
+
 def test_ssh_read_joints_is_honest(panel, stub, qapp):
     got = []
     panel.jointsRead.connect(lambda q: got.append(q))
@@ -299,10 +304,11 @@ def test_ssh_link_carries_no_kinematics(panel, stub):
 # i18n
 # --------------------------------------------------------------------------- #
 
+
 def test_panel_text_en_ssh(monkeypatch, tmp_path, stub, robot):
     """en 模式下传输项、按钮、日志（含 link.describe()）都是英文。"""
-    monkeypatch.delenv("OROLP_LANG", raising=False)
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("CORE_LANG", raising=False)
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_EN, save=False)
     try:
         p = ControllerPanel()

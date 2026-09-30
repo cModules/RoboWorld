@@ -1,4 +1,4 @@
-"""工艺时序（v1.3.1）：``orolp.sequence`` 模型/校验/双出口 + 设备树里的时序编辑器。
+"""工艺时序（v1.3.1）：``service.sequence`` 模型/校验/双出口 + 设备树里的时序编辑器。
 
 PRD §4.3 P1 的「动态时序」在本轮落地：工序触发（SignalStep）、信号等待
 （WaitStep）、子程序调用（CallStep）、驻留（DwellStep）编成有序序列，翻译到
@@ -20,13 +20,13 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from orolp.planner import SEVERITY_ERROR, SEVERITY_WARNING
-from orolp.program import ProgramBuilder, SetDO, WaitDI, WaitTime
-from orolp.sequence import (  # noqa: E402
+from service.planner import SEVERITY_ERROR, SEVERITY_WARNING
+from service.program import ProgramBuilder, SetDO, WaitDI, WaitTime
+from service.sequence import (
     CallStep,
     DwellStep,
     ProcessSequence,
@@ -38,24 +38,26 @@ from orolp.sequence import (  # noqa: E402
 
 def _sample() -> ProcessSequence:
     """参考序列：**零告警**的那种（边沿触发的告警有自己的专测，别混进来）。"""
-    return ProcessSequence([
-        SignalStep("夹紧", "机器人", "gripper_close", value=True),
-        DwellStep("保压", "机器人", 0.5),
-        CallStep("抓取", "机器人", "PickPart"),
-        WaitStep("等到位", "输送带", "part_ready", trigger="level", timeout=5.0),
-        SignalStep("放行", "输送带", "conveyor_run", value=False),
-    ])
+    return ProcessSequence(
+        [
+            SignalStep("夹紧", "机器人", "gripper_close", value=True),
+            DwellStep("保压", "机器人", 0.5),
+            CallStep("抓取", "机器人", "PickPart"),
+            WaitStep("等到位", "输送带", "part_ready", trigger="level", timeout=5.0),
+            SignalStep("放行", "输送带", "conveyor_run", value=False),
+        ]
+    )
 
 
-#: 内置 UR5e——注意真实路径是 ``models/ur/ur5e/``，写错会静默 skip 成"绿"
-UR5E_URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+#: 内置 UR5e——注意真实路径是 ``assets/models/ur/ur5e/``，写错会静默 skip 成"绿"
+UR5E_URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 def _make_builder() -> ProgramBuilder:
     """内置 UR5e 的 :class:`ProgramBuilder`；模型真缺失才跳过。"""
     if not UR5E_URDF.exists():
         pytest.skip(f"内置 UR5e 模型缺失：{UR5E_URDF}")
-    from orolp import Robot
+    from domain.robot import Robot
 
     return ProgramBuilder(Robot(str(UR5E_URDF), "UR5e"))
 
@@ -84,14 +86,14 @@ def test_move_swaps_and_reports_bounds():
     seq = _sample()
     assert seq.move(0, 1) is True
     assert seq.steps[1].name == "夹紧"
-    assert seq.move(0, -1) is False      # 越界不抛错、返回 False
+    assert seq.move(0, -1) is False  # 越界不抛错、返回 False
     assert seq.move(len(seq), 1) is False
 
 
 def test_insert_clamps_and_remove_returns_step():
     seq = ProcessSequence()
     seq.insert(99, DwellStep("d", "机器人", 1.0))
-    assert len(seq) == 1                  # 越界插入夹到末尾
+    assert len(seq) == 1  # 越界插入夹到末尾
     removed = seq.remove(0)
     assert isinstance(removed, DwellStep) and len(seq) == 0
 
@@ -139,15 +141,19 @@ def test_no_timeout_is_warning():
 
 
 def test_edge_trigger_ignores_value():
-    seq = ProcessSequence([WaitStep("w", "机器人", "s", trigger="falling", value=True, timeout=1.0)])
+    seq = ProcessSequence(
+        [WaitStep("w", "机器人", "s", trigger="falling", value=True, timeout=1.0)]
+    )
     assert _codes(seq.validate()) == {"edge_ignores_value"}
 
 
 def test_unknown_device_and_subprogram_are_errors():
-    seq = ProcessSequence([
-        SignalStep("s", "不存在的设备", "gripper_close"),
-        CallStep("c", "机器人", "NoSuchSub"),
-    ])
+    seq = ProcessSequence(
+        [
+            SignalStep("s", "不存在的设备", "gripper_close"),
+            CallStep("c", "机器人", "NoSuchSub"),
+        ]
+    )
     issues = seq.validate(devices=["机器人"], subprograms=["PickPart"])
     codes = _codes(issues)
     assert {"unknown_device", "unknown_subprogram"} <= codes
@@ -155,20 +161,24 @@ def test_unknown_device_and_subprogram_are_errors():
 
 
 def test_duplicate_names_warn_with_index():
-    seq = ProcessSequence([
-        DwellStep("同名", "机器人", 0.1),
-        DwellStep("同名", "机器人", 0.2),
-    ])
+    seq = ProcessSequence(
+        [
+            DwellStep("同名", "机器人", 0.1),
+            DwellStep("同名", "机器人", 0.2),
+        ]
+    )
     issues = seq.validate()
     assert _codes(issues) == {"duplicate_name"}
-    assert issues[0].index == 1            # 指向后出现的那一个
+    assert issues[0].index == 1  # 指向后出现的那一个
 
 
 def test_issue_carries_index():
-    seq = ProcessSequence([
-        SignalStep("a", "机器人", "gripper_close"),
-        SignalStep("b", "机器人", "nope"),
-    ])
+    seq = ProcessSequence(
+        [
+            SignalStep("a", "机器人", "gripper_close"),
+            SignalStep("b", "机器人", "nope"),
+        ]
+    )
     issues = seq.validate(signal_names={"gripper_close"})
     assert len(issues) == 1 and issues[0].index == 1
 
@@ -181,7 +191,7 @@ def test_issue_carries_index():
 def test_to_program_translates_io_steps():
     builder = _make_builder()
     notes = _sample().to_program(builder)
-    items = builder.build().items          # builder 本身只有 .motions，指令在 Program 上
+    items = builder.build().items  # builder 本身只有 .motions，指令在 Program 上
     kinds = [type(i) for i in items]
     # 5 步里 CallStep 不是程序指令（见下一条测试），落地 4 条 IO 指令
     assert kinds == [SetDO, WaitTime, WaitDI, SetDO]
@@ -195,20 +205,22 @@ def test_to_program_translates_io_steps():
 def test_to_program_passes_edge_trigger_through():
     """rising/falling 原样落到 WaitDI——边沿语义不在翻译层被悄悄改成电平。"""
     builder = _make_builder()
-    seq = ProcessSequence([
-        WaitStep("等边沿", "输送带", "part_ready", trigger="rising", timeout=2.0),
-    ])
+    seq = ProcessSequence(
+        [
+            WaitStep("等边沿", "输送带", "part_ready", trigger="rising", timeout=2.0),
+        ]
+    )
     seq.to_program(builder)
     wait = builder.build().items[0]
     assert isinstance(wait, WaitDI) and wait.trigger == "rising"
-    assert _codes(seq.validate()) == {"edge_ignores_value"}   # 边沿忽略电平，如实告警
+    assert _codes(seq.validate()) == {"edge_ignores_value"}  # 边沿忽略电平，如实告警
 
 
 def test_to_program_records_call_in_notes():
     builder = _make_builder()
     seq = ProcessSequence([CallStep("抓取", "机器人", "PickPart")])
     notes = seq.to_program(builder)
-    assert builder.build().items == []     # 不臆造调用语法
+    assert builder.build().items == []  # 不臆造调用语法
     assert len(notes) == 1 and "PickPart" in notes[0]
 
 
@@ -220,31 +232,33 @@ def test_to_plc_steps_semantics_match_steps_from_program():
       自己就编排等待，再补一步会与序列里的等待打架，所以序列侧不补；
     * 步名不同（驻留 0.5s vs 保压 0.50s、末步输出 vs 输出保持），语义字段必须一致。
     """
-    from orolp.plc_scl import steps_from_program
+    from service.plc_scl import steps_from_program
 
     builder = _make_builder()
     _sample().to_program(builder)
     from_seq = _sample().to_plc_steps()
     from_prog = steps_from_program(builder.build().items)
 
-    assert from_prog[0].wait == "part_present"          # 程序侧多一步循环起点
+    assert from_prog[0].wait == "part_present"  # 程序侧多一步循环起点
     assert [_sig(s) for s in from_seq] == [_sig(s) for s in from_prog[1:]]
 
     # 别只断言"两边一样"——把翻译规则本身也钉死
     assert [s.delay for s in from_seq] == [0.5, 0.0, 0.0]
-    assert from_seq[0].outputs == {"gripper_close": True}   # 触发被下一次收束带走
+    assert from_seq[0].outputs == {"gripper_close": True}  # 触发被下一次收束带走
     assert from_seq[1].wait == "part_ready" and from_seq[1].wait_value is True
-    assert from_seq[1].outputs == {}                        # 等待步把前置输出收走了
-    assert from_seq[-1].outputs == {"conveyor_run": False}   # 末步输出
+    assert from_seq[1].outputs == {}  # 等待步把前置输出收走了
+    assert from_seq[-1].outputs == {"conveyor_run": False}  # 末步输出
 
 
 def test_to_plc_steps_call_flushes_pending_and_is_skipped():
-    seq = ProcessSequence([
-        SignalStep("s", "机器人", "gripper_close"),
-        CallStep("c", "机器人", "PickPart"),
-    ])
+    seq = ProcessSequence(
+        [
+            SignalStep("s", "机器人", "gripper_close"),
+            CallStep("c", "机器人", "PickPart"),
+        ]
+    )
     steps = seq.to_plc_steps()
-    assert len(steps) == 1                 # 调用不进 PLC 步序
+    assert len(steps) == 1  # 调用不进 PLC 步序
     assert steps[0].outputs == {"gripper_close": True}
 
 
@@ -253,27 +267,30 @@ def test_summary_reports_dwell_only_as_time():
     assert s["steps"] == 5
     assert s["counts"] == {"call": 1, "signal": 2, "wait": 1, "dwell": 1}
     assert s["dwell_total_s"] == 0.5
-    assert "取决于现场" in s["note"]       # 诚实口径：别的时间不编
+    assert "取决于现场" in s["note"]  # 诚实口径：别的时间不编
 
 
 def test_to_plc_steps_feed_generate_scl_end_to_end():
     """序列的 PLC 出口能直接出 SCL——docstring 里那句"可直接喂给 generate_scl"要被钉住。"""
-    from orolp.cell import CellConfig, Device
-    from orolp.plc_scl import generate_scl
+    from service.cell import CellConfig, Device
+    from service.plc_scl import generate_scl
 
     cell = CellConfig()
     cell.add(Device(name="夹具", type="夹具", io_map={"gripper_close": "Q0.2"}))
-    cell.add(Device(
-        name="输送带", type="输送带",
-        io_map={"part_ready": "I0.4", "conveyor_run": "Q0.4"},
-    ))
+    cell.add(
+        Device(
+            name="输送带",
+            type="输送带",
+            io_map={"part_ready": "I0.4", "conveyor_run": "Q0.4"},
+        )
+    )
 
     code = generate_scl(cell, program_name="CellControl", steps=_sample().to_plc_steps())
     head = code.split("BEGIN")[0]
     # 序列用到的信号都必须先声明，否则 TIA 编译不过
     for sig in ("gripper_close", "part_ready", "conveyor_run"):
         assert sig in head, f"{sig} 未声明"
-    assert "dwellTimer : TON" in code and "T#500MS" in code   # 0.5s 驻留 → 定时器
+    assert "dwellTimer : TON" in code and "T#500MS" in code  # 0.5s 驻留 → 定时器
 
 
 # --------------------------------------------------------------------------- #
@@ -286,7 +303,7 @@ def test_json_roundtrip(tmp_path):
     path = tmp_path / "seq.json"
     seq.save_json(path)
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["schema"] == "orolp.sequence/1"
+    assert data["schema"] == "service.sequence/1"
     back = ProcessSequence.load_json(path)
     assert [type(a) for a in back.steps] == [type(b) for b in seq.steps]
     assert back.summary() == seq.summary()
@@ -294,7 +311,7 @@ def test_json_roundtrip(tmp_path):
 
 def test_load_rejects_bad_schema(tmp_path):
     path = tmp_path / "bad.json"
-    path.write_text(json.dumps({"schema": "orolp.sequence/9", "steps": []}), encoding="utf-8")
+    path.write_text(json.dumps({"schema": "service.sequence/9", "steps": []}), encoding="utf-8")
     with pytest.raises(ValueError):
         ProcessSequence.load_json(path)
 
@@ -302,19 +319,11 @@ def test_load_rejects_bad_schema(tmp_path):
 def test_load_rejects_unknown_kind(tmp_path):
     path = tmp_path / "bad2.json"
     path.write_text(
-        json.dumps({"schema": "orolp.sequence/1", "steps": [{"kind": "teleport"}]}),
+        json.dumps({"schema": "service.sequence/1", "steps": [{"kind": "teleport"}]}),
         encoding="utf-8",
     )
     with pytest.raises(ValueError):
         ProcessSequence.load_json(path)
-
-
-def test_package_exports():
-    import orolp
-
-    for name in ("ProcessSequence", "SeqIssue", "SeqStep",
-                 "SignalStep", "WaitStep", "CallStep", "DwellStep"):
-        assert hasattr(orolp, name), name
 
 
 # --------------------------------------------------------------------------- #
@@ -331,7 +340,7 @@ def qapp():
 
 @pytest.fixture()
 def editor(qapp):
-    from orolp.world.panel import SequenceEditor
+    from domain.world.panel import SequenceEditor
 
     w = SequenceEditor()
     yield w
@@ -372,18 +381,22 @@ def test_editor_validate_clean_shows_pass(editor):
 
 
 def test_editor_wait_dialog_values(qapp):
-    from orolp.world.panel import _StepDialog
+    from domain.world.panel import _StepDialog
 
     dialog = _StepDialog("wait", ["机器人", "输送带"], ["part_ready"], [])
     dialog.name_edit.setText("等到位")
     dialog.device_combo.setCurrentText("输送带")
     dialog.signal_combo.setCurrentText("part_ready")
-    dialog.trigger_combo.setCurrentIndex(1)          # 上升沿
+    dialog.trigger_combo.setCurrentIndex(1)  # 上升沿
     dialog.timeout_spin.setValue(3.0)
     values = dialog.values()
     assert values == {
-        "name": "等到位", "device": "输送带", "signal": "part_ready",
-        "trigger": "rising", "value": True, "timeout": 3.0,
+        "name": "等到位",
+        "device": "输送带",
+        "signal": "part_ready",
+        "trigger": "rising",
+        "value": True,
+        "timeout": 3.0,
     }
 
 
@@ -400,7 +413,7 @@ def test_editor_save_load_roundtrip(editor, qapp, tmp_path):
 
 
 def test_editor_in_scene_panel_wiring(qapp):
-    from orolp.world.panel import ScenePanel
+    from domain.world.panel import ScenePanel
 
     panel = ScenePanel()
     got = []
@@ -409,7 +422,7 @@ def test_editor_in_scene_panel_wiring(qapp):
     panel.sceneChanged.connect(lambda: got.append(1))
     n_before = len(panel.sequence_editor.sequence)
     panel.sequence_editor.add_step("dwell", seconds=0.1)
-    assert len(got) >= 1                   # 编辑器的改动转发到了面板
+    assert len(got) >= 1  # 编辑器的改动转发到了面板
     assert len(panel.sequence_editor.sequence) == n_before + 1
     panel.deleteLater()
 
@@ -421,7 +434,7 @@ def test_editor_default_names_increment(editor):
 
 
 def test_new_strings_translated(monkeypatch):
-    from orolp import i18n
+    from support import i18n
 
     monkeypatch.setattr(i18n, "_LANGUAGE", "en", raising=False)
     for text in (

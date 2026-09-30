@@ -1,6 +1,6 @@
 """动力学/力矩校验（v0.3.1）的测试。
 
-覆盖 :mod:`orolp.dynamics` 与规划器集成：
+覆盖 :mod:`domain.dynamics` 与规划器集成：
 
 * 牛顿-欧拉逆动力学的物理正确性——单摆重力力矩解析值、负载力矩与
   ``Jᵀ·F`` 交叉验证、质量矩阵对称性、fixed 末端 link 合并
@@ -20,17 +20,17 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.dynamics import (  # noqa: E402
+from domain.dynamics import (
     DEFAULT_JOINT_EFFORT,
     DynamicsModel,
     LinkInertial,
 )
-from orolp.kinematics import RobotKinematics  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from domain.kinematics import RobotKinematics  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
 G = 9.81
 
@@ -247,12 +247,7 @@ def _overload_robot(tmp_path):
 def test_validate_report_contains_torque_summary(tmp_path):
     """校验报表带力矩/功率字段，format 输出力矩小节。"""
     robot = _overload_robot(tmp_path)
-    prog = (
-        ProgramBuilder(robot)
-        .moveJ([0.0, -60.0, 30.0])
-        .moveJ([40.0, -30.0, 0.0])
-        .build()
-    )
+    prog = ProgramBuilder(robot).moveJ([0.0, -60.0, 30.0]).moveJ([40.0, -30.0, 0.0]).build()
     report = prog.validate()
     assert report.torque_peaks is not None
     assert len(report.torque_peaks) == 3
@@ -290,9 +285,7 @@ def test_validate_near_limit_warning(tmp_path):
     assert not [i for i in report.errors if i.code == "torque_limit"]
     near = [i for i in report.issues if i.code == "torque_near"]
     if report.torque_peaks is not None:
-        ratios = [
-            pk / lim for pk, lim in zip(report.torque_peaks, report.torque_limits)
-        ]
+        ratios = [pk / lim for pk, lim in zip(report.torque_peaks, report.torque_limits)]
         if any(0.85 <= r <= 1.0 for r in ratios):
             assert near
         else:
@@ -301,7 +294,7 @@ def test_validate_near_limit_warning(tmp_path):
 
 def test_validate_skips_without_inertial():
     """UR5e 无惯性参数：力矩校验跳过并挂警告，不影响其余校验结论。"""
-    urdf = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
     robot = Robot(str(urdf), "UR5e")
     prog = ProgramBuilder(robot).moveJ([0.0, -90.0, 90.0, -90.0, 0.0, 0.0]).build()
     report = prog.validate()
@@ -314,7 +307,7 @@ def test_validate_skips_without_inertial():
 
 def test_check_dynamics_false_is_silent():
     """check_dynamics=False 时不产生任何动力学相关 Issue。"""
-    urdf = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
     robot = Robot(str(urdf), "UR5e")
     prog = ProgramBuilder(robot).moveJ([0.0, -90.0, 90.0, -90.0, 0.0, 0.0]).build()
     report = prog.validate(check_dynamics=False)
@@ -323,19 +316,14 @@ def test_check_dynamics_false_is_silent():
 
 def test_planner_dynamics_model_payload(tmp_path):
     """通过 planner.dynamics_model 录入负载后校验生效（so101 自带惯性）。"""
-    urdf = REPO_ROOT / "models" / "lerobot" / "so101" / "urdf" / "so101.urdf"
+    urdf = REPO_ROOT / "assets" / "models" / "lerobot" / "so101" / "urdf" / "so101.urdf"
     if not urdf.exists():
         pytest.skip("so101 URDF 不存在")
     robot = Robot(str(urdf), "SO101")
     prog = ProgramBuilder(robot).moveJ([0.0] * robot.dof).build()
     # 零位→零位是零长运动，换一个真实目标
-    prog = (
-        ProgramBuilder(robot)
-        .moveJ([0.0] * robot.dof)
-        .moveJ([10.0] * robot.dof)
-        .build()
-    )
-    from orolp.planner import TrajectoryPlanner
+    prog = ProgramBuilder(robot).moveJ([0.0] * robot.dof).moveJ([10.0] * robot.dof).build()
+    from service.planner import TrajectoryPlanner
 
     planner = TrajectoryPlanner(robot)
     assert planner.dynamics_model is not None
@@ -347,8 +335,8 @@ def test_planner_dynamics_model_payload(tmp_path):
 
 def test_power_zero_at_rest(pendulum):
     """静止（qd=0）时机械功率为零。"""
-    from orolp.simulation import Trajectory, Waypoint
-    from orolp.pose import Pose as _Pose
+    from service.simulation import Trajectory, Waypoint
+    from domain.pose import Pose as _Pose
 
     model = DynamicsModel(pendulum)
     scale = math.radians(1.0)
@@ -382,7 +370,7 @@ def test_gui_torque_overload_marks_point_red(tmp_path, qapp=None):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6 import QtWidgets
 
-    from orolp.program_panel import ProgramPanel
+    from app.views.program_panel import ProgramPanel
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     robot = _overload_robot(tmp_path)

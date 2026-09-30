@@ -14,7 +14,7 @@
 
     python examples/perf_benchmark_demo.py
     python examples/perf_benchmark_demo.py --motions 400     # 加大规模
-    PYTHONPATH=python python examples/perf_benchmark_demo.py # 未安装 orolp 时
+    PYTHONPATH=python python examples/perf_benchmark_demo.py # 未安装 core 时
 """
 
 from __future__ import annotations
@@ -25,25 +25,25 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 import numpy as np  # noqa: E402
 
-from orolp import Robot  # noqa: E402
-from orolp import kinematics as kinmod  # noqa: E402
-from orolp.perf import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain import kinematics as kinmod  # noqa: E402
+from service.perf import (
     SWEEP_BASE,
     profile_program,
     reference_link_transforms,
     scale_report,
     sweep_program,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.world.templates import build_grasping_workstation  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.world.templates import build_grasping_workstation  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 def section(title: str) -> None:

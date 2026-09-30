@@ -3,7 +3,7 @@
 
 与 GUI 里的 OpenGL 视口不同，本工具自带一套极简的三角面光栅化器：
 
-* 直接解析 ``models/**/*.urdf``（仅 box / cylinder / sphere 三类基本体）；
+* 直接解析 ``assets/models/**/*.urdf``（仅 box / cylinder / sphere 三类基本体）；
 * 按关节角做正运动学，把每个 visual 的顶点变换到世界坐标；
 * 用透视相机 + 画家算法（按面片深度排序）+ 平面着色画出实体感。
 
@@ -32,7 +32,7 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 import matplotlib
 
@@ -41,7 +41,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager
 from matplotlib.collections import LineCollection, PolyCollection
 
-from orolp.robot_library.specs import BRANDS, ROBOTS  # noqa: E402
+from adapter.robot_library.specs import BRANDS, ROBOTS  # noqa: E402
 
 #: 预览图里有中文（品牌名/型号说明），挑一个系统里存在的中文字体，避免渲染成方框
 _CJK_FONT_CANDIDATES = (
@@ -62,12 +62,11 @@ def _setup_cjk_font() -> str:
     loose = [n for n in installed if any(k in n for k in ("CJK", "Han", "Hei", "Song"))]
     for name in list(_CJK_FONT_CANDIDATES) + loose:
         if name in installed:
-            plt.rcParams["font.sans-serif"] = [name] + list(
-                plt.rcParams["font.sans-serif"]
-            )
+            plt.rcParams["font.sans-serif"] = [name] + list(plt.rcParams["font.sans-serif"])
             plt.rcParams["axes.unicode_minus"] = False
             return name
     return ""
+
 
 # --------------------------------------------------------------------------- #
 # URDF 解析
@@ -150,9 +149,7 @@ def load_urdf(path: Path) -> UrdfModel:
             sph = geom.find("sphere")
             if box is not None:
                 size = _vec3(box.get("size"), (0.1, 0.1, 0.1))
-                link.visuals.append(
-                    Visual(origin, "box", tuple(float(v) for v in size), color)
-                )
+                link.visuals.append(Visual(origin, "box", tuple(float(v) for v in size), color))
             elif cyl is not None:
                 r = float(cyl.get("radius", 0.05))
                 length = float(cyl.get("length", 0.1))
@@ -200,9 +197,7 @@ def _rot(axis: np.ndarray, angle: float) -> np.ndarray:
     if n < 1e-12 or abs(angle) < 1e-12:
         return np.eye(3)
     k = axis / n
-    K = np.array(
-        [[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]], dtype=float
-    )
+    K = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]], dtype=float)
     return np.eye(3) + math.sin(angle) * K + (1.0 - math.cos(angle)) * (K @ K)
 
 
@@ -256,19 +251,22 @@ _SPHERE_SEGMENTS = 16
 
 def _box_tris(sx: float, sy: float, sz: float) -> np.ndarray:
     h = np.array([sx, sy, sz], dtype=float) / 2.0
-    c = np.array(
-        [
-            [-1, -1, -1],
-            [1, -1, -1],
-            [1, 1, -1],
-            [-1, 1, -1],
-            [-1, -1, 1],
-            [1, -1, 1],
-            [1, 1, 1],
-            [-1, 1, 1],
-        ],
-        dtype=float,
-    ) * h
+    c = (
+        np.array(
+            [
+                [-1, -1, -1],
+                [1, -1, -1],
+                [1, 1, -1],
+                [-1, 1, -1],
+                [-1, -1, 1],
+                [1, -1, 1],
+                [1, 1, 1],
+                [-1, 1, 1],
+            ],
+            dtype=float,
+        )
+        * h
+    )
     faces = [
         (0, 1, 2, 3),
         (4, 5, 6, 7),
@@ -430,7 +428,9 @@ def render_triangles(
     normals = np.cross(edge1, edge2)
     lengths = np.linalg.norm(normals, axis=1)
     valid = lengths > 1e-12
-    normals = np.where(valid[:, None], normals / np.where(lengths[:, None] < 1e-12, 1.0, lengths[:, None]), 0.0)
+    normals = np.where(
+        valid[:, None], normals / np.where(lengths[:, None] < 1e-12, 1.0, lengths[:, None]), 0.0
+    )
     to_cam = camera.eye - world[:, 0]
     facing = np.einsum("ij,ij->i", normals, to_cam) > 0
     keep = valid & facing
@@ -549,9 +549,7 @@ def draw_tile(ax, model: UrdfModel, pose: Sequence[float], spec) -> None:
 
     segs = ground_lines(reach_m * 1.08, camera, W, H)
     if segs:
-        ax.add_collection(
-            LineCollection(segs, colors="#33343f", linewidths=0.5, zorder=1)
-        )
+        ax.add_collection(LineCollection(segs, colors="#33343f", linewidths=0.5, zorder=1))
 
     verts, colors = render_triangles(model, pose, camera, W, H)
     if verts:
@@ -612,7 +610,9 @@ def collect_targets(models_dir: Path) -> List[Tuple[str, Path, object]]:
     return out
 
 
-def make_figure(targets, out_path: Path, cols: int, cell_w: float, cell_h: float, title: str) -> None:
+def make_figure(
+    targets, out_path: Path, cols: int, cell_w: float, cell_h: float, title: str
+) -> None:
     rows = math.ceil(len(targets) / cols)
     fig_w = cols * cell_w
     fig_h = rows * cell_h + 0.55
@@ -649,8 +649,12 @@ HERO_KEYS = (
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--models-dir", default=str(REPO_ROOT / "models"), help="模型根目录")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--models-dir", default=str(REPO_ROOT / "assets" / "models"), help="模型根目录"
+    )
     parser.add_argument("--out-dir", default=str(REPO_ROOT / "docs" / "preview"), help="输出目录")
     parser.add_argument("-o", "--out", default=None, help="单图输出路径（与 --layout 配合）")
     parser.add_argument("--layout", choices=("all", "hero", "both"), default="both")
@@ -671,7 +675,11 @@ def main() -> int:
     by_key = {k: (k, p, s) for k, p, s in targets}
 
     if args.layout in ("all", "both"):
-        out = Path(args.out) if (args.out and args.layout == "all") else out_dir / "robot_library_all.png"
+        out = (
+            Path(args.out)
+            if (args.out and args.layout == "all")
+            else out_dir / "robot_library_all.png"
+        )
         make_figure(
             targets,
             out,
@@ -683,9 +691,14 @@ def main() -> int:
 
     if args.layout in ("hero", "both"):
         hero = [by_key[k] for k in HERO_KEYS if k in by_key]
-        out = Path(args.out) if (args.out and args.layout == "hero") else out_dir / "robot_library_hero.png"
-        make_figure(hero, out, cols=3, cell_w=4.1, cell_h=3.4,
-                    title="机器人库代表机型 · 作业姿态预览")
+        out = (
+            Path(args.out)
+            if (args.out and args.layout == "hero")
+            else out_dir / "robot_library_hero.png"
+        )
+        make_figure(
+            hero, out, cols=3, cell_w=4.1, cell_h=3.4, title="机器人库代表机型 · 作业姿态预览"
+        )
 
     return 0
 

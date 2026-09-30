@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v0.3.4 标定与手眼测试（``orolp.calibration``）。
+"""v0.3.4 标定与手眼测试（``service.calibration``）。
 
 覆盖六块：
 
@@ -29,9 +29,9 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.calibration import (  # noqa: E402
+from service.calibration import (
     CalibrationError,
     CalibrationSet,
     CameraIntrinsics,
@@ -51,13 +51,13 @@ from orolp.calibration import (  # noqa: E402
     rigid_transform,
     solve_hand_eye,
 )
-from orolp.kinematics import RobotKinematics  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from domain.kinematics import RobotKinematics  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-UR5E_URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
-KR16_URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+UR5E_URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
+KR16_URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 #: 4 个腕部姿态差异明显的真实可达位形（4 点法要求姿态多样）
 TOUCH_JOINTS = [
@@ -143,8 +143,8 @@ def test_calibrate_base_3point_builds_orthonormal_frame():
     origin, xp, yp = [10.0, 20.0, 30.0], [110.0, 20.0, 30.0], [10.0, 120.0, 30.0]
     pose = calibrate_base_3point(origin, xp, yp)
     R = pose.matrix[:3, :3]
-    assert np.allclose(R.T @ R, np.eye(3), atol=1e-12)   # 正交
-    assert np.isclose(np.linalg.det(R), 1.0)             # 右手系
+    assert np.allclose(R.T @ R, np.eye(3), atol=1e-12)  # 正交
+    assert np.isclose(np.linalg.det(R), 1.0)  # 右手系
     assert np.allclose(pose.matrix[:3, 3], origin)
     assert np.allclose(R[:, 0], [1.0, 0.0, 0.0], atol=1e-12)
 
@@ -267,7 +267,14 @@ def test_calibrate_tcp_from_joints_roundtrip(ur5e, ur5e_rotations):
 MARKER_IN_FLANGE = Pose.from_xyz_rpy(30.0, 0.0, 90.0, 180.0, 0.0, 0.0)
 CAMERA_TRUTH = Pose.from_xyz_rpy(0.0, -400.0, 1100.0, 180.0, 0.0, 0.0)
 
-WRIST_OFFSETS = ((0, 0, 0), (28, 18, -22), (-32, 22, 38), (18, -26, 52), (-22, -16, -42), (34, 12, 16))
+WRIST_OFFSETS = (
+    (0, 0, 0),
+    (28, 18, -22),
+    (-32, 22, 38),
+    (18, -26, 52),
+    (-22, -16, -42),
+    (34, 12, 16),
+)
 
 
 def _hand_eye_poses(ur5e) -> list[Pose]:
@@ -316,7 +323,9 @@ def test_hand_eye_eye_to_hand_reports_constant_extrinsics(ur5e):
 
 def test_hand_eye_camera_pose_at(ur5e):
     poses = _hand_eye_poses(ur5e)
-    ds_in = generate_hand_eye_dataset(MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_in_hand", flange_poses=poses)
+    ds_in = generate_hand_eye_dataset(
+        MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_in_hand", flange_poses=poses
+    )
     res_in = solve_hand_eye(ds_in.flange_poses, ds_in.camera_readings, "eye_in_hand")
     # eye-in-hand：相机随法兰运动，位形一变相机位姿就变（取它必须用当前法兰位姿）
     p0 = res_in.camera_pose_at(poses[0])
@@ -324,17 +333,26 @@ def test_hand_eye_camera_pose_at(ur5e):
     assert np.linalg.norm(p0.matrix[:3, 3] - p1.matrix[:3, 3]) > 10.0
     assert np.allclose(p0.matrix, poses[0].matrix @ MARKER_IN_FLANGE.matrix, atol=1e-9)
 
-    ds_to = generate_hand_eye_dataset(MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=poses)
+    ds_to = generate_hand_eye_dataset(
+        MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=poses
+    )
     res_to = solve_hand_eye(ds_to.flange_poses, ds_to.camera_readings, "eye_to_hand")
     # eye-to-hand：与位形无关，永远是同一处
-    assert np.allclose(res_to.camera_pose_at(poses[0]).matrix, res_to.camera_pose_at(poses[3]).matrix)
+    assert np.allclose(
+        res_to.camera_pose_at(poses[0]).matrix, res_to.camera_pose_at(poses[3]).matrix
+    )
 
 
 def test_hand_eye_tolerates_measurement_noise(ur5e):
     poses = _hand_eye_poses(ur5e)
     noisy = generate_hand_eye_dataset(
-        MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand",
-        flange_poses=poses, noise_mm=0.3, noise_deg=0.05, seed=9,
+        MARKER_IN_FLANGE,
+        CAMERA_TRUTH,
+        "eye_to_hand",
+        flange_poses=poses,
+        noise_mm=0.3,
+        noise_deg=0.05,
+        seed=9,
     )
     result = solve_hand_eye(noisy.flange_poses, noisy.camera_readings, "eye_to_hand")
     assert result.residual_mm < 5.0
@@ -344,7 +362,9 @@ def test_hand_eye_tolerates_measurement_noise(ur5e):
 
 def test_hand_eye_rejects_wrong_mode_and_bad_input(ur5e):
     poses = _hand_eye_poses(ur5e)
-    ds = generate_hand_eye_dataset(MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=poses)
+    ds = generate_hand_eye_dataset(
+        MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=poses
+    )
     # B 的两种模式互为逆：传错不会报数值错，只会得到永远对不上的外参 → 必须拦下
     with pytest.raises(CalibrationError, match="mode"):
         solve_hand_eye(ds.flange_poses, ds.camera_readings, "eye_in_hand")
@@ -363,7 +383,9 @@ def test_hand_eye_rejects_parallel_rotation_axes(ur5e):
     for ang in (0.0, 20.0, 40.0, 60.0):
         R = Rotation.from_rotvec(np.radians(ang) * np.array([0.0, 0.0, 1.0])).as_matrix()
         poses.append(Pose(_mat(nominal[:3, :3] @ R, nominal[:3, 3])))
-    ds = generate_hand_eye_dataset(MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=poses)
+    ds = generate_hand_eye_dataset(
+        MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=poses
+    )
     with pytest.raises(CalibrationError, match="旋转轴"):
         solve_hand_eye(ds.flange_poses, ds.camera_readings, "eye_to_hand")
 
@@ -383,7 +405,7 @@ def test_hand_eye_result_dict_roundtrip(ur5e):
         MARKER_IN_FLANGE, CAMERA_TRUTH, "eye_to_hand", flange_poses=_hand_eye_poses(ur5e)
     )
     result = solve_hand_eye(ds.flange_poses, ds.camera_readings, "eye_to_hand")
-    from orolp.calibration import HandEyeResult
+    from service.calibration import HandEyeResult
 
     back = HandEyeResult.from_dict(result.to_dict())
     assert np.allclose(back.transform.matrix, result.transform.matrix)
@@ -468,11 +490,13 @@ def _sample_set(ur5e_rotations) -> CalibrationSet:
         TouchProbe(poses[0], TIP_REF + R_f0 @ tool_R @ np.array([0.0, 0.0, 80.0])),
         ref_point=TIP_REF,
     )
-    return (
-        CalibrationSet(name="cell_a", tool=tcp, base=Pose.from_xyz_rpy(0, 0, 0, 0, 0, 0),
-                       camera=CameraIntrinsics.from_fov(1280, 720, 60.0), notes="单测")
-        .set_frame("托盘坐标系", Pose.from_xyz_rpy(350.0, 450.0, 144.0, 0.0, 0.0, 15.0))
-    )
+    return CalibrationSet(
+        name="cell_a",
+        tool=tcp,
+        base=Pose.from_xyz_rpy(0, 0, 0, 0, 0, 0),
+        camera=CameraIntrinsics.from_fov(1280, 720, 60.0),
+        notes="单测",
+    ).set_frame("托盘坐标系", Pose.from_xyz_rpy(350.0, 450.0, 144.0, 0.0, 0.0, 15.0))
 
 
 def test_calibration_set_dict_roundtrip(ur5e_rotations):
@@ -495,7 +519,7 @@ def test_calibration_set_save_load(tmp_path, ur5e_rotations):
     reloaded = CalibrationSet.load(path)
     assert reloaded.name == "cell_a"
     assert np.allclose(reloaded.tool.offset.matrix, cal.tool.offset.matrix)
-    assert json.loads(path.read_text(encoding="utf-8"))["schema"] == "orolp.calibration/1"
+    assert json.loads(path.read_text(encoding="utf-8"))["schema"] == "service.calibration/1"
 
 
 def test_apply_to_robot_sets_tool_and_base(ur5e, ur5e_rotations):
@@ -527,8 +551,8 @@ def test_write_urdf_writes_calibrated_tcp_as_kinematic_tip(tmp_path, ur5e_rotati
 
     kin0 = RobotKinematics(UR5E_URDF)
     kin1 = RobotKinematics(out)
-    assert kin1.tip_link == "tcp"          # 标定后的 TCP 就是运动学末端
-    assert kin1.dof == kin0.dof            # 没有多出可动关节
+    assert kin1.tip_link == "tcp"  # 标定后的 TCP 就是运动学末端
+    assert kin1.dof == kin0.dof  # 没有多出可动关节
 
     root = ET.parse(out).getroot()
     joint = next(j for j in root.findall("joint") if j.get("name") == "tcp_joint")

@@ -22,9 +22,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp.progdiff import (  # noqa: E402
+from service.progdiff import (
+    diff_programs,
+    ProgramVersionStore,
+    serialize_program,
+    deserialize_program,
+    program_fingerprint,
+)  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from service.progdiff import (
     ProgramDiffError,
     ProgramVersionStore,
     deserialize_program,
@@ -32,10 +40,10 @@ from orolp.progdiff import (  # noqa: E402
     program_fingerprint,
     serialize_program,
 )
-from orolp.twinsync import LocalCloudStore, MemoryCloudStore  # noqa: E402
+from service.twinsync import LocalCloudStore, MemoryCloudStore  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
 
@@ -44,14 +52,16 @@ Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 # --------------------------------------------------------------------------- #
 
 
-def make_builder(j3: float = 30.0, z: float = 300.0, speed: float = 50.0,
-                 extra_tail: bool = False) -> ProgramBuilder:
-    b = (ProgramBuilder("UR5e")
-         .moveJ([0.0, -30.0, j3, 0.0, 60.0, 0.0], speed=40)
-         .moveL(Pose.from_xyz_rpy(500.0, 0.0, z, 0.0, 0.0, 0.0),
-                speed=speed, blend=8)
-         .setDO("gripper_close", True)
-         .moveL(Pose.from_xyz_rpy(500.0, 200.0, z, 0.0, 0.0, 0.0), speed=speed))
+def make_builder(
+    j3: float = 30.0, z: float = 300.0, speed: float = 50.0, extra_tail: bool = False
+) -> ProgramBuilder:
+    b = (
+        ProgramBuilder("UR5e")
+        .moveJ([0.0, -30.0, j3, 0.0, 60.0, 0.0], speed=40)
+        .moveL(Pose.from_xyz_rpy(500.0, 0.0, z, 0.0, 0.0, 0.0), speed=speed, blend=8)
+        .setDO("gripper_close", True)
+        .moveL(Pose.from_xyz_rpy(500.0, 200.0, z, 0.0, 0.0, 0.0), speed=speed)
+    )
     if extra_tail:
         b.moveJ([10.0, -20.0, j3, 0.0, 45.0, 0.0], speed=40)
     return b
@@ -123,12 +133,14 @@ def test_removed_motion_detected():
 def test_io_signal_rename_is_a_field_change_not_a_shift():
     """setDO 换信号名：按信号名对齐后报"信号字段变了"，其余指令不许错位。"""
     a = make_builder().build()
-    b = (ProgramBuilder("UR5e")
-         .moveJ([0.0, -30.0, 30.0, 0.0, 60.0, 0.0], speed=40)
-         .moveL(Pose.from_xyz_rpy(500, 0, 300, 0, 0, 0), speed=50, blend=8)
-         .setDO("gripper_open", True)
-         .moveL(Pose.from_xyz_rpy(500, 200, 300, 0, 0, 0), speed=50)
-         .build())
+    b = (
+        ProgramBuilder("UR5e")
+        .moveJ([0.0, -30.0, 30.0, 0.0, 60.0, 0.0], speed=40)
+        .moveL(Pose.from_xyz_rpy(500, 0, 300, 0, 0, 0), speed=50, blend=8)
+        .setDO("gripper_open", True)
+        .moveL(Pose.from_xyz_rpy(500, 200, 300, 0, 0, 0), speed=50)
+        .build()
+    )
     d = diff_programs(a, b)
     assert d.n_changed == 1
     ch = next(c for c in d.changes if c.kind == "changed")
@@ -199,8 +211,7 @@ def test_plan_true_with_degenerate_target_still_diffs(robot):
     """
     prog = make_builder().build()
     prog.robot = robot
-    far = (ProgramBuilder("UR5e")
-           .moveL(Pose.from_xyz_rpy(5000, 5000, 5000, 0, 0, 0)).build())
+    far = ProgramBuilder("UR5e").moveL(Pose.from_xyz_rpy(5000, 5000, 5000, 0, 0, 0)).build()
     far.robot = robot
     d = diff_programs(prog, far, robot=robot, plan=True)
     assert d.has_changes  # 结构对比照常给出
@@ -294,11 +305,11 @@ def test_store_name_sanitized_for_cloud_keys(tmp_path):
 
 
 def test_exports_are_reachable_from_package_root():
-    assert orp.diff_programs is diff_programs
-    assert orp.ProgramVersionStore is ProgramVersionStore
-    assert orp.serialize_program is serialize_program
-    assert orp.deserialize_program is deserialize_program
-    assert orp.program_fingerprint is program_fingerprint
+    assert diff_programs is diff_programs
+    assert ProgramVersionStore is ProgramVersionStore
+    assert serialize_program is serialize_program
+    assert deserialize_program is deserialize_program
+    assert program_fingerprint is program_fingerprint
 
 
 def test_example_script_runs_end_to_end():
@@ -307,7 +318,7 @@ def test_example_script_runs_end_to_end():
     result = subprocess.run(
         [sys.executable, str(script)],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": str(REPO_ROOT / "python"), "PATH": "/usr/bin:/bin"},
+        env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         text=True,
         timeout=180,

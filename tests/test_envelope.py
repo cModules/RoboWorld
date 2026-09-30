@@ -20,19 +20,19 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT / "python") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "python"))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import (  # noqa: E402
-    ENVELOPE_TOLERANCE_MM,
+from domain.envelope import (
     EnvelopeEstimate,
     envelope_estimate_details,
     envelope_tolerance_mm,
     estimate_envelope_tolerance_mm,
 )
-from orolp.robot import Robot  # noqa: E402
+from service.planner import ENVELOPE_TOLERANCE_MM  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF_UR5E = str(REPO_ROOT / "models/ur/ur5e/ur5e.urdf")
+URDF_UR5E = str(REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf")
 
 
 # --------------------------------------------------------------------------- #
@@ -86,12 +86,12 @@ class _CapturePlanner:
         self.captured = None
 
     def validate(self, program=None, margin=None):
-        from orolp.planner import TrajectoryPlanner
+        from service.planner import TrajectoryPlanner
 
         resolved = TrajectoryPlanner.validate.__wrapped__ if False else None
         # 直接复用解析逻辑：与 validate 开头逐行同构的判定放不进桩里，
         # 所以这里用真 planner 的类方法太重——改为验证解析语义本身：
-        from orolp.envelope import envelope_tolerance_mm as _resolve
+        from domain.envelope import envelope_tolerance_mm as _resolve
 
         if margin is None:
             self.captured = (
@@ -110,18 +110,18 @@ def test_validate_resolution_semantics():
     plain = Robot(URDF_UR5E, "UR5e")
 
     p1 = _CapturePlanner(calibrated)
-    assert p1.validate(margin=None) == -12.0      # 逐机标定自动生效
+    assert p1.validate(margin=None) == -12.0  # 逐机标定自动生效
     p2 = _CapturePlanner(plain)
-    assert p2.validate(margin=None) == -0.5       # 未标定保持历史默认
+    assert p2.validate(margin=None) == -0.5  # 未标定保持历史默认
     p3 = _CapturePlanner(calibrated)
-    assert p3.validate(margin=-30.0) == -30.0     # 显式传值最高优先
+    assert p3.validate(margin=-30.0) == -30.0  # 显式传值最高优先
 
 
 def test_real_validate_signature_accepts_none():
     """真 TrajectoryPlanner.validate 的签名与解析分支存在（防有人改回硬编码）。"""
     import inspect
 
-    from orolp.planner import TrajectoryPlanner
+    from service.planner import TrajectoryPlanner
 
     sig = inspect.signature(TrajectoryPlanner.validate)
     assert sig.parameters["margin"].default is None
@@ -138,9 +138,13 @@ def _write_prism_stl(path: Path, r_m: float, z_lo_m: float, z_hi_m: float, n: in
     """写一个二进制 STL 正 n 棱柱（外接圆半径 r_m，顶点精确落在圆周上）。"""
     import math
 
-    ring = [[(r_m * math.cos(2 * math.pi * i / n),
-              r_m * math.sin(2 * math.pi * i / n), z) for i in range(n)]
-            for z in (z_lo_m, z_hi_m)]
+    ring = [
+        [
+            (r_m * math.cos(2 * math.pi * i / n), r_m * math.sin(2 * math.pi * i / n), z)
+            for i in range(n)
+        ]
+        for z in (z_lo_m, z_hi_m)
+    ]
     tris = []
     for i in range(n):
         j = (i + 1) % n
@@ -162,7 +166,8 @@ def _write_synthetic_urdf(path: Path, tube_r_m: float, geom_xml: str):
     """合成 URDF：visual = 圆管棱柱 mesh（顶点在 Ø2r 圆周上），collision 自定义。"""
     stl = path.parent / "tube.stl"
     _write_prism_stl(stl, tube_r_m, -0.15, 0.15)
-    path.write_text(f"""<?xml version="1.0"?>
+    path.write_text(
+        f"""<?xml version="1.0"?>
 <robot name="synth">
   <link name="arm">
     <visual><origin xyz="0 0 0" rpy="0 0 0"/>
@@ -171,7 +176,9 @@ def _write_synthetic_urdf(path: Path, tube_r_m: float, geom_xml: str):
       <geometry>{geom_xml}</geometry></collision>
   </link>
 </robot>
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     return stl
 
 
@@ -180,10 +187,9 @@ def test_estimate_synthetic_box_over_tube(tmp_path):
     → 角点半径 24√2 − 20 = 13.9mm 的外扩被如实估算出来。"""
     urdf = tmp_path / "synth.urdf"
     r_m, box_half_m = 0.020, 0.024
-    _write_synthetic_urdf(
-        urdf, r_m, f'<box size="{2*box_half_m} {2*box_half_m} 0.30"/>')
+    _write_synthetic_urdf(urdf, r_m, f'<box size="{2*box_half_m} {2*box_half_m} 0.30"/>')
     value = estimate_envelope_tolerance_mm(str(urdf))
-    expected = round(box_half_m * 1000 * 2 ** 0.5 - r_m * 1000, 1)  # 13.9
+    expected = round(box_half_m * 1000 * 2**0.5 - r_m * 1000, 1)  # 13.9
     assert value is not None and abs(value - expected) <= 0.5, (value, expected)
     details = envelope_estimate_details(str(urdf))
     assert "arm" in details and details["arm"]["expansion_mm"] > 0
@@ -192,8 +198,7 @@ def test_estimate_synthetic_box_over_tube(tmp_path):
 def test_estimate_tight_envelope_gives_zero(tmp_path):
     """包络圆柱半径 = mesh 圆管半径 → 角点半径就是管壁，外扩为 0。"""
     urdf = tmp_path / "tight.urdf"
-    _write_synthetic_urdf(
-        urdf, 0.025, '<cylinder radius="0.025" length="0.30"/>')
+    _write_synthetic_urdf(urdf, 0.025, '<cylinder radius="0.025" length="0.30"/>')
     value = estimate_envelope_tolerance_mm(str(urdf))
     assert value is not None and value <= 0.2
 
@@ -208,10 +213,13 @@ def test_estimate_clamped_by_max_value(tmp_path):
 def test_estimate_no_comparable_links_returns_none(tmp_path):
     """没有 mesh visual 的 URDF 无从比较 → None（调用方回退全局）。"""
     urdf = tmp_path / "bare.urdf"
-    urdf.write_text("""<?xml version="1.0"?>
+    urdf.write_text(
+        """<?xml version="1.0"?>
 <robot name="bare"><link name="a"><collision><geometry>
   <box size="0.1 0.1 0.1"/></geometry></collision></link></robot>
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     assert estimate_envelope_tolerance_mm(str(urdf)) is None
 
 
@@ -220,9 +228,9 @@ def test_estimate_ur5e_is_deterministic_lower_bound():
     v1 = estimate_envelope_tolerance_mm(URDF_UR5E)
     v2 = estimate_envelope_tolerance_mm(URDF_UR5E)
     assert v1 is not None and v1 == v2
-    assert 0.0 <= v1 <= ENVELOPE_TOLERANCE_MM, (
-        f"几何下界 {v1} 不应超过实测标定 {ENVELOPE_TOLERANCE_MM}"
-    )
+    assert (
+        0.0 <= v1 <= ENVELOPE_TOLERANCE_MM
+    ), f"几何下界 {v1} 不应超过实测标定 {ENVELOPE_TOLERANCE_MM}"
 
 
 def test_estimate_details_expose_fattest_link():

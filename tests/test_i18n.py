@@ -3,7 +3,7 @@
 覆盖轻量国际化基础设施与 GUI 接线：
 
 * ``tr()`` 语言语义——zh 恒等（默认零回归）、en 查表、未收录原样返回
-* 语言解析优先级——环境变量 ``OROLP_LANG`` > 配置文件 > 默认 zh
+* 语言解析优先级——环境变量 ``CORE_LANG`` > 配置文件 > 默认 zh
 * ``set_language`` 持久化与非法语言拒绝
 * GUI 接线——en 模式下 ProgramPanel 按钮文案为英文；zh 模式保持中文
 * 语言菜单——主窗口存在语言动作且互斥选中
@@ -25,21 +25,21 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-import orolp.i18n as i18n  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.program_panel import ProgramPanel  # noqa: E402
+import support.i18n as i18n  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from app.views.program_panel import ProgramPanel  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 JOINTS = [f"joint_{i}" for i in range(1, 7)]
 
 
 @pytest.fixture(autouse=True)
 def _isolated_i18n(monkeypatch, tmp_path):
     """每个用例独享语言状态与配置目录，结束后回到 zh。"""
-    monkeypatch.delenv("OROLP_LANG", raising=False)
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("CORE_LANG", raising=False)
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_ZH, save=False)
     yield
     i18n.set_language(i18n.LANG_ZH, save=False)
@@ -52,10 +52,10 @@ def qapp():
 
 from PySide6 import QtWidgets  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # tr() 语义
 # ---------------------------------------------------------------------------
+
 
 def test_zh_is_identity():
     i18n.set_language(i18n.LANG_ZH, save=False)
@@ -84,12 +84,13 @@ def test_en_template_lookup():
 # 语言解析与持久化
 # ---------------------------------------------------------------------------
 
+
 def test_default_is_zh():
     assert i18n.current_language() == i18n.LANG_ZH
 
 
 def test_env_var_wins(monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     # 重置进程内缓存
     i18n._LANGUAGE = None
     assert i18n.current_language() == i18n.LANG_EN
@@ -97,7 +98,7 @@ def test_env_var_wins(monkeypatch):
 
 
 def test_env_var_invalid_falls_back(monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "fr")
+    monkeypatch.setenv("CORE_LANG", "fr")
     i18n._LANGUAGE = None
     assert i18n.current_language() == i18n.LANG_ZH
     i18n._LANGUAGE = None
@@ -117,7 +118,7 @@ def test_config_file_roundtrip(tmp_path):
 def test_env_beats_config_file(monkeypatch, tmp_path):
     i18n.set_language(i18n.LANG_EN)  # 写入配置文件
     i18n._LANGUAGE = None
-    monkeypatch.setenv("OROLP_LANG", "zh")
+    monkeypatch.setenv("CORE_LANG", "zh")
     assert i18n.current_language() == i18n.LANG_ZH
     i18n._LANGUAGE = None
 
@@ -136,6 +137,7 @@ def test_available_languages():
 # 目录卫生
 # ---------------------------------------------------------------------------
 
+
 def test_catalog_values_non_empty():
     for key, value in i18n._CATALOG_EN.items():
         assert isinstance(value, str) and value.strip(), f"empty translation for {key!r}"
@@ -150,6 +152,7 @@ def test_catalog_keys_unique_nonempty():
 # ---------------------------------------------------------------------------
 # GUI 接线（offscreen）
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def make_panel(qapp):
@@ -185,12 +188,10 @@ def test_panel_text_en(make_panel):
 
 def test_main_window_has_language_menu_en(qapp, monkeypatch):
     """en 模式下 MainWindow 构造成功且语言菜单动作互斥选中。"""
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     i18n._LANGUAGE = None
     try:
-        spec = importlib.util.spec_from_file_location(
-            "rw_app_i18n", REPO_ROOT / "app.py"
-        )
+        spec = importlib.util.spec_from_file_location("rw_app_i18n", REPO_ROOT / "main.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         win = mod.MainWindow()
@@ -218,7 +219,11 @@ _CJK = re.compile(r"[一-鿿]")
 
 def _tr_keys() -> set:
     """扫源码里所有 ``tr("...")`` 的字面量键（ast 取值，转义与运行时一致）。"""
-    files = [REPO_ROOT / "app.py"] + sorted((REPO_ROOT / "python" / "orolp").rglob("*.py"))
+    # 必须连**顶层 GUI 包**一起扫：tr() 键可能只出现在 app/ 里，
+    # 漏掉它 = 这类键缺双语词条也不会被发现
+    files = [REPO_ROOT / "main.py"]
+    for _root_dir in (REPO_ROOT / "app", REPO_ROOT / "core"):
+        files += sorted(_root_dir.rglob("*.py"))
     keys = set()
     for f in files:
         try:
@@ -239,7 +244,7 @@ def _tr_keys() -> set:
 
 def test_every_tr_key_has_english():
     """每个 tr() 中文键都得有英文译文——否则 en 模式漏出中文。"""
-    from orolp import i18n
+    from support import i18n
 
     missing = sorted(k for k in _tr_keys() if _CJK.search(k) and k not in i18n._CATALOG_EN)
     assert missing == [], f"这些键缺英文译文：{missing[:5]}"
@@ -251,7 +256,7 @@ def test_catalog_has_no_duplicate_keys():
     用 ast 读字面量而不是正则扫文本：键里有 ``\\"`` 转义时正则会在转义引号处
     截断，把一条正常条目误判成两条"重复"。
     """
-    from orolp import i18n
+    from support import i18n
 
     tree = ast.parse(Path(i18n.__file__).read_text(encoding="utf-8"))
     keys = []

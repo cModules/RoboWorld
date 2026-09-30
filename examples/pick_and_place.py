@@ -4,20 +4,21 @@ RobotWorld Example: Pick and Place
 Demonstrates joint moves, linear moves, tool frames, and post-processor generation.
 """
 
-import orolp as orp
+from domain.pose import Pose
+from domain.robot import Robot
 
 # Load a test 6-DOF robot model
-robot = orp.Robot("examples/assets/test_6dof.urdf", name="TestRobot_6DOF")
+robot = Robot("examples/assets/test_6dof.urdf", name="TestRobot_6DOF")
 
 # Define tool frame: 150mm gripper offset along Z
-robot.tool = orp.Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
+robot.tool = Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
 
 # Define work object (table) frame
-wobj = orp.Pose.from_xyz_rpy(500, 200, 0, 0, 0, 90)
+wobj = Pose.from_xyz_rpy(500, 200, 0, 0, 0, 90)
 
 # Define pick and place poses relative to work object
-pick = orp.Pose.from_xyz_rpy(0, 0, 50, 0, 0, 0).relative_to(wobj)
-place = orp.Pose.from_xyz_rpy(100, 100, 50, 0, 0, 0).relative_to(wobj)
+pick = Pose.from_xyz_rpy(0, 0, 50, 0, 0, 0).relative_to(wobj)
+place = Pose.from_xyz_rpy(100, 100, 50, 0, 0, 0).relative_to(wobj)
 
 # Build motion program (chainable API, motions and IO interleaved)
 program = (

@@ -28,14 +28,20 @@ env/
 # Documentation
 docs/_build/
 
-# Models / large files (use Git LFS if needed)
+# Models / large files
 *.step
 *.stp
 *.iges
 *.igs
-# Allow STL files in models/ directory (for robot models)
+# 机器人模型网格：上面 *.stl 是全局忽略，**模型库必须显式放行**。
+# 2026-09-26 目录重整后模型库位于 assets/models/（与 assets/cells 平级）。
+#
+# 更正（2026-09-26 核实）：这些 STL **并不是 LFS 对象**——它们以普通 git 对象入库
+# （1041 个文件、约 40MB；索引 blob 与磁盘同体积，`git lfs ls-files` 为 0）。
+# 因此"本地缺 git-lfs 时会检出成指针"的旧说法不成立。LFS 规则的现状与原因见
+# `.gitattributes` 里的说明（启用需重写历史，属单独决策）。
 *.stl
-!models/**/*.stl
+!assets/models/**/*.stl
 *.ply
 *.urdf.bak
 

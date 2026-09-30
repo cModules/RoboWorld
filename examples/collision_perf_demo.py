@@ -14,7 +14,7 @@
 
     python examples/collision_perf_demo.py
     python examples/collision_perf_demo.py --motions 300      # 加大规模
-    PYTHONPATH=python python examples/collision_perf_demo.py  # 未安装 orolp 时
+    PYTHONPATH=python python examples/collision_perf_demo.py  # 未安装 core 时
 """
 
 from __future__ import annotations
@@ -24,27 +24,27 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import Robot  # noqa: E402
-from orolp.collision import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.collision import (
     collision_stats,
     reset_collision_stats,
     sample_indices,
 )
-from orolp.perf import (  # noqa: E402
+from service.perf import (
     SWEEP_BASE,
     collision_profile,
     compare_collision_kernels,
     sweep_program,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.world.geometry import geometry_stats, reset_geometry_stats  # noqa: E402
-from orolp.world.templates import build_grasping_workstation  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.world.geometry import geometry_stats, reset_geometry_stats  # noqa: E402
+from domain.world.templates import build_grasping_workstation  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 def section(title: str) -> None:
@@ -83,7 +83,7 @@ def main(argv=None) -> int:
     reset_collision_stats()
     reset_geometry_stats()
     # v1.2.2 起干涉检查有结果缓存——账本必须量"真算"，计时/统计期间临时关闭
-    from orolp.incremental import get_collision_cache, set_collision_cache
+    from service.incremental import get_collision_cache, set_collision_cache
 
     _saved_cache = get_collision_cache()
     set_collision_cache(None)

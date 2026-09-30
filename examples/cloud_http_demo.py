@@ -16,7 +16,7 @@ v1.0.3 的云协作给了两种传输：`MemoryCloudStore`（进程内）与 `Lo
 ------------------
 
 **本示例没有云账号，也没有连过任何真实云端点**。服务端是仓库自带、跑在本机回环上的
-参考实现 :class:`~orolp.cloudhttp.CloudStoreServer`，所以"能通"这件事只说明
+参考实现 :class:`~adapter.cloudhttp.CloudStoreServer`，所以"能通"这件事只说明
 **客户端与服务端彼此吻合**，**不代表对真实 S3 / 对象存储做过端到端验证**。
 
 签名部分比"自洽"强一档：`SigV4Signer` 的结果对着 **AWS 官方文档给出的 4 组示例向量**
@@ -26,12 +26,12 @@ v1.0.3 的云协作给了两种传输：`MemoryCloudStore`（进程内）与 `Lo
 
 接真云时要做的只有一件事：把 base_url / bucket / 凭证换成真的，其余（`CloudLink`、
 孪生层、调试会话、后处理）一行都不用改。用 HTTP + Bearer 就走自建服务；用 S3 兼容
-存储就多给一个 :class:`~orolp.cloudhttp.SigV4Signer`。
+存储就多给一个 :class:`~adapter.cloudhttp.SigV4Signer`。
 
 运行::
 
     python examples/cloud_http_demo.py
-    # 或未安装 orolp 时：PYTHONPATH=python python examples/cloud_http_demo.py
+    # 或未安装 core 时：PYTHONPATH=python python examples/cloud_http_demo.py
 """
 
 from __future__ import annotations
@@ -46,12 +46,14 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp.cloudhttp import (  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from adapter.cloudhttp import (
     CloudAuthError,
     CloudHTTPError,
     CloudStoreServer,
@@ -59,9 +61,9 @@ from orolp.cloudhttp import (  # noqa: E402
     SigV4Signer,
     payload_hash,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.post import get_post_processor  # noqa: E402
-from orolp.twinsync import (  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from adapter.post import get_post_processor  # noqa: E402
+from service.twinsync import (
     CloudLink,
     LocalCloudStore,
     MemoryCloudStore,
@@ -70,7 +72,7 @@ from orolp.twinsync import (  # noqa: E402
     compare_traces,
 )
 
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
 # 合成"真机"模型（零位偏置 / 传动比误差 / 编码器噪声 / 一阶伺服滞后）

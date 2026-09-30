@@ -1,9 +1,9 @@
-"""v1.4.0 构建档位开关（``python/orolp/features.py``）的回归测试。
+"""v1.4.0 构建档位开关（``app/features.py``）的回归测试。
 
 这里守三条底线，缺一条都不能发 MVP：
 
 1. **MVP 档必须真的藏干净**——没做完 / 没上真机的入口不许出现在界面上；
-2. **全功能档必须全回来**——内部开发与后续 2.0 靠 ``OROLP_FEATURES=full``，
+2. **全功能档必须全回来**——内部开发与后续 2.0 靠 ``CORE_FEATURES=full``，
    隐藏是暂时的，不能变成"删过了所以再也回不来"；
 3. **隐藏入口 ≠ 丢数据**——工程里已经有 sequence 段时，没有编辑器也必须原样
    带回去，不能因为节省 Entropy 让用户的数据静默蒸发。
@@ -20,11 +20,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_ROOT / "python"))
+sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT))
 
-from orolp import features  # noqa: E402
-from orolp.i18n import tr  # noqa: E402
+from app import features  # noqa: E402
+from support.i18n import tr  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -33,31 +33,37 @@ from orolp.i18n import tr  # noqa: E402
 # --------------------------------------------------------------------------- #
 def test_unspecified_level_is_full_under_pytest(monkeypatch):
     """不显式设置时，测试进程按全功能档跑（参见 features._under_pytest）。"""
-    monkeypatch.delenv("OROLP_FEATURES", raising=False)
+    monkeypatch.delenv("CORE_FEATURES", raising=False)
     assert features.read_level() == features.FULL_LEVEL
     assert features.is_full()
     assert features.disabled_features() == frozenset()
 
 
 def test_mvp_level_hides_unfinished_entries(monkeypatch):
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.read_level() == features.MVP_LEVEL
-    for name in ("sequence_editor", "plc_logic", "subprogram",
-                 "controller_link", "plugins", "dev_tools"):
+    for name in (
+        "sequence_editor",
+        "plc_logic",
+        "subprogram",
+        "controller_link",
+        "plugins",
+        "dev_tools",
+    ):
         assert not features.enabled(name), f"{name} 不该出现在 MVP 档的界面上"
     assert features.disabled_features() == features.HIDDEN_IN_MVP
 
 
 def test_hardware_list_is_hidden_in_mvp(monkeypatch):
     """代码预览下的「硬件列表」属于未完成项，MVP 档不许出现。"""
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert not features.enabled("hardware_list")
 
 
 def test_multirobot_stays_enabled_in_mvp(monkeypatch):
     """多机是 MVP 承诺的一部分（多台独立编程与回放），不许被隐藏。"""
     for level in ("mvp", "full"):
-        monkeypatch.setenv("OROLP_FEATURES", level)
+        monkeypatch.setenv("CORE_FEATURES", level)
         assert features.enabled("multirobot")
 
 
@@ -77,18 +83,18 @@ def test_hidden_list_comes_from_pyproject(monkeypatch):
     打包后读不到文件时口径会突然变化——这必须当场暴露。
     """
     monkeypatch.delenv(features.CONFIG_FILE_ENV, raising=False)
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.config_file() == _ROOT / "pyproject.toml"
     assert features.hidden_in_mvp() == frozenset(features.DEFAULT_HIDDEN_IN_MVP)
 
 
 def test_custom_config_file_wins(tmp_path, monkeypatch):
-    """``OROLP_FEATURES_FILE`` 指向别处时以它为准（打包版 / 多套口径 / 测试）。"""
+    """``CORE_FEATURES_FILE`` 指向别处时以它为准（打包版 / 多套口径 / 测试）。"""
     monkeypatch.setenv(
         features.CONFIG_FILE_ENV,
-        str(_write_config(tmp_path, '[tool.orolp.features]\nhidden-in-mvp = ["plc_logic"]\n')),
+        str(_write_config(tmp_path, '[tool.core.features]\nhidden-in-mvp = ["plc_logic"]\n')),
     )
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.hidden_in_mvp() == frozenset({"plc_logic"})
     assert not features.enabled("plc_logic")
     assert features.enabled("controller_link")  # 没写进清单的一律放开
@@ -98,9 +104,9 @@ def test_empty_hidden_list_means_nothing_hidden(tmp_path, monkeypatch):
     """清单清空 = 全放开：这是「逐个完善」的终点，不能退化成兜底清单。"""
     monkeypatch.setenv(
         features.CONFIG_FILE_ENV,
-        str(_write_config(tmp_path, "[tool.orolp.features]\nhidden-in-mvp = []\n")),
+        str(_write_config(tmp_path, "[tool.core.features]\nhidden-in-mvp = []\n")),
     )
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.hidden_in_mvp() == frozenset()
     assert features.disabled_features() == frozenset()
 
@@ -108,20 +114,20 @@ def test_empty_hidden_list_means_nothing_hidden(tmp_path, monkeypatch):
 def test_missing_config_falls_back_to_default(tmp_path, monkeypatch):
     """文件不存在（打包时忘了带）→ 回退内置清单，不能让程序因此起不来。"""
     monkeypatch.setenv(features.CONFIG_FILE_ENV, str(tmp_path / "不存在的文件.toml"))
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.hidden_in_mvp() == frozenset(features.DEFAULT_HIDDEN_IN_MVP)
 
 
 def test_broken_config_falls_back_to_default(tmp_path, monkeypatch):
     """TOML 写坏了同样回退：清单只是口径，读错不该等于打不开软件。"""
-    broken = _write_config(tmp_path, '[tool.orolp.features\nhidden-in-mvp = ["plc_logic"\n')
+    broken = _write_config(tmp_path, '[tool.core.features\nhidden-in-mvp = ["plc_logic"\n')
     monkeypatch.setenv(features.CONFIG_FILE_ENV, str(broken))
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.hidden_in_mvp() == frozenset(features.DEFAULT_HIDDEN_IN_MVP)
 
 
 def test_full_level_enables_everything(monkeypatch):
-    monkeypatch.setenv("OROLP_FEATURES", "full")
+    monkeypatch.setenv("CORE_FEATURES", "full")
     assert features.is_full()
     for name in sorted(features.ALL_FEATURES):
         assert features.enabled(name)
@@ -129,27 +135,27 @@ def test_full_level_enables_everything(monkeypatch):
 
 @pytest.mark.parametrize("level", ["all", "on", "1", "true", "dev"])
 def test_full_aliases(level, monkeypatch):
-    monkeypatch.setenv("OROLP_FEATURES", level)
+    monkeypatch.setenv("CORE_FEATURES", level)
     assert features.is_full()
 
 
 def test_unknown_level_falls_back_to_mvp(monkeypatch):
     """写错的档位按 MVP 处理：宁可少暴露，也不要把没验证的东西放出去。"""
-    monkeypatch.setenv("OROLP_FEATURES", "beta ???")
+    monkeypatch.setenv("CORE_FEATURES", "beta ???")
     assert features.read_level() == features.MVP_LEVEL
     assert not features.enabled("controller_link")
 
 
 def test_unknown_feature_is_enabled(monkeypatch):
     """新功能没登记到隐藏集合也不该悄悄消失——未知 ≠ 隐藏。"""
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.enabled("还不知道叫什么的未来功能")
 
 
 def test_describe_mentions_level(monkeypatch):
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
     assert features.MVP_LEVEL in features.describe()
-    monkeypatch.setenv("OROLP_FEATURES", "full")
+    monkeypatch.setenv("CORE_FEATURES", "full")
     assert features.FULL_LEVEL in features.describe()
 
 
@@ -166,8 +172,8 @@ def qapp():
 
 def test_scene_panel_hides_sequence_editor_in_mvp(qapp, monkeypatch):
     """MVP 档不构建工艺时序（泳道图）分组——整组消失，不是留个空壳。"""
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
-    from orolp.world.panel import ScenePanel
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
+    from domain.world.panel import ScenePanel
 
     panel = ScenePanel()
     assert not hasattr(panel, "sequence_editor")
@@ -176,8 +182,8 @@ def test_scene_panel_hides_sequence_editor_in_mvp(qapp, monkeypatch):
 
 def test_scene_panel_keeps_sequence_editor_in_full(qapp, monkeypatch):
     """全功能档照旧要有：这里的入口只是被发版口径关掉，不是被删掉。"""
-    monkeypatch.setenv("OROLP_FEATURES", "full")
-    from orolp.world.panel import ScenePanel
+    monkeypatch.setenv("CORE_FEATURES", "full")
+    from domain.world.panel import ScenePanel
 
     panel = ScenePanel()
     assert hasattr(panel, "sequence_editor")
@@ -190,8 +196,8 @@ def _tab_names(tabs) -> set:
 
 def test_code_editor_hides_hardware_list_in_mvp(qapp, monkeypatch):
     """MVP 档「代码预览」下面没有「硬件列表」这一页（路径示教必须还在）。"""
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
-    from app import PathCodeEditor
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
+    from main import PathCodeEditor
 
     editor = PathCodeEditor()
     names = _tab_names(editor.sub_tabs)
@@ -200,8 +206,8 @@ def test_code_editor_hides_hardware_list_in_mvp(qapp, monkeypatch):
 
 
 def test_code_editor_keeps_hardware_list_in_full(qapp, monkeypatch):
-    monkeypatch.setenv("OROLP_FEATURES", "full")
-    from app import PathCodeEditor
+    monkeypatch.setenv("CORE_FEATURES", "full")
+    from main import PathCodeEditor
 
     editor = PathCodeEditor()
     assert tr("硬件列表") in _tab_names(editor.sub_tabs)
@@ -213,8 +219,8 @@ def test_sync_devices_keeps_data_without_hardware_table(qapp, monkeypatch):
     ``cell`` 是真源（PLC、点表读的都是它），表格只是看它的窗口。MVP 档表格
     不存在时 ``sync_devices`` 必须静默通过，不能崩在一个 AttributeError 上。
     """
-    monkeypatch.setenv("OROLP_FEATURES", "mvp")
-    from app import PathCodeEditor
+    monkeypatch.setenv("CORE_FEATURES", "mvp")
+    from main import PathCodeEditor
 
     editor = PathCodeEditor()
     assert editor.cell is not None, "工作单元模型不可用，这条用例没有意义"
@@ -258,14 +264,14 @@ def test_focus_tab_finds_the_panel_whichever_side_it_is_on(window):
 def window(qapp, monkeypatch, tmp_path):
     """一个真实的主窗口。
 
-    两个刻意的设定：① 隔离 ``OROLP_CONFIG_DIR``——否则会读到开发机上残留的
+    两个刻意的设定：① 隔离 ``CORE_CONFIG_DIR``——否则会读到开发机上残留的
     自动保存快照，``showEvent`` 里的恢复询问会弹出模态框等人点；② 不 ``show()``，
     这条用例只关心数据保真，不需要真的走到 ``showEvent``。
     """
-    import app
+    import main
 
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
-    win = app.MainWindow()
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
+    win = main.MainWindow()
     qapp.processEvents()
     yield win
     win.program_panel.stop_playback()
@@ -279,10 +285,10 @@ def test_collect_into_preserves_sequence_without_editor(window):
     sequence 段必须原样留在 Project 里（Unknown 段保留是 Project 的既有语义），
     否则客户打开旧工程再保存，时序数据就静默没了。
     """
-    from orolp.project import Project
+    from service.project import Project
 
     seq = {
-        "schema": "orolp.sequence/1",
+        "schema": "service.sequence/1",
         "steps": [{"name": "等待取件信号", "kind": "wait_signal"}],
     }
     project = Project()

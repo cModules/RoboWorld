@@ -25,11 +25,11 @@ import pytest
 from PySide6 import QtWidgets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 #: 六个关节都能解析的示教点（度）
 _POINTS = [
@@ -47,7 +47,7 @@ def qapp():
 
 @pytest.fixture()
 def window(qapp):
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -64,12 +64,14 @@ def silent_dialogs(monkeypatch):
     """把模态对话框换成静默替身，同时收集它们展示过的文本。"""
     shown: list = []
     monkeypatch.setattr(
-        QtWidgets.QMessageBox, "exec",
+        QtWidgets.QMessageBox,
+        "exec",
         lambda self: (shown.append(self.text()), QtWidgets.QMessageBox.Ok)[1],
     )
     for name in ("information", "warning", "critical"):
         monkeypatch.setattr(
-            QtWidgets.QMessageBox, name,
+            QtWidgets.QMessageBox,
+            name,
             staticmethod(lambda *a, **k: shown.append(" ".join(str(x) for x in a[2:]))),
         )
     return shown
@@ -85,7 +87,7 @@ def _teach(window, points=None, types=None):
     window.code_editor._parse_code_to_positions()
     window.code_editor.sync_point_types()
     if types is not None:
-        from orolp.pickplace import PointType
+        from service.pickplace import PointType
 
         window.code_editor.point_types = [PointType(t) for t in types]
     window._sync_program_points()
@@ -102,7 +104,7 @@ def _file_menu_actions(window) -> list:
     菜单标题已中文化（2026-09-21 界面体检）——按 **当前语言的译文** 找，
     别再写死 "File"。
     """
-    from orolp.i18n import tr
+    from support.i18n import tr
 
     wanted = tr("文件(&F)").replace("&", "")
     for action in window.menuBar().actions():
@@ -149,9 +151,10 @@ def test_editing_marks_dirty_then_save_clears_it(window, tmp_path, silent_dialog
     _teach(window)
     assert window._project_dirty
 
-    target = tmp_path / "dirty.orolp"
+    target = tmp_path / "dirty.core"
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getSaveFileName",
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
         staticmethod(lambda *a, **k: (str(target), "")),
     )
     window.save_project()
@@ -161,9 +164,10 @@ def test_editing_marks_dirty_then_save_clears_it(window, tmp_path, silent_dialog
 
 
 def test_project_name_from_saved_file(window, tmp_path, silent_dialogs, monkeypatch):
-    target = tmp_path / "my_cell.orolp"
+    target = tmp_path / "my_cell.core"
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getSaveFileName",
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
         staticmethod(lambda *a, **k: (str(target), "")),
     )
     window.save_project()
@@ -177,9 +181,11 @@ def test_project_name_from_saved_file(window, tmp_path, silent_dialogs, monkeypa
 
 
 def test_collect_only_includes_present_sections(window):
-    import orolp
+    from domain import world
+    from service.project import Project, PROJECT_SCHEMA
+    from support import __version__
 
-    project = orolp.Project()
+    project = Project()
     window._collect_into(project)
     # 空场景不写场景段——"工程里没有：场景"比"场景：0 个对象"诚实
     assert not project.has("scene")
@@ -189,7 +195,7 @@ def test_collect_only_includes_present_sections(window):
     assert project.get("parts") == {"sources": []}
 
     window.scene_panel.add_component("worktable")
-    project2 = orolp.Project()
+    project2 = Project()
     window._collect_into(project2)
     assert project2.has("scene")
     assert "工作台" in json.dumps(project2.get("scene"), ensure_ascii=False)
@@ -202,18 +208,22 @@ def test_collect_only_includes_present_sections(window):
 
 def _run_round_trip(window, path, silent_dialogs, monkeypatch):
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getSaveFileName",
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
         staticmethod(lambda *a, **k: (str(path), "")),
     )
     window.save_project()
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(path), "")),
     )
     window.open_project()
 
 
-def test_round_trip_restores_scene_program_sequence_cell(window, tmp_path, silent_dialogs, monkeypatch):
+def test_round_trip_restores_scene_program_sequence_cell(
+    window, tmp_path, silent_dialogs, monkeypatch
+):
     win = window
     if not UR5E.exists():
         pytest.skip("内置 UR5e 模型缺失")
@@ -231,16 +241,17 @@ def test_round_trip_restores_scene_program_sequence_cell(window, tmp_path, silen
     win.code_editor.cell.robot().io_map["robot_start"] = "Q0.0"
     win.code_editor._refresh_device_table()
 
-    target = tmp_path / "cell.orolp"
+    target = tmp_path / "cell.core"
     _run_round_trip(win, target, silent_dialogs, monkeypatch)
 
     # 打开一个新的窗口（模拟"关掉再开"），载入同一工程
-    import app as rw
+    import main as rw
 
     fresh = rw.MainWindow()
     try:
         monkeypatch.setattr(
-            QtWidgets.QFileDialog, "getOpenFileName",
+            QtWidgets.QFileDialog,
+            "getOpenFileName",
             staticmethod(lambda *a, **k: (str(target), "")),
         )
         fresh.open_project()
@@ -267,10 +278,12 @@ def test_round_trip_restores_scene_program_sequence_cell(window, tmp_path, silen
         fresh.deleteLater()
 
 
-def test_workpiece_semantics_survive_without_code_text(window, tmp_path, silent_dialogs, monkeypatch):
+def test_workpiece_semantics_survive_without_code_text(
+    window, tmp_path, silent_dialogs, monkeypatch
+):
     """落盘的内容里真的带着 point_types（不是靠"没变过"糊过去）。"""
     _teach(window, types=["approach", "pick", "lift", "place"])
-    target = tmp_path / "types.orolp"
+    target = tmp_path / "types.core"
     _run_round_trip(window, target, silent_dialogs, monkeypatch)
     raw = json.loads(target.read_text(encoding="utf-8"))
     assert raw["sections"]["program"]["point_types"] == ["approach", "pick", "lift", "place"]
@@ -283,12 +296,14 @@ def test_workpiece_semantics_survive_without_code_text(window, tmp_path, silent_
 
 
 def test_open_then_save_keeps_unknown_sections(window, tmp_path, silent_dialogs, monkeypatch):
-    import orolp
+    from domain import world
+    from service.project import Project, PROJECT_SCHEMA
+    from support import __version__
 
-    source = tmp_path / "future.orolp"
+    source = tmp_path / "future.core"
     data = {
-        "schema": orolp.PROJECT_SCHEMA,
-        "meta": {"name": "future-work", "orolp_version": orolp.__version__},
+        "schema": PROJECT_SCHEMA,
+        "meta": {"name": "future-work", "core_version": __version__},
         "sections": {
             "scene": {"format_version": 1, "robot_urdf": "", "robot_joints_deg": [], "objects": []},
             "vision": {"cameras": [{"id": "cam1"}]},
@@ -298,7 +313,8 @@ def test_open_then_save_keeps_unknown_sections(window, tmp_path, silent_dialogs,
     source.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(source), "")),
     )
     window.open_project()
@@ -306,34 +322,38 @@ def test_open_then_save_keeps_unknown_sections(window, tmp_path, silent_dialogs,
 
     # 在工程里改点东西（加个工作台）再保存
     window.scene_panel.add_component("worktable")
-    target = tmp_path / "future-out.orolp"
+    target = tmp_path / "future-out.core"
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getSaveFileName",
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
         staticmethod(lambda *a, **k: (str(target), "")),
     )
     window.save_project()
 
-    back = orolp.Project.load(target)
+    back = Project.load(target)
     assert back.raw("vision") == {"cameras": [{"id": "cam1"}]}
     assert back.extra["authoring"] == {"tool": "other-cad"}
     assert "工作台" in json.dumps(back.get("scene"), ensure_ascii=False)
 
 
 def test_open_reports_skipped_and_missing_content(window, tmp_path, silent_dialogs, monkeypatch):
-    import orolp
+    from domain import world
+    from service.project import Project, PROJECT_SCHEMA
+    from support import __version__
 
-    source = tmp_path / "broken.orolp"
+    source = tmp_path / "broken.core"
     data = {
-        "schema": orolp.PROJECT_SCHEMA,
+        "schema": PROJECT_SCHEMA,
         "meta": {"name": "broken"},
         "sections": {
-            "sequence": {"steps": "不是数组"},          # 坏段 → 应被跳过
+            "sequence": {"steps": "不是数组"},  # 坏段 → 应被跳过
             "parts": {"sources": ["/definitely/not/here.json"]},  # 找不到 → 应报出
         },
     }
     source.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(source), "")),
     )
     window.open_project()
@@ -348,10 +368,11 @@ def test_open_reports_skipped_and_missing_content(window, tmp_path, silent_dialo
 
 
 def test_open_reports_unreadable_file(window, tmp_path, silent_dialogs, monkeypatch):
-    bad = tmp_path / "nope.orolp"
+    bad = tmp_path / "nope.core"
     bad.write_text("{", encoding="utf-8")
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(bad), "")),
     )
     window.open_project()
@@ -366,8 +387,9 @@ def test_save_failure_keeps_session_usable(window, tmp_path, silent_dialogs, mon
     blocker.write_text("x", encoding="utf-8")
     # 目标父路径是个**文件** → 建目录必失败
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getSaveFileName",
-        staticmethod(lambda *a, **k: (str(blocker / "x.orolp"), "")),
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: (str(blocker / "x.core"), "")),
     )
     window.save_project()
     assert silent_dialogs, "写失败必须弹窗说明，不能静默"
@@ -380,42 +402,62 @@ def test_save_failure_keeps_session_usable(window, tmp_path, silent_dialogs, mon
 
 
 def test_parts_sources_restore_from_project_dir(window, tmp_path, silent_dialogs, monkeypatch):
-    import orolp
+    from domain import world
+    from service.project import Project, PROJECT_SCHEMA
+    from support import __version__
 
     parts = tmp_path / "parts.json"
-    parts.write_text(json.dumps({
-        "schema": "orolp.parts/1",
-        "parts": [{
-            "id": "flange", "name": "法兰盘", "category": "自定义",
-            "description": "测试件",
-            "primitives": [{"kind": "cylinder", "radius": 30.0, "height": 10.0,
-                            "offset": [0, 0, 5], "rpy_deg": [0, 0, 0],
-                            "color": [0.3, 0.5, 0.7]}],
-        }],
-    }, ensure_ascii=False), encoding="utf-8")
+    parts.write_text(
+        json.dumps(
+            {
+                "schema": "core.parts/1",
+                "parts": [
+                    {
+                        "id": "flange",
+                        "name": "法兰盘",
+                        "category": "自定义",
+                        "description": "测试件",
+                        "primitives": [
+                            {
+                                "kind": "cylinder",
+                                "radius": 30.0,
+                                "height": 10.0,
+                                "offset": [0, 0, 5],
+                                "rpy_deg": [0, 0, 0],
+                                "color": [0.3, 0.5, 0.7],
+                            }
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
-    if not (orolp.world.__dict__.get("components") or True):  # pragma: no cover
+    if not (world.__dict__.get("components") or True):  # pragma: no cover
         pytest.skip("组件库不可用")
 
-    project = orolp.Project(name="parts-demo")
+    project = Project(name="parts-demo")
     project.set("parts", {"sources": ["parts.json"]})  # 相对工程目录的路径
-    source = tmp_path / "parts.orolp"
+    source = tmp_path / "parts.core"
     project.save(source)
 
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(source), "")),
     )
     window.open_project()
 
-    from orolp.world.parts_library import CUSTOM_ID_PREFIX, COMPONENTS
+    from domain.world.parts_library import CUSTOM_ID_PREFIX, COMPONENTS
 
     try:
         assert any(cid.startswith(CUSTOM_ID_PREFIX) for cid in COMPONENTS)
         # 来源被记进面板（下次保存工程时还在）
         assert str(parts) in window.library_panel.parts_sources
     finally:
-        from orolp.world.parts_library import unregister_custom_parts
+        from domain.world.parts_library import unregister_custom_parts
 
         unregister_custom_parts(
             [cid for cid in list(COMPONENTS) if cid.startswith(CUSTOM_ID_PREFIX)]
@@ -442,7 +484,8 @@ def test_load_scene_replaces_all_scene_references(window, monkeypatch, tmp_path)
     scene_path = tmp_path / "workcell.json"
     win.scene_panel.scene.save(str(scene_path))
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(scene_path), "")),
     )
     win.scene_panel.load_scene()
@@ -453,10 +496,7 @@ def test_load_scene_replaces_all_scene_references(window, monkeypatch, tmp_path)
     assert win.code_editor._scene is win.scene_panel.scene
 
     # 选中对象后属性面板必须显示出来，而不是整个收起
-    name = next(
-        n for n in win.scene_panel.scene.objects
-        if not win.scene_panel.scene.is_robot(n)
-    )
+    name = next(n for n in win.scene_panel.scene.objects if not win.scene_panel.scene.is_robot(n))
     win.gl_widget.objectSelected.emit(name)
     assert not win.property_panel.object_scroll.isHidden()
     assert win.property_panel.current_object == name

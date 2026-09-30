@@ -28,16 +28,16 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pickplace import PointType  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.kinematics import KinematicsError  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from service.pickplace import PointType  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.kinematics import KinematicsError  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
 # 出码/校验要真机器人（含运动学 + 可推断品牌），故用仓库里的真实型号
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 FLAG_URDF = """<?xml version="1.0"?>
 <robot name="flag">
@@ -88,7 +88,7 @@ def flag_urdf(tmp_path_factory) -> str:
 
 @pytest.fixture()
 def window(qapp):
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -175,12 +175,8 @@ def test_dragging_joints_only_moves_that_robot(two_robots):
     # 先把两台都逼迫成不同初值，便于分辨谁动了
     scene.set_robot_joints([10.0], name=a)
     scene.set_robot_joints([20.0], name=b)
-    win.gl_widget.load_robot(
-        scene.robots[a].urdf, name=a
-    )
-    win.gl_widget.load_robot(
-        scene.robots[b].urdf, name=b
-    )
+    win.gl_widget.load_robot(scene.robots[a].urdf, name=a)
+    win.gl_widget.load_robot(scene.robots[b].urdf, name=b)
     win.gl_widget.renderer_of(a).joint_values["j1"] = np.radians(10.0)
     win.gl_widget.renderer_of(b).joint_values["j1"] = np.radians(20.0)
 
@@ -194,9 +190,7 @@ def test_dragging_joints_only_moves_that_robot(two_robots):
     slider = list(panel.sliders.values())[0]
     slider.setValue(4500)  # 45.00°
 
-    assert abs(renderer_of_b.joint_values["j1"] - np.radians(45.0)) < 1e-6, (
-        "B 的关节没被驱动到 45°"
-    )
+    assert abs(renderer_of_b.joint_values["j1"] - np.radians(45.0)) < 1e-6, "B 的关节没被驱动到 45°"
     assert renderer_of_a.joint_values == before_a, "拖 B 却改动了 A 的渲染关节"
     assert scene.robots[a].joints_deg == before_a_scene, "场景里 A 的关节被连带改动"
     # B 自己的场景关节要同步到位（法兰/干涉检查靠它）
@@ -241,9 +235,7 @@ def test_degraded_robot_never_borrows_another_renderer(two_robots):
     assert rb.model is None, "退化时不应有可画模型，宁可不画也不画错"
 
     ra.joint_values["j1"] = np.radians(33.0)
-    assert rb.joint_values.get("j1") in (None, 0.0), (
-        "共用渲染器：改 A 的关节会写到 B 身上"
-    )
+    assert rb.joint_values.get("j1") in (None, 0.0), "共用渲染器：改 A 的关节会写到 B 身上"
 
 
 def test_renderers_are_independent_per_robot(two_robots):
@@ -273,9 +265,7 @@ def test_renderer_aligns_to_its_own_scene_joints(two_robots):
     ra, rb = win.gl_widget.renderer_of(a), win.gl_widget.renderer_of(b)
 
     assert abs(ra.joint_values["j1"] - np.radians(30.0)) < 1e-6
-    assert abs(rb.joint_values["j1"] - np.radians(80.0)) < 1e-6, (
-        "第二台渲染器没对齐自己的场景关节"
-    )
+    assert abs(rb.joint_values["j1"] - np.radians(80.0)) < 1e-6, "第二台渲染器没对齐自己的场景关节"
 
 
 def test_mounted_tool_sits_on_its_own_flange(two_robots):
@@ -295,9 +285,9 @@ def test_mounted_tool_sits_on_its_own_flange(two_robots):
     for robot, tool in ((a, "A的夹爪"), (b, "B的夹爪")):
         flange_world = scene.world_transform(robot) @ scene.flange_transform(robot)
         tool_world = scene.world_transform(tool)
-        assert np.allclose(tool_world[:3, 3], flange_world[:3, 3], atol=1e-6), (
-            f"{tool} 没贴在 {robot} 的法兰上"
-        )
+        assert np.allclose(
+            tool_world[:3, 3], flange_world[:3, 3], atol=1e-6
+        ), f"{tool} 没贴在 {robot} 的法兰上"
 
     # 两台的法兰位置本来就该不同（B 偏移 2 m 且关节不同），否则本测试没意义
     assert not np.allclose(
@@ -324,6 +314,7 @@ def test_flange_follows_its_own_robot(two_robots):
 # 3. 多机出码 / 回放（真实型号 UR5E，才能真的后处理）
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture()
 def two_ur5e(window):
     """面板里登记两台 UR5E：名字不同、型号相同（多机最典型的现场）。"""
@@ -338,12 +329,12 @@ def two_ur5e(window):
     )
     window.gl_widget.scene = scene
 
-    from orolp import Robot as OrolpRobot
+    from domain.robot import Robot as CoreRobot
 
     panel = window.program_panel
     panel.set_scene(scene)
-    panel.set_robot(OrolpRobot(str(UR5E), "机器人A"), name=a)
-    panel.set_robot(OrolpRobot(str(UR5E), "机器人B"), name=b)
+    panel.set_robot(CoreRobot(str(UR5E), "机器人A"), name=a)
+    panel.set_robot(CoreRobot(str(UR5E), "机器人B"), name=b)
     return window, scene, a, b
 
 
@@ -461,9 +452,7 @@ def test_step_playback_drives_points_owner_not_selection(two_ur5e):
     _teach_pick_cycle(win, b, -10.0)
 
     # 路径编辑器显示 A 的点，视口却停在 B（点选只换选中，不换点表）
-    win.code_editor.set_recorded_positions(
-        win.gl_widget.get_recorded_positions(a), a
-    )
+    win.code_editor.set_recorded_positions(win.gl_widget.get_recorded_positions(a), a)
     win.gl_widget.set_current_robot(b)
 
     def first_joint(name):
@@ -651,14 +640,12 @@ def _teach_pick_cycle(win, robot, step_deg: float, base_deg=None) -> None:
         renderer.joint_values[first] = math.radians(i * step_deg)
         win.gl_widget.record_position(robot)
     # 带上归属：路径编辑器这份点表属于 ``robot``（真实通路里记录时会记下）
-    win.code_editor.set_recorded_positions(
-        win.gl_widget.get_recorded_positions(robot), robot
-    )
+    win.code_editor.set_recorded_positions(win.gl_widget.get_recorded_positions(robot), robot)
     win.code_editor.sync_point_types()
     # 抓取语义**显式**声明：生产代码不再替用户猜抓取/放置点（2026-09-21
     # 用户反馈——随手教的轨迹导出时被自动塞进 5 行夹爪开合）。要测夹爪
     # 相关行为，就在这里把五点式语义明说。
-    from orolp.pickplace import DEFAULT_SEQUENCE
+    from service.pickplace import DEFAULT_SEQUENCE
 
     win.code_editor.set_types_for(robot, list(DEFAULT_SEQUENCE))
     win._sync_program_points(robot)
@@ -718,9 +705,7 @@ def test_multi_robot_pick_playback_grasps_each_own_workpiece(two_ur5e):
     closed = {robot: wp for robot, act, wp in events if act == "close"}
     assert closed.get(a) == "工件1", f"A 夹的该是工件1，实际 {closed.get(a)}"
     assert closed.get(b) == "工件2", f"B 夹的该是工件2，实际 {closed.get(b)}"
-    assert (a, a) in attached and (b, b) in attached, (
-        f"工件没挂到各自的机器人上：{attached}"
-    )
+    assert (a, a) in attached and (b, b) in attached, f"工件没挂到各自的机器人上：{attached}"
 
 
 # --------------------------------------------------------------------------- #
@@ -752,9 +737,10 @@ def test_edit_active_robot_points_keeps_the_other_robot(two_ur5e):
     assert panel._taught[1] == moved, "移动的是行号，不是那一个点本身"
 
     ed = win.code_editor
-    assert [len(ed.points_of(a)), len(ed.points_of(b))] == [5, 5], (
-        "移动一台的路点把别人的点表搅没了"
-    )
+    assert [len(ed.points_of(a)), len(ed.points_of(b))] == [
+        5,
+        5,
+    ], "移动一台的路点把别人的点表搅没了"
     assert "# Robot: %s" % a in ed.toPlainText()
     assert "# Robot: %s" % b in ed.toPlainText()
     # 移动也确实写回了代码预览：B 那段是移动后的新顺序
@@ -818,8 +804,7 @@ def test_validate_restores_scene_joints(two_ur5e):
 
     scene_after = [float(v) for v in scene.robots[a].joints_deg]
     assert scene_after == scene_before, (
-        f"校验把场景关节写走了：{scene_before} → {scene_after}，"
-        "挂载在法兰上的夹爪会跟着跳走"
+        f"校验把场景关节写走了：{scene_before} → {scene_after}，" "挂载在法兰上的夹爪会跟着跳走"
     )
 
 
@@ -840,7 +825,8 @@ def test_export_all_writes_one_program_per_robot(two_ur5e, tmp_path, monkeypatch
     dest = {"dir": tmp_path / "all"}
     dest["dir"].mkdir()
     monkeypatch.setattr(
-        _QtWidgets.QFileDialog, "getExistingDirectory",
+        _QtWidgets.QFileDialog,
+        "getExistingDirectory",
         staticmethod(lambda *a, **k: str(dest["dir"])),
     )
 
@@ -862,15 +848,12 @@ def test_property_panel_shows_each_robots_own_spec(window):
     回归：规格只在 load_robot 时写入面板，多机时被后一台覆盖；选中 A 显示
     的却是 B 的型号/厂商/负载（2026-09-21 用户反馈，两台不同品牌时一眼可见）。
     """
-    from orolp.robot_library.catalog import RobotCatalog
+    from adapter.robot_library.catalog import RobotCatalog
 
     scene = window.scene_panel.scene
     panel = window.property_panel
-    catalog = RobotCatalog(REPO_ROOT / "models")
-    keys = [
-        k for k, v in catalog._entries.items()
-        if v.urdf_path and Path(v.urdf_path).exists()
-    ]
+    catalog = RobotCatalog(REPO_ROOT / "assets" / "models")
+    keys = [k for k, v in catalog._entries.items() if v.urdf_path and Path(v.urdf_path).exists()]
     kuka = next((k for k in keys if k.startswith("kuka")), None)
     other = next((k for k in keys if not k.startswith("kuka")), None)
     if not kuka or not other:
@@ -900,20 +883,23 @@ def test_property_panel_pose_shows_world_coordinates(two_ur5e):
     """
     win, scene, a, b = two_ur5e
     panel = win.property_panel
-    from orolp.world import placement as _placement
+    from domain.world import placement as _placement
 
-    ped = scene.add("worktable", name="底座",
-                    params={"length": 400.0, "width": 400.0, "height": 200.0},
-                    pose=Pose.from_xyz_rpy(1200.0, 300.0, 0.0, 0.0, 0.0, 0.0))
+    ped = scene.add(
+        "worktable",
+        name="底座",
+        params={"length": 400.0, "width": 400.0, "height": 200.0},
+        pose=Pose.from_xyz_rpy(1200.0, 300.0, 0.0, 0.0, 0.0, 0.0),
+    )
     _placement.mount_on_top_of(scene, b, ped.name)
     scene.attach(b, ped.name, keep_world=True)
 
     panel.set_object(b)
     shown = [panel.obj_pose_widgets[k].value() for k in ("x", "y", "z")]
     world = scene.world_transform(b)[:3, 3]
-    assert shown == pytest.approx([float(v) for v in world], abs=0.5), (
-        f"面板显示 {shown} ≠ 世界坐标 {world.tolist()}"
-    )
+    assert shown == pytest.approx(
+        [float(v) for v in world], abs=0.5
+    ), f"面板显示 {shown} ≠ 世界坐标 {world.tolist()}"
 
     # 编辑也按世界坐标落地：把 X 改到 600，机器人世界 X 应跟着走
     panel.obj_pose_widgets["x"].setValue(600.0)
@@ -937,20 +923,16 @@ def test_no_auto_gripper_in_export(two_ur5e):
     renderer = win.gl_widget.renderer_of(a)
     win.gl_widget.set_current_robot(a)
     for i in range(5):
-        prop.jointChanged.emit(
-            a, renderer.actuated_names()[0], math.radians(i * 10.0)
-        )
+        prop.jointChanged.emit(a, renderer.actuated_names()[0], math.radians(i * 10.0))
 
     program = panel.build_program(a)
     assert program is not None
     code = program.to_post(None, metadata={"program_name": a})
-    gripper_lines = [
-        ln for ln in code.splitlines() if "gripper" in ln or "clamped" in ln
-    ]
+    gripper_lines = [ln for ln in code.splitlines() if "gripper" in ln or "clamped" in ln]
     assert gripper_lines == [], f"默认导出不该有夹爪指令：{gripper_lines[:3]}"
 
     # 显式标注抓取/放置后，夹爪指令照常生成
-    from orolp.pickplace import DEFAULT_SEQUENCE
+    from service.pickplace import DEFAULT_SEQUENCE
 
     ed.set_types_for(a, list(DEFAULT_SEQUENCE))
     win._sync_program_points(a)
@@ -1021,20 +1003,20 @@ def test_project_round_trip_keeps_every_robots_pick_program(two_ur5e, tmp_path):
     _teach_pick_cycle(win, b, -10.0)
     combo.setCurrentIndex(combo.findData("工件2"))
 
-    from orolp import Project
+    from service.project import Project
 
     proj = Project(name="多机抓取")
     win._collect_into(proj)
     saved = proj.get("programs")
     assert saved is not None and set(saved) == {a, b}, f"存盘内容：{saved}"
 
-    target = tmp_path / "多机抓取.orolp"
+    target = tmp_path / "多机抓取.core"
     proj.save(target)
     loaded = Project.load(target)
     assert loaded.has("programs")
 
     # 换一个**全新**的窗口打开，才能证明"登记 + 恢复"真能从文件里重建
-    import app as rw
+    import main as rw
 
     fresh = rw.MainWindow()
     try:
@@ -1046,9 +1028,7 @@ def test_project_round_trip_keeps_every_robots_pick_program(two_ur5e, tmp_path):
         for name in (a, b):
             state = panel._state(name)
             assert len(state.taught) == 5, f"{name} 的示教点没回来"
-            assert PointType.PICK in (state.point_types or []), (
-                f"{name} 的抓取语义没回来"
-            )
+            assert PointType.PICK in (state.point_types or []), f"{name} 的抓取语义没回来"
         assert fresh._workpiece_for(a) == "工件1"
         assert fresh._workpiece_for(b) == "工件2"
         # 回来就能直接出码（各机一份，且带夹爪指令）
@@ -1059,14 +1039,13 @@ def test_project_round_trip_keeps_every_robots_pick_program(two_ur5e, tmp_path):
 
 def test_old_project_without_programs_still_opens(two_ur5e, tmp_path):
     """旧工程（只有单份 ``program`` 段）仍能打开——向后兼容。"""
-    from orolp import Project
+    from service.project import Project
 
     win, scene, a, b = two_ur5e
     old = Project(name="旧工程")
-    old.set("program", {"code": "movej([0,0,0,0,0,0])", "point_types": ["via"],
-                        "joint_names": []})
+    old.set("program", {"code": "movej([0,0,0,0,0,0])", "point_types": ["via"], "joint_names": []})
 
-    import app as rw
+    import main as rw
 
     fresh = rw.MainWindow()
     try:
@@ -1105,9 +1084,7 @@ def test_validate_all_gives_each_robot_its_own_result(two_ur5e):
     # 各自的轨迹与报告分别落在自己名下，没有被最后一台顶掉
     assert panel._state(a).trajectory is not None
     assert panel._state(b).trajectory is not None
-    assert reports[a].num_waypoints < reports[b].num_waypoints, (
-        "A 的报告被 B 顶掉了"
-    )
+    assert reports[a].num_waypoints < reports[b].num_waypoints, "A 的报告被 B 顶掉了"
     # 界面没跟着乱跳
     assert panel._active == a
 
@@ -1234,7 +1211,11 @@ def test_grasp_wizard_append_and_replace(two_ur5e):
     total2 = panel.apply_grasp_cycle(0, 3, replace=True, robot=a)
     assert total2 == 5
     assert [t.value for t in panel.get_taught_points(a)[1]] == [
-        "approach", "pick", "lift", "place", "retract"
+        "approach",
+        "pick",
+        "lift",
+        "place",
+        "retract",
     ]
 
 
@@ -1455,7 +1436,7 @@ def test_selection_of_mounted_object_runs_that_robots_path(two_robots):
 
 
 def test_playback_stops_when_the_owner_robot_is_gone(two_robots):
-    """归属那台已不在场景里：停下来报错，而不是画面不动却显示"运行中"。 """
+    """归属那台已不在场景里：停下来报错，而不是画面不动却显示"运行中"。"""
     win, scene, a, b = two_robots
     editor = _load_code(win, "# OLP Path Code\nmovej([10.00], vel=0.5)\n", a)
     editor.owner_robot = "早就删掉的机器人"
@@ -1500,13 +1481,9 @@ def test_adding_robot_does_not_copy_the_current_path(two_ur5e):
 
     c = _add_robot(win, str(UR5E))
 
-    assert win.gl_widget.get_recorded_positions(c) == [], (
-        "新加的机器人继承了别人的示教点"
-    )
+    assert win.gl_widget.get_recorded_positions(c) == [], "新加的机器人继承了别人的示教点"
     assert c not in win.gl_widget._path_robots(), "新机器人身上画出了别人的路径"
-    assert set(win.gl_widget._path_robots()) == {a}, (
-        f"路径归属乱了：{win.gl_widget._path_robots()}"
-    )
+    assert set(win.gl_widget._path_robots()) == {a}, f"路径归属乱了：{win.gl_widget._path_robots()}"
     # 原主人的点一个都不能少
     assert len(win.gl_widget.get_recorded_positions(a)) == 5
 
@@ -1532,9 +1509,9 @@ def test_removing_robot_leaves_no_ghost_path(two_ur5e):
 
     assert a not in win.gl_widget._path_robots(), "被删那台的路径还在画"
     assert a not in win.code_editor.point_robots, "被删那台的段还留在代码里"
-    assert set(win.gl_widget._path_robots()) == {b}, (
-        f"留下了幽灵路径：{win.gl_widget._path_robots()}"
-    )
+    assert set(win.gl_widget._path_robots()) == {
+        b
+    }, f"留下了幽灵路径：{win.gl_widget._path_robots()}"
     # 活着的这台：视口与代码都还得有自己的那一段
     assert len(win.gl_widget.get_recorded_positions(b)) == 5
     assert len(win.code_editor.recorded_positions) == 5
@@ -1557,9 +1534,10 @@ def test_path_after_removal_and_new_robot_shows_only_live_robots(two_ur5e):
     d = _add_robot(win, str(UR5E))
     _teach_pick_cycle(win, d, 5.0)
 
-    assert set(win.gl_widget._path_robots()) == {b, d}, (
-        f"屏幕上该只有这两台的路径：{win.gl_widget._path_robots()}"
-    )
+    assert set(win.gl_widget._path_robots()) == {
+        b,
+        d,
+    }, f"屏幕上该只有这两台的路径：{win.gl_widget._path_robots()}"
     # 代码里同样只有活着的两台：画得出的必须回放到得了
     owners = {r for r in win.code_editor.point_robots}
     assert owners == {b, d}, f"代码里的归属不对：{owners}"

@@ -25,12 +25,12 @@ import pytest
 from PySide6 import QtWidgets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-import orolp
-from orolp.session import (
+from service.project import PROJECT_SCHEMA, Project
+from app.session import (
     RecentProjects,
     clear_autosave,
     has_autosave,
@@ -46,14 +46,14 @@ def qapp():
 
 @pytest.fixture()
 def cfg_dir(tmp_path, monkeypatch):
-    base = tmp_path / "orolp-config"
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(base))
+    base = tmp_path / "core-config"
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(base))
     return base
 
 
 @pytest.fixture()
 def window(qapp, cfg_dir):
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -68,12 +68,14 @@ def window(qapp, cfg_dir):
 @pytest.fixture()
 def silent_dialogs(monkeypatch):
     monkeypatch.setattr(
-        QtWidgets.QMessageBox, "exec",
+        QtWidgets.QMessageBox,
+        "exec",
         lambda self: QtWidgets.QMessageBox.Ok,
     )
     for name in ("information", "warning", "critical"):
         monkeypatch.setattr(
-            QtWidgets.QMessageBox, name,
+            QtWidgets.QMessageBox,
+            name,
             staticmethod(lambda *a, **k: None),
         )
     return monkeypatch
@@ -91,7 +93,8 @@ def _recent_menu(window):
 
 def _save_to(window, path, monkeypatch):
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getSaveFileName",
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
         staticmethod(lambda *a, **k: (str(path), "")),
     )
     window.save_project()
@@ -110,7 +113,7 @@ def test_recent_menu_exists_and_empty_state(window, cfg_dir):
 
 
 def test_save_project_records_recent_and_menu_updates(window, cfg_dir, tmp_path, monkeypatch):
-    target = tmp_path / "saved_cell.orolp"
+    target = tmp_path / "saved_cell.core"
     _save_to(window, target, monkeypatch)
 
     assert RecentProjects.load().paths == [str(target)]
@@ -121,21 +124,19 @@ def test_save_project_records_recent_and_menu_updates(window, cfg_dir, tmp_path,
 
 
 def test_click_recent_entry_opens_project(window, cfg_dir, tmp_path, monkeypatch):
-    target = tmp_path / "via_menu.orolp"
+    target = tmp_path / "via_menu.core"
     _save_to(window, target, monkeypatch)
     window.scene_panel.add_component("worktable")  # 让会话与文件不同，验证真载入
 
     menu = _recent_menu(window)
-    entry = next(
-        a for a in menu.actions() if str(target) in a.text() and a.isEnabled()
-    )
+    entry = next(a for a in menu.actions() if str(target) in a.text() and a.isEnabled())
     entry.trigger()
     assert window._project_name() == "via_menu"
     assert not window._project_dirty
 
 
 def test_missing_recent_entry_is_disabled_not_hidden(window, cfg_dir, tmp_path, monkeypatch):
-    target = tmp_path / "will_vanish.orolp"
+    target = tmp_path / "will_vanish.core"
     _save_to(window, target, monkeypatch)
     target.unlink()
 
@@ -146,7 +147,7 @@ def test_missing_recent_entry_is_disabled_not_hidden(window, cfg_dir, tmp_path, 
 
 
 def test_clear_recent_entries(window, cfg_dir, tmp_path, monkeypatch):
-    target = tmp_path / "to_clear.orolp"
+    target = tmp_path / "to_clear.core"
     _save_to(window, target, monkeypatch)
     menu = _recent_menu(window)
     clear = next(a for a in menu.actions() if "清除最近打开记录" in a.text())
@@ -179,7 +180,7 @@ def test_autosave_tick_only_when_dirty(window, cfg_dir):
     assert info.source_path == ""  # 未保存过的会话没有"源工程"
 
     # 快照本身就是合法工程：场景真的收进去了
-    loaded = orolp.Project.load(info.snapshot)
+    loaded = Project.load(info.snapshot)
     assert loaded.has("scene")
     assert "工作台" in json.dumps(loaded.get("scene"), ensure_ascii=False)
 
@@ -187,15 +188,16 @@ def test_autosave_tick_only_when_dirty(window, cfg_dir):
 def test_autosave_snapshot_keeps_unknown_sections(window, cfg_dir, tmp_path, monkeypatch):
     import json as _json
 
-    source = tmp_path / "with_future.orolp"
+    source = tmp_path / "with_future.core"
     data = {
-        "schema": orolp.PROJECT_SCHEMA,
+        "schema": PROJECT_SCHEMA,
         "meta": {"name": "with-future"},
         "sections": {"vision": {"cameras": [{"id": "cam1"}]}},
     }
     source.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(source), "")),
     )
     window.open_project()
@@ -204,12 +206,12 @@ def test_autosave_snapshot_keeps_unknown_sections(window, cfg_dir, tmp_path, mon
 
     info = read_autosave()
     assert info.source_path == str(source)
-    snapshot = orolp.Project.load(info.snapshot)
+    snapshot = Project.load(info.snapshot)
     assert snapshot.raw("vision") == {"cameras": [{"id": "cam1"}]}  # 未知段跟着走
 
 
 def test_clean_close_clears_autosave_dirty_close_keeps(window, cfg_dir, qapp):
-    import app as rw
+    import main as rw
 
     # 脏会话 → 快照在；关闭这个脏窗口 → 快照必须留着（这正是要恢复的东西）
     win = rw.MainWindow()
@@ -228,14 +230,15 @@ def test_clean_close_clears_autosave_dirty_close_keeps(window, cfg_dir, qapp):
 
 
 def test_open_project_clears_autosave(window, cfg_dir, tmp_path, monkeypatch):
-    target = tmp_path / "fresh.orolp"
+    target = tmp_path / "fresh.core"
     _save_to(window, target, monkeypatch)
     window.scene_panel.add_component("worktable")
     window._autosave_tick()
     assert has_autosave() is True
 
     monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
         staticmethod(lambda *a, **k: (str(target), "")),
     )
     window.open_project()
@@ -248,13 +251,16 @@ def test_open_project_clears_autosave(window, cfg_dir, tmp_path, monkeypatch):
 
 
 def _make_autosave(tmp_path):
-    project = orolp.Project(name="crashed-work")
-    project.set("program", {
-        "code": "# OLP Path Code\nmovej([5,-90,90,-90,90,0])\n",
-        "point_types": ["via"],
-        "joint_names": [],
-    })
-    source = tmp_path / "crashed-work.orolp"
+    project = Project(name="crashed-work")
+    project.set(
+        "program",
+        {
+            "code": "# OLP Path Code\nmovej([5,-90,90,-90,90,0])\n",
+            "point_types": ["via"],
+            "joint_names": [],
+        },
+    )
+    source = tmp_path / "crashed-work.core"
     snapshot = write_autosave(project, source_path=str(source))
     return snapshot, source
 
@@ -262,7 +268,8 @@ def _make_autosave(tmp_path):
 def test_recovery_prompt_yes_restores_session(window, cfg_dir, tmp_path, monkeypatch):
     snapshot, source = _make_autosave(tmp_path)
     monkeypatch.setattr(
-        QtWidgets.QMessageBox, "question",
+        QtWidgets.QMessageBox,
+        "question",
         staticmethod(lambda *a, **k: QtWidgets.QMessageBox.Yes),
     )
     assert window.maybe_prompt_recovery() is True
@@ -283,7 +290,8 @@ def test_recovery_prompt_yes_restores_session(window, cfg_dir, tmp_path, monkeyp
 def test_recovery_prompt_no_does_nothing(window, cfg_dir, tmp_path, monkeypatch):
     _make_autosave(tmp_path)
     monkeypatch.setattr(
-        QtWidgets.QMessageBox, "question",
+        QtWidgets.QMessageBox,
+        "question",
         staticmethod(lambda *a, **k: QtWidgets.QMessageBox.No),
     )
     assert window.maybe_prompt_recovery() is False
@@ -296,7 +304,8 @@ def test_recovery_prompt_only_once(window, cfg_dir, tmp_path, monkeypatch):
     _make_autosave(tmp_path)
     calls = []
     monkeypatch.setattr(
-        QtWidgets.QMessageBox, "question",
+        QtWidgets.QMessageBox,
+        "question",
         staticmethod(lambda *a, **k: calls.append(1) or QtWidgets.QMessageBox.No),
     )
     window.maybe_prompt_recovery()

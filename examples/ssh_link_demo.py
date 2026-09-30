@@ -4,7 +4,7 @@
 相当一部分控制器不支持开放 TCP socket 给上位机自定协议，但都带着 SSH——
 对这类机器，"把程序文件放到控制器文件系统 + 让现场用一条命令加载它"就是
 真实的工作流。本示例走的是**真 SSH**：paramiko 客户端连到跑在本机的
-:class:`orolp.sshstub.SSHStubServer`（打桩控制器，paramiko 服务端），
+:class:`adapter.sshstub.SSHStubServer`（打桩控制器，paramiko 服务端），
 SFTP 文件传输与 exec 远程执行都是真实协议交互：
 
     起打桩控制器 → SSH 连接（远端程序目录自动 mkdir -p）
@@ -19,13 +19,13 @@ SFTP 文件传输与 exec 远程执行都是真实协议交互：
 
 **本示例没有真机，也没有连过真机**。打桩控制器是 paramiko 服务端 +
 真实落盘的 SFTP 根目录，用来把"部署 → 核对 → 远程加载"整条链路在无真机
-环境下真跑一遍。接真机时把 :class:`~orolp.link.SSHLink` 指向控制器的
+环境下真跑一遍。接真机时把 :class:`~domain.link.SSHLink` 指向控制器的
 SSH 地址、换上现场账号与密钥即可，上层（deploy / 清单 / 核对）一行不改。
 
 运行::
 
     python examples/ssh_link_demo.py
-    # 或未安装 orolp 时：PYTHONPATH=python python examples/ssh_link_demo.py
+    # 或未安装 core 时：PYTHONPATH=python python examples/ssh_link_demo.py
 """
 
 from __future__ import annotations
@@ -35,15 +35,17 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp.link import LinkError, SSHLink  # noqa: E402
-from orolp.sshstub import SSHStubServer  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from domain.link import LinkError, SSHLink  # noqa: E402
+from adapter.sshstub import SSHStubServer  # noqa: E402
 
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 PROGRAM_NAME = "ssh_pick"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
@@ -68,7 +70,7 @@ def _build_program(robot: Robot):
 def main() -> int:
     robot = Robot(str(URDF), "UR5e")
     program = _build_program(robot)
-    root = Path(tempfile.mkdtemp(prefix="orolp_ssh_"))
+    root = Path(tempfile.mkdtemp(prefix="core_ssh_"))
 
     # 打桩控制器：paramiko 服务端 + chroot 式 SFTP 根目录（真实落盘）
     stub = SSHStubServer(root, password="demo")

@@ -3,8 +3,11 @@ requires = ["setuptools>=61.0", "wheel", "pybind11"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "orolp"
-version = "1.4.0"
+name = "core"
+# 版本号**不在本文件手写**：唯一来源是 support/__init__.py 的 __version__ 字面量
+# （setuptools 用 AST 静态读取，构建 wheel 时不需要安装运行依赖）。
+# 历史：这里曾与 app.spec / 包内 __version__ / 窗口标题四处手写，v1.0.1 就漏改过这里。
+dynamic = ["version"]
 description = "RobotWorld - Open-source Offline Programming Software for Industrial Robots"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -39,7 +42,7 @@ dependencies = [
 gui = ["PySide6>=6.4", "PyOpenGL"]
 ros2 = ["rclpy>=3.0"]
 dev = ["pytest>=7.0", "black", "flake8", "mypy", "sphinx"]
-all = ["orolp[gui,ros2,dev]"]
+all = ["core[gui,ros2,dev]"]
 
 [project.urls]
 Homepage = "https://github.com/your-org/openrobolp"
@@ -48,23 +51,43 @@ Repository = "https://github.com/your-org/openrobolp"
 Issues = "https://github.com/your-org/openrobolp/issues"
 
 [project.scripts]
-orolp = "orolp.cli:main"
+core = "app.cli:main"
 
 [tool.setuptools]
-packages = ["orolp", "orolp.post"]
-package-dir = {"orolp" = "python/orolp"}
+# ADR-003：包结构是单一事实源，改为**自动发现**——手写列表曾漏掉
+# render/ world/ robot_library/，装出来的 wheel 是残的（ADR-002 每拆一个
+# 子包都得回来手工登记，正是漂移的温床）。
+#
+# 两个顶层包都在仓库根，因此**不需要 package-dir 映射**：
+#   accel 硬件加速层（2026-09-26 由 core 更名收窄） · domain/service/adapter 三层
+#   · support 跨层支撑 · app 桌面应用
+# 注意 `examples/` 没有 __init__.py，包发现不会下钻到它下面的示例插件包。
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["accel*", "app*", "domain*", "service*", "adapter*", "support*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "support.__version__"}
 
 [tool.setuptools.package-data]
-orolp = ["templates/*.j2", "assets/*"]
+# 只在包内找资源。此前写的是 templates/*.j2 + assets/*，两个目录**都不存在**
+# （后处理模板早已是 Python 内联），纯属误导性配置。
+# P2 会把仓库根的 assets/cells 收进包内，届时由这里随 wheel 分发。
+# 键 = **拥有该数据的包**（预置工作站是场景数据，由 domain/world/templates.py 消费；
+# 此前的键 `core` 既匹配不到文件、语义上也不对）。
+# 注意键要**加引号**：TOML 里裸点号键 `domain.world = [...]` 会被解析成嵌套表
+# （package-data.domain.world），setuptools 要求数组 → 构建直接失败。
+"domain.world" = ["assets/cells/*.json"]
 
 # --------------------------------------------------------------------------- #
 # v1.4.0 构建档位开关：MVP 档要隐藏哪些入口（代码里的默认清单以这里为准）
 #
 # 后续完善某个功能后，直接从下面删掉它，入口就回来；删空 = 全功能档。
-# 可用名见 python/orolp/features.py 的 ALL_FEATURES，写错的名字会被忽略。
-# 开发环境临时看全部：OROLP_FEATURES=full app.py（不用改这个文件）。
+# 可用名见 app/features.py 的 ALL_FEATURES，写错的名字会被忽略。
+# 开发环境临时看全部：CORE_FEATURES=full main.py（不用改这个文件）。
 # --------------------------------------------------------------------------- #
-[tool.orolp.features]
+[tool.core.features]
 hidden-in-mvp = [
     "sequence_editor",   # 工艺时序（泳道图）编辑器：交互还在改（队列 P5）
     "plc_logic",         # PLC 程序逻辑：出码尚未完善（队列 P2）

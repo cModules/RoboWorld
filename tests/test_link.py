@@ -3,6 +3,7 @@
 守住离线编程的最后一公里：FileLink 落盘导出、SimLink 回读实际关节角、
 Program.deploy 便捷入口、未连接即报错。
 """
+
 import json
 import sys
 import tempfile
@@ -13,12 +14,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Pose, Robot  # noqa: E402
-from orolp.debug import Deviation  # noqa: E402
-from orolp.link import Deployment, FileLink, LinkError, SimLink  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from service.debug import Deviation  # noqa: E402
+from domain.link import Deployment, FileLink, LinkError, SimLink  # noqa: E402
 
-URDF = Path(__file__).resolve().parent.parent / "models/ur/ur5e/ur5e.urdf"
+URDF = Path(__file__).resolve().parent.parent / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
 
@@ -30,7 +32,7 @@ def robot():
 @pytest.fixture
 def program(robot):
     return (
-        orp.ProgramBuilder(robot)
+        ProgramBuilder(robot)
         .moveJ(Q0, speed=40)
         .moveL(Pose.from_xyz_rpy(500, 0, 300, 0, 0, 0), speed=50, blend=8)
         .moveL(Pose.from_xyz_rpy(500, 200, 300, 0, 0, 0), speed=50, blend=8)
@@ -76,7 +78,9 @@ def test_simlink_reads_back_joints_and_pose(robot):
     pose = sl.get_pose()
     assert pose is not None
     # 与机器人正解一致
-    assert np.allclose(pose.to_xyz_rpy()[:3], robot.forward_kinematics(q).to_xyz_rpy()[:3], atol=1e-6)
+    assert np.allclose(
+        pose.to_xyz_rpy()[:3], robot.forward_kinematics(q).to_xyz_rpy()[:3], atol=1e-6
+    )
     assert sl.is_actual_feedback is True
 
 

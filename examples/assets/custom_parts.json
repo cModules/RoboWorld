@@ -1,5 +1,5 @@
 {
-  "schema": "orolp.parts/1",
+  "schema": "core.parts/1",
   "parts": [
     {
       "id": "flange_plate",

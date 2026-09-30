@@ -24,9 +24,9 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.compliance import (  # noqa: E402
+from service.compliance import (
     AXIS_NAMES,
     ComplianceSpec,
     check_force_capacity,
@@ -38,14 +38,14 @@ from orolp.compliance import (  # noqa: E402
     simulate_admittance,
     wrench_joint_torques,
 )
-from orolp.planner import SEVERITY_ERROR, SEVERITY_WARNING  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.post import get_post_processor  # noqa: E402
-from orolp.post.base import PostProcessError  # noqa: E402
-from orolp.program import Motion, MotionType, Program, ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from service.planner import SEVERITY_ERROR, SEVERITY_WARNING  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from adapter.post import get_post_processor  # noqa: E402
+from adapter.post.base import PostProcessError  # noqa: E402
+from service.program import Motion, MotionType, Program, ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ def test_force_sensitivity_is_series_stiffness():
 
 
 def test_axis_compliance_damping_and_frequency():
-    from orolp.compliance import AxisCompliance, _MM_TO_M
+    from service.compliance import AxisCompliance, _MM_TO_M
 
     ac = AxisCompliance(stiffness=10.0, damping_ratio=0.9, mass=0.5, si_factor=_MM_TO_M)
     k_si = 10.0 * _MM_TO_M  # N/m
@@ -114,7 +114,7 @@ def test_axis_compliance_damping_and_frequency():
 
 
 def test_axis_compliance_rejects_bad_params():
-    from orolp.compliance import AxisCompliance
+    from service.compliance import AxisCompliance
 
     for kwargs in (
         dict(stiffness=0.0),
@@ -133,7 +133,7 @@ def test_axis_compliance_rejects_bad_params():
 
 def test_admittance_matches_analytic_step_response():
     """数值积分 vs 解析阶跃响应：两条独立算法必须给出同一条曲线。"""
-    from orolp.compliance import AxisCompliance
+    from service.compliance import AxisCompliance
 
     spec = ComplianceSpec.constant_force("z", -30.0, stiffness=10.0)
     ac = spec.axis_compliance("z")
@@ -410,7 +410,7 @@ def test_builder_force_mode_chain_and_then(robot):
 
 def test_validate_force_mode_pairing(robot):
     """多余的 end 报错；未退出的力控给警告；合法配对无力控相关 issue。"""
-    from orolp.program import ForceMode
+    from service.program import ForceMode
 
     prog = _force_program(robot)
     report = prog.validate(check_dynamics=False)
@@ -476,7 +476,7 @@ def test_kuka_fanuc_fallback_with_todo(robot):
 def test_force_mode_without_spec_raises(robot):
     prog = Program(robot)
     prog.add(Motion(MotionType.JOINTS, [0, -90, 0, -90, 0, 0], speed=30))
-    from orolp.program import ForceMode
+    from service.program import ForceMode
 
     prog.items.append(ForceMode())  # 进入力控却没带 spec
     pp = get_post_processor("ur_polyscope")
@@ -501,7 +501,7 @@ def test_builder_force_mode_kwargs_shortcut(robot):
 
 
 def test_plc_scl_ignores_force_mode(robot):
-    from orolp.plc_scl import steps_from_program
+    from service.plc_scl import steps_from_program
 
     prog = _force_program(robot)
     prog.setDO("gripper_close", True)

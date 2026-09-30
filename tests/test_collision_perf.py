@@ -5,7 +5,7 @@
 1. **优化不许改变结果**。v1.1.9 给几何内核做了三处等价改写——局部几何常量缓存
    （顶点/面法向/棱方向/半尺寸）、AABB 相交判定从 ``np.all`` 换成标量比较、SAT
    从逐轴 numpy 调用换成批量矩阵运算。改写的等价性由
-   :func:`orolp.perf.reference_collides` 一系（改动前实现的逐字重写）在现场对拍
+   :func:`service.perf.reference_collides` 一系（改动前实现的逐字重写）在现场对拍
    守住：不只比对布尔结论，还逐位比对 AABB、顶点集、候选轴与穿透深度。
 2. **零件盒复用不许改变判定**。``check_config`` 现在把零件 AABB 算一次、宽相与
    窄相共用；本文件用一个**只用公开 API 的暴力实现**独立算一遍，逐项对齐。
@@ -27,11 +27,11 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Robot  # noqa: E402
-from orolp import i18n  # noqa: E402
-from orolp.collision import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from support import i18n  # noqa: E402
+from domain.collision import (
     COLLISION_SAMPLE_TARGET,
     DEFAULT_MAX_JOINT_STEP_DEG,
     CollisionChecker,
@@ -40,7 +40,7 @@ from orolp.collision import (  # noqa: E402
     reset_collision_stats,
     sample_indices,
 )
-from orolp.perf import (  # noqa: E402
+from service.perf import (
     CollisionProfile,
     SamplingRow,
     SWEEP_BASE,
@@ -55,9 +55,9 @@ from orolp.perf import (  # noqa: E402
     reference_vertices_of,
     sweep_program,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.world import geometry as geo  # noqa: E402
-from orolp.world.geometry import (  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.world import geometry as geo  # noqa: E402
+from domain.world.geometry import (
     AABB,
     Box,
     Cylinder,
@@ -70,9 +70,9 @@ from orolp.world.geometry import (  # noqa: E402
     union_aabb,
     vertices_of,
 )
-from orolp.world.templates import build_grasping_workstation  # noqa: E402
+from domain.world.templates import build_grasping_workstation  # noqa: E402
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 @pytest.fixture(autouse=True)
@@ -104,7 +104,7 @@ def no_collision_result_cache():
     本文件大量用例靠 ``collision_stats`` / ``geometry_stats`` 断言"真算的
     工作量"——命中缓存的结果不进 checker，计数器不动，断言会假失败。
     """
-    from orolp.incremental import get_collision_cache, set_collision_cache
+    from service.incremental import get_collision_cache, set_collision_cache
 
     saved = get_collision_cache()
     set_collision_cache(None)
@@ -224,7 +224,11 @@ def test_compare_collision_kernels_reports_identity():
     assert payload["identical"] is True
     assert payload["worst_depth_delta"] <= cmp.DEPTH_TOLERANCE
     assert set(payload["mismatches"]) == {
-        "prim_aabb", "vertices_of", "sat_axes", "collides", "penetration_depth",
+        "prim_aabb",
+        "vertices_of",
+        "sat_axes",
+        "collides",
+        "penetration_depth",
     }
     assert "0.000e+00" in cmp.format()
 
@@ -289,14 +293,13 @@ def test_aabb_overlaps_accepts_lists():
 
 
 def test_union_aabb_matches_parts_union():
-    from orolp.world.components import Part
+    from domain.world.components import Part
 
     rng = np.random.default_rng(22)
     parts = [
-        Part(Box((10.0, 20.0, 30.0)), _random_transform(rng), (1.0, 1.0, 1.0))
-        for _ in range(5)
+        Part(Box((10.0, 20.0, 30.0)), _random_transform(rng), (1.0, 1.0, 1.0)) for _ in range(5)
     ]
-    from orolp.collision import parts_aabb
+    from domain.collision import parts_aabb
 
     union = union_aabb(prim_aabb(p.prim, p.transform) for p in parts)
     direct = parts_aabb(parts)
@@ -410,8 +413,13 @@ def test_collides_with_boxes_counts_work():
     m_b = np.eye(4)
     m_b[:3, 3] = [1000.0, 0.0, 0.0]
     collides_with_boxes(
-        far_a, m_a, far_b, m_b,
-        prim_aabb(far_a, m_a), prim_aabb(far_b, m_b), 0.0,
+        far_a,
+        m_a,
+        far_b,
+        m_b,
+        prim_aabb(far_a, m_a),
+        prim_aabb(far_b, m_b),
+        0.0,
     )
     stats = geo.geometry_stats()
     assert stats["collides_calls"] == 1
@@ -431,7 +439,7 @@ def _brute_force_hits(scene, joints, margin, robot=None):
     它不共享 ``check_config`` 里的零件盒复用与任何缓存，因此可以守住
     "复用零件盒改变了判定"这类错误。
     """
-    from orolp.world.scene import ROBOT_NAME
+    from domain.world.scene import ROBOT_NAME
 
     names = scene.robot_names
     robot_name = robot or (names[0] if names else None)
@@ -456,7 +464,7 @@ def _brute_force_hits(scene, joints, margin, robot=None):
     adj, group = checker._self_exemption(robot_name)
     names_sorted = sorted(link_parts)
     for i, la in enumerate(names_sorted):
-        for lb in names_sorted[i + 1:]:
+        for lb in names_sorted[i + 1 :]:
             if (la, lb) in adj:
                 continue
             ga, gb = group.get(la), group.get(lb)
@@ -492,8 +500,10 @@ def test_check_config_matches_brute_force_strict_margin(workstation):
     """严格裕度（0.0）下也必须一致——正负裕度走的是不同的判定分支。"""
     checker = CollisionChecker(workstation, margin=0.0)
     joints = [10.0, -80.0, 100.0, -100.0, 80.0, 5.0]
-    got = {(h.link_a or "", h.link_b or "", h.obj_a, h.obj_b)
-           for h in checker.check_config(joints, include_self=True)}
+    got = {
+        (h.link_a or "", h.link_b or "", h.obj_a, h.obj_b)
+        for h in checker.check_config(joints, include_self=True)
+    }
     expected = _brute_force_hits(workstation, joints, 0.0)
     assert got == expected
 
@@ -675,7 +685,7 @@ def test_sample_indices_stride_matches_legacy_grid():
 def test_collision_stats_consistent(planner, no_collision_result_cache):
     # v1.2.2：本用例的契约是"计数器反映真算的工作量"，与干涉检查**结果**缓存
     # 在语义上不兼容——命中路径不进 checker，计数器自然是 0。账本类测试一律
-    # 绕过结果缓存（与 orolp.perf 的计时同一口径）。
+    # 绕过结果缓存（与 service.perf 的计时同一口径）。
     program = sweep_program(planner.robot, n_motions=20)
     traj = planner.plan(program)
     reset_collision_stats()
@@ -690,9 +700,7 @@ def test_collision_stats_consistent(planner, no_collision_result_cache):
     assert raw >= len(hits) > 0
 
 
-def test_geometry_stats_broad_phase_actually_rejects(
-    planner, no_collision_result_cache
-):
+def test_geometry_stats_broad_phase_actually_rejects(planner, no_collision_result_cache):
     """广相必须真的在挡东西（否则这一层就是摆设）——也是性能结论的依据。
     （账本类测试，绕过 v1.2.2 的结果缓存，见 test_collision_stats_consistent。）"""
     program = sweep_program(planner.robot, n_motions=20)
@@ -710,14 +718,17 @@ def test_geometry_stats_broad_phase_actually_rejects(
 def test_collision_stats_reset():
     reset_collision_stats()
     assert set(collision_stats()) == {
-        "config_checks", "level1_tests", "level1_rejects", "narrow_pairs",
+        "config_checks",
+        "level1_tests",
+        "level1_rejects",
+        "narrow_pairs",
     }
     assert all(v == 0 for v in collision_stats().values())
 
 
 def test_separation_still_finite_after_kernel_change(workstation):
     """``parts_separation`` 依赖穿透深度，改写后仍须给有限值（不是 NaN/inf）。"""
-    from orolp.world.components import Part
+    from domain.world.components import Part
 
     parts_a = [Part(Box((50.0, 50.0, 50.0)), np.eye(4), (1.0, 1.0, 1.0))]
     tf = np.eye(4)
@@ -737,9 +748,7 @@ def test_separation_still_finite_after_kernel_change(workstation):
 
 def test_collision_profile_rows_and_density(planner):
     program = sweep_program(planner.robot, n_motions=20)
-    prof = collision_profile(
-        planner, program, steps=(None, 20.0, 10.0), repeats=1
-    )
+    prof = collision_profile(planner, program, steps=(None, 20.0, 10.0), repeats=1)
     assert isinstance(prof, CollisionProfile)
     assert len(prof.rows) == 3
     assert prof.n_waypoints > 0
@@ -776,15 +785,31 @@ def test_collision_profile_to_dict(planner):
     program = sweep_program(planner.robot, n_motions=10)
     payload = collision_profile(planner, program, steps=(None, 10.0), repeats=1).to_dict()
     assert set(payload) >= {
-        "robot", "waypoints", "commands", "margin", "robot_parts",
-        "env_objects", "env_parts", "repeats", "rows",
+        "robot",
+        "waypoints",
+        "commands",
+        "margin",
+        "robot_parts",
+        "env_objects",
+        "env_parts",
+        "repeats",
+        "rows",
     }
     assert len(payload["rows"]) == 2
     row = payload["rows"][0]
     assert set(row) >= {
-        "label", "max_joint_step", "samples", "waypoints_per_sample", "seconds",
-        "ms_per_sample", "hits", "level1_tests", "level1_rejects",
-        "narrow_pairs", "sat_checks", "broad_phase_reject_rate",
+        "label",
+        "max_joint_step",
+        "samples",
+        "waypoints_per_sample",
+        "seconds",
+        "ms_per_sample",
+        "hits",
+        "level1_tests",
+        "level1_rejects",
+        "narrow_pairs",
+        "sat_checks",
+        "broad_phase_reject_rate",
     }
     assert json.loads(json.dumps(payload))  # 必须能序列化（网页要用）
 
@@ -818,7 +843,7 @@ def test_comparison_format_is_readable():
 
 
 def test_collision_profile_format_english(planner, monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     i18n.set_language("en")
     try:
         program = sweep_program(planner.robot, n_motions=10)
@@ -831,7 +856,7 @@ def test_collision_profile_format_english(planner, monkeypatch):
 
 
 def test_kernel_comparison_format_english(monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     i18n.set_language("en")
     try:
         cmp = compare_collision_kernels(n_prims=4, repeats=1)
@@ -841,7 +866,7 @@ def test_kernel_comparison_format_english(monkeypatch):
 
 
 def test_sample_indices_error_english(monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     i18n.set_language("en")
     try:
         with pytest.raises(ValueError) as exc:
@@ -858,7 +883,7 @@ def test_sample_indices_error_english(monkeypatch):
 
 def _run(cmd, cwd=None, timeout=300):
     env = dict(**__import__("os").environ)
-    env["PYTHONPATH"] = str(REPO_ROOT / "python") + ":" + str(REPO_ROOT)
+    env["PYTHONPATH"] = str(REPO_ROOT) + ":" + str(REPO_ROOT)
     env["QT_QPA_PLATFORM"] = "offscreen"
     return subprocess.run(
         cmd,
@@ -885,9 +910,16 @@ def test_example_collision_perf_demo_runs():
 def test_cli_collision_flag_runs():
     proc = _run(
         [
-            sys.executable, "-m", "orolp.perf",
-            "--motions", "8", "--repeat", "1",
-            "--collision", "--collision-steps", "10",
+            sys.executable,
+            "-m",
+            "service.perf",
+            "--motions",
+            "8",
+            "--repeat",
+            "1",
+            "--collision",
+            "--collision-steps",
+            "10",
         ]
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
@@ -898,8 +930,15 @@ def test_cli_collision_flag_runs():
 def test_cli_collision_json_runs():
     proc = _run(
         [
-            sys.executable, "-m", "orolp.perf",
-            "--motions", "8", "--repeat", "1", "--collision", "--json",
+            sys.executable,
+            "-m",
+            "service.perf",
+            "--motions",
+            "8",
+            "--repeat",
+            "1",
+            "--collision",
+            "--json",
         ]
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
@@ -910,6 +949,6 @@ def test_cli_collision_json_runs():
 
 def test_collision_sample_target_documented():
     """采样预算与推荐步长是**写在明处的工程决定**，不许悄悄改数。"""
-    doc = __import__("orolp.collision", fromlist=["x"]).__doc__
+    doc = __import__("domain.collision", fromlist=["x"]).__doc__
     assert "采样口径" in doc
     assert math.isfinite(DEFAULT_MAX_JOINT_STEP_DEG)

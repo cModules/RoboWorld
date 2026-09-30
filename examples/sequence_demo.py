@@ -2,7 +2,7 @@
 """
 RobotWorld Example: 工艺时序（动态时序）一条命令跑通
 
-演示 ``orolp.sequence`` 的完整使用路径——设备树侧的工序编排如何落到两个
+演示 ``service.sequence`` 的完整使用路径——设备树侧的工序编排如何落到两个
 既有出口，全程不新增任何指令语法：
 
   1. 建工作单元点表（CellConfig + Device，信号名复用 HANDSHAKE_SIGNALS）
@@ -22,10 +22,11 @@ to_program() 会把它如实记进 notes，本示例把这些 notes 打印出来
 
 from pathlib import Path
 
-import orolp as orp
-from orolp.cell import CellConfig, Device, HANDSHAKE_SIGNALS
-from orolp.plc_scl import generate_scl
-from orolp.sequence import (
+from domain.robot import Robot
+from service.program import ProgramBuilder
+from service.cell import CellConfig, Device, HANDSHAKE_SIGNALS
+from service.plc_scl import generate_scl
+from service.sequence import (
     CallStep,
     DwellStep,
     ProcessSequence,
@@ -148,8 +149,8 @@ def main() -> None:
     print("=" * 60)
     print("5. 机器人侧出口：to_program() -> 既有指令 -> UR 出码")
     print("=" * 60)
-    robot = orp.Robot("examples/assets/test_6dof.urdf", name="SeqDemoRobot")
-    builder = orp.ProgramBuilder(robot)
+    robot = Robot("examples/assets/test_6dof.urdf", name="SeqDemoRobot")
+    builder = ProgramBuilder(robot)
     notes = seq.to_program(builder)
     program = builder.build()
     for note in notes:

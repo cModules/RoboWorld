@@ -19,18 +19,18 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.cell import CellConfig, Device  # noqa: E402
-from orolp.pickplace import build_pick_place, default_types_for_count  # noqa: E402
-from orolp.plc_scl import (  # noqa: E402
+from service.cell import CellConfig, Device  # noqa: E402
+from service.pickplace import build_pick_place, default_types_for_count  # noqa: E402
+from service.plc_scl import (
     Step,
     _format_pt,
     default_steps,
     generate_scl,
     steps_from_program,
 )
-from orolp.program import Motion, MotionType, SetDO, WaitDI, WaitTime  # noqa: E402
+from service.program import Motion, MotionType, SetDO, WaitDI, WaitTime  # noqa: E402
 
 POINTS = [
     [0, -20, 60, 0, 30, 0],
@@ -44,9 +44,17 @@ POINTS = [
 @pytest.fixture
 def cell() -> CellConfig:
     c = CellConfig()
-    c.add(Device(name="夹具", type="夹具", io_map={
-        "gripper_open": "Q0.1", "gripper_close": "Q0.2", "clamped": "I0.3",
-    }))
+    c.add(
+        Device(
+            name="夹具",
+            type="夹具",
+            io_map={
+                "gripper_open": "Q0.1",
+                "gripper_close": "Q0.2",
+                "clamped": "I0.3",
+            },
+        )
+    )
     return c
 
 
@@ -119,7 +127,7 @@ def test_no_delay_declares_no_timer(cell):
 
 
 def test_estop_resets_timer(cell):
-    """急停时定时器必须一并复位，否则恢复后会立刻误判为"已保压完成"。 """
+    """急停时定时器必须一并复位，否则恢复后会立刻误判为"已保压完成"。"""
     steps = [Step("保压", delay=0.4)]
     code = generate_scl(cell, steps=steps)
     head, body = code.split("BEGIN")
@@ -140,8 +148,9 @@ def test_format_pt(sec, expected):
 
 
 def test_safety_interlock_present(cell):
-    code = generate_scl(cell, steps=steps_from_program(
-        build_pick_place(POINTS, default_types_for_count(5)).items))
+    code = generate_scl(
+        cell, steps=steps_from_program(build_pick_place(POINTS, default_types_for_count(5)).items)
+    )
     assert "IF NOT #safety_ok OR #estop THEN" in code
     assert "RETURN;" in code
 

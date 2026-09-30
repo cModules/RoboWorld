@@ -35,9 +35,9 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.calibration import (  # noqa: E402
+from service.calibration import (
     CalibrationSet,
     CameraIntrinsics,
     TouchProbe,
@@ -49,12 +49,12 @@ from orolp.calibration import (  # noqa: E402
     pixel_of_point,
     solve_hand_eye,
 )
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
-from orolp.world import build_grasping_workstation  # noqa: E402
-from orolp.world.demo import demo_pick_place_points  # noqa: E402
-from orolp.world.templates import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.world import build_grasping_workstation  # noqa: E402
+from domain.world.demo import demo_pick_place_points  # noqa: E402
+from domain.world.templates import (
     _BELT_TOP_Z,
     _CONVEYOR_Y,
     _WORKPIECE_GAP_Z,
@@ -121,7 +121,7 @@ def run_vision_pick(
 
     # ------------------------- 0. 抓取工作站 ------------------------- #
     cell = build_grasping_workstation()
-    robot = Robot("models/ur/ur5e/ur5e.urdf", "UR5e")
+    robot = Robot("assets/models/ur/ur5e/ur5e.urdf", "UR5e")
     robot.tool = cell.tcp_flange  # 名义 TCP（还没标定）
 
     # 示例示教点：给手眼标定提供"真实可达、姿态多样"的机器人位姿
@@ -203,7 +203,7 @@ def run_vision_pick(
     hand_eye_poses = flange_poses_from_joints(robot, hand_eye_joints)
 
     # 用真实位姿 + 真值外参反算"相机应该读到什么"，再叠加视觉噪声
-    from orolp.calibration import generate_hand_eye_dataset
+    from service.calibration import generate_hand_eye_dataset
 
     dataset = generate_hand_eye_dataset(
         marker_in_flange,

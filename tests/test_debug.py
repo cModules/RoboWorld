@@ -3,6 +3,7 @@
 守住：SimLink 下播放/单步/跳转/示教都能跑，且实际位姿与规划位姿偏差近零；
 FileLink 下正确标注"无回读"但仍可播放。
 """
+
 import sys
 import tempfile
 from pathlib import Path
@@ -12,12 +13,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Pose, Robot  # noqa: E402
-from orolp.debug import DebugSession, Deviation  # noqa: E402
-from orolp.link import FileLink, SimLink  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from service.debug import DebugSession, Deviation  # noqa: E402
+from domain.link import FileLink, SimLink  # noqa: E402
 
-URDF = Path(__file__).resolve().parent.parent / "models/ur/ur5e/ur5e.urdf"
+URDF = Path(__file__).resolve().parent.parent / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
 
@@ -29,7 +31,7 @@ def robot():
 @pytest.fixture
 def traj(robot):
     prog = (
-        orp.ProgramBuilder(robot)
+        ProgramBuilder(robot)
         .moveJ(Q0, speed=40)
         .moveL(Pose.from_xyz_rpy(500, 0, 300, 0, 0, 0), speed=50, blend=8)
         .moveL(Pose.from_xyz_rpy(500, 200, 300, 0, 0, 0), speed=50, blend=8)

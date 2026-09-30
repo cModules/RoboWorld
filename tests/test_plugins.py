@@ -23,13 +23,15 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp import plugins as P  # noqa: E402
-from orolp.kinematics import RobotKinematics  # noqa: E402
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.plugins import (  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from adapter import plugins as P  # noqa: E402
+from domain.kinematics import RobotKinematics  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from adapter.plugins import (
     KIND_KINEMATICS,
     KIND_POST,
     KIND_RENDERER,
@@ -49,9 +51,9 @@ from orolp.plugins import (  # noqa: E402
     check_kinematics,
     collect_overlays,
 )
-from orolp.simulation import Trajectory  # noqa: E402
+from service.simulation import Trajectory  # noqa: E402
 
-URDF = str(REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf")
+URDF = str(REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf")
 HOME = [0.0, -90.0, 90.0, -90.0, 90.0, 0.0]
 AWAY = [10.0, -70.0, 70.0, -90.0, 90.0, 10.0]
 
@@ -197,7 +199,7 @@ def test_api_compatible_bad_input_is_false_not_raise():
 
 def test_host_api_version_is_1_0():
     assert PLUGIN_API_VERSION == "1.0"
-    assert PLUGIN_ENTRY_POINT_GROUP == "orolp.plugins"
+    assert PLUGIN_ENTRY_POINT_GROUP == "adapter.plugins"
 
 
 # --------------------------------------------------------------------------- #
@@ -218,23 +220,17 @@ def test_spec_rejects_blank_name():
 
 def test_spec_rejects_incompatible_api():
     with pytest.raises(PluginError, match="主版本不匹配"):
-        PluginSpec(
-            name="x", kind=KIND_POST, factory=lambda: None, requires_api="2.0"
-        )
+        PluginSpec(name="x", kind=KIND_POST, factory=lambda: None, requires_api="2.0")
 
 
 def test_spec_accepts_compatible_minor_api():
-    spec = PluginSpec(
-        name="x", kind=KIND_POST, factory=lambda: None, requires_api="1.5"
-    )
+    spec = PluginSpec(name="x", kind=KIND_POST, factory=lambda: None, requires_api="1.5")
     assert spec.api_ok is True
 
 
 def test_spec_create_passes_options():
     spy = _SpyFactory(result="made")
-    spec = PluginSpec(
-        name="x", kind=KIND_POST, factory=spy, options={"a": 1, "b": 2}
-    )
+    spec = PluginSpec(name="x", kind=KIND_POST, factory=spy, options={"a": 1, "b": 2})
     assert spec.create() == "made"
     assert spy.calls == [{"a": 1, "b": 2}]
 
@@ -275,8 +271,11 @@ def test_spec_create_keeps_plugin_error_unwrapped():
 
 def test_spec_summary_uses_major_x_not_gte():
     spec = PluginSpec(
-        name="acme", kind=KIND_POST, factory=lambda: None,
-        version="1.2.3", description="一句话",
+        name="acme",
+        kind=KIND_POST,
+        factory=lambda: None,
+        version="1.2.3",
+        description="一句话",
     )
     text = spec.summary()
     assert "acme" in text and "[post]" in text and "v1.2.3" in text
@@ -288,9 +287,7 @@ def test_spec_summary_uses_major_x_not_gte():
 
 def test_spec_summary_marks_non_manual_origin():
     manual = PluginSpec(name="a", kind=KIND_POST, factory=lambda: None)
-    loaded = PluginSpec(
-        name="b", kind=KIND_POST, factory=lambda: None, origin="entry_point"
-    )
+    loaded = PluginSpec(name="b", kind=KIND_POST, factory=lambda: None, origin="entry_point")
     assert "来源" not in manual.summary()
     assert "来源=entry_point" in loaded.summary()
 
@@ -306,12 +303,12 @@ def test_load_factory_accepts_callable():
 
 
 def test_load_factory_accepts_module_colon_attr():
-    target = P._load_factory("orolp.plugins:PluginSpec", "x")
+    target = P._load_factory("adapter.plugins:PluginSpec", "x")
     assert target is PluginSpec
 
 
 def test_load_factory_accepts_module_dot_attr():
-    target = P._load_factory("orolp.plugins.PluginSpec", "x")
+    target = P._load_factory("adapter.plugins.PluginSpec", "x")
     assert target is PluginSpec
 
 
@@ -322,12 +319,12 @@ def test_load_factory_missing_module_raises():
 
 def test_load_factory_missing_attr_raises():
     with pytest.raises(PluginError, match="没有"):
-        P._load_factory("orolp.plugins:no_such_attr", "x")
+        P._load_factory("adapter.plugins:no_such_attr", "x")
 
 
 def test_load_factory_non_callable_attr_raises():
     with pytest.raises(PluginError, match="不可调用"):
-        P._load_factory("orolp.plugins:PLUGIN_API_VERSION", "x")
+        P._load_factory("adapter.plugins:PLUGIN_API_VERSION", "x")
 
 
 def test_load_factory_rejects_bad_ref():
@@ -349,8 +346,7 @@ def test_module_attr_factory_is_imported_lazily(tmp_path, registry):
     marker = tmp_path / "imported.flag"
     mod = tmp_path / "lazy_plugin_mod.py"
     mod.write_text(
-        textwrap.dedent(
-            f"""
+        textwrap.dedent(f"""
             from pathlib import Path as _P
 
             _P({str(marker)!r}).write_text("imported", encoding="utf-8")
@@ -359,8 +355,7 @@ def test_module_attr_factory_is_imported_lazily(tmp_path, registry):
             class Thing:
                 def __init__(self, tag="default"):
                     self.tag = tag
-            """
-        ),
+            """),
         encoding="utf-8",
     )
     sys.path.insert(0, str(tmp_path))
@@ -393,9 +388,7 @@ def test_register_duplicate_name_raises(registry):
 
 def test_register_replace_overwrites(registry):
     first = registry.register_post_processor("dup_1", lambda: None, version="1.0")
-    second = registry.register_post_processor(
-        "dup_1", lambda: None, version="2.0", replace=True
-    )
+    second = registry.register_post_processor("dup_1", lambda: None, version="2.0", replace=True)
     assert registry.find("dup_1") is second
     assert first is not second
     assert registry.find("dup_1").version == "2.0"
@@ -572,7 +565,8 @@ def test_create_kinematics_records_optional_gaps_as_errors(registry):
 
 def test_create_kinematics_clean_impl_records_no_errors(registry):
     registry.register_kinematics(
-        "good.k", lambda urdf_path, **kw: _CompleteKinematics(urdf_path, **kw),
+        "good.k",
+        lambda urdf_path, **kw: _CompleteKinematics(urdf_path, **kw),
         options={"gain": 2.0},
     )
     impl = registry.create("good.k", kind=KIND_KINEMATICS, urdf_path=URDF)
@@ -582,7 +576,8 @@ def test_create_kinematics_clean_impl_records_no_errors(registry):
 
 def test_create_kinematics_still_passes_options_through(registry):
     registry.register_kinematics(
-        "good.k", lambda urdf_path, **kw: _CompleteKinematics(urdf_path, **kw),
+        "good.k",
+        lambda urdf_path, **kw: _CompleteKinematics(urdf_path, **kw),
         options={"gain": 1.0},
     )
     impl = registry.create("good.k", kind=KIND_KINEMATICS, urdf_path=URDF, gain=7.0)
@@ -605,9 +600,7 @@ def test_pointcloud_accepts_ndarray():
     assert PointCloud(positions=arr).positions.shape == (4, 3)
 
 
-@pytest.mark.parametrize(
-    "bad", [[0, 0, 0], np.zeros((3, 2)), np.zeros(3), np.zeros((2, 3, 4))]
-)
+@pytest.mark.parametrize("bad", [[0, 0, 0], np.zeros((3, 2)), np.zeros(3), np.zeros((2, 3, 4))])
 def test_pointcloud_rejects_bad_shape(bad):
     with pytest.raises(PluginError, match=r"\(N, 3\)"):
         PointCloud(positions=bad)
@@ -652,7 +645,10 @@ def test_overlay_context_from_real_trajectory(ur5e):
     program = _simple_program(ur5e)
     traj = TrajectoryPlanner(ur5e).plan(program)
     ctx = OverlayContext.from_trajectory(
-        traj, current_index=3, tolerance_mm=0.5, robot_name="UR5e",
+        traj,
+        current_index=3,
+        tolerance_mm=0.5,
+        robot_name="UR5e",
         extra={"reference_path": "ref"},
     )
     n = len(traj.waypoints)
@@ -913,9 +909,7 @@ def test_load_entry_points_replace_true_overwrites(registry):
     registry.register_post_processor("dup_1", lambda: None, version="0.0.1")
     registry.load_entry_points(
         entry_points=[
-            _FakeEntryPoint(
-                "dup", PluginSpec("dup_1", KIND_POST, lambda: None, version="9.9")
-            )
+            _FakeEntryPoint("dup", PluginSpec("dup_1", KIND_POST, lambda: None, version="9.9"))
         ],
         replace=True,
     )
@@ -1017,7 +1011,7 @@ class FrameMarkerHolder:
 
 def _acme_post_factory():
     """一个真实可用的第三方品牌后处理器（极简 ACME-V2 语言）。"""
-    from orolp.post.base import BasePostProcessor, PostConfig
+    from adapter.post.base import BasePostProcessor, PostConfig
 
     class AcmePost(BasePostProcessor):
         brand = "acme"
@@ -1052,7 +1046,7 @@ def _acme_post_factory():
 
 
 def test_plugin_post_appears_in_list(global_registry):
-    from orolp.post import list_post_processors
+    from adapter.post import list_post_processors
 
     before = list_post_processors()
     P.register_post_processor("acme_v2", _acme_post_factory, version="1.0.0")
@@ -1062,7 +1056,7 @@ def test_plugin_post_appears_in_list(global_registry):
 
 
 def test_get_post_processor_by_exact_plugin_name(global_registry):
-    from orolp.post import get_post_processor
+    from adapter.post import get_post_processor
 
     P.register_post_processor("acme_v2", _acme_post_factory)
     pp = get_post_processor("acme_v2")
@@ -1073,7 +1067,7 @@ def test_get_post_processor_by_exact_plugin_name(global_registry):
 
 
 def test_get_post_processor_by_plugin_brand_fallback(global_registry):
-    from orolp.post import get_post_processor
+    from adapter.post import get_post_processor
 
     P.register_post_processor("acme_v2", _acme_post_factory)
     pp = get_post_processor("acme")  # 只给品牌，落到那唯一一个 acme_* 上
@@ -1081,7 +1075,7 @@ def test_get_post_processor_by_plugin_brand_fallback(global_registry):
 
 
 def test_get_post_processor_ambiguous_brand_raises(global_registry):
-    from orolp.post import get_post_processor
+    from adapter.post import get_post_processor
 
     P.register_post_processor("acme_v2", _acme_post_factory)
     P.register_post_processor("acme_v3", _acme_post_factory)
@@ -1090,7 +1084,7 @@ def test_get_post_processor_ambiguous_brand_raises(global_registry):
 
 
 def test_builtin_post_untouched_by_plugin(global_registry):
-    from orolp.post import get_post_processor
+    from adapter.post import get_post_processor
 
     P.register_post_processor("acme_v2", _acme_post_factory)
     assert get_post_processor("kuka_krc4").full_name == "kuka_krc4"
@@ -1110,7 +1104,7 @@ def test_plugin_post_generates_code_end_to_end(global_registry):
 
 
 def test_plugin_post_rejects_foreign_object(global_registry):
-    from orolp.post import get_post_processor
+    from adapter.post import get_post_processor
 
     P.register_post_processor("acme_v2", lambda: object())
     with pytest.raises(Exception, match="BasePostProcessor"):
@@ -1118,7 +1112,7 @@ def test_plugin_post_rejects_foreign_object(global_registry):
 
 
 def test_resolve_for_brand_swallows_broken_plugin(global_registry):
-    from orolp.post import resolve_for_brand
+    from adapter.post import resolve_for_brand
 
     def boom():
         raise RuntimeError("第三方代码炸了")
@@ -1132,7 +1126,7 @@ def test_resolve_for_brand_swallows_broken_plugin(global_registry):
 
 def test_post_module_survives_plugins_module_failure(global_registry):
     """插件层整体不可用时，内置品牌仍要能取到（延迟导入的容错）。"""
-    from orolp.post import get_post_processor, list_post_processors
+    from adapter.post import get_post_processor, list_post_processors
 
     assert "kuka_krc4" in list_post_processors()
     assert get_post_processor("fanuc_r30ib").full_name == "fanuc_r30ib"
@@ -1195,7 +1189,9 @@ def test_robot_options_override_registry_defaults(global_registry):
         options={"offset_deg": 0.5},
     )
     robot = Robot(
-        URDF, "UR5e", kinematics_plugin="acme.calibrated",
+        URDF,
+        "UR5e",
+        kinematics_plugin="acme.calibrated",
         kinematics_options={"offset_deg": 3.0},
     )
     assert robot.kinematics.offset_deg == 3.0
@@ -1334,9 +1330,7 @@ DEMO = REPO_ROOT / "examples" / "plugins_demo.py"
 
 def _run_demo() -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
-    )
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), str(REPO_ROOT), env.get("PYTHONPATH", "")])
     return subprocess.run(
         [sys.executable, str(DEMO)],
         cwd=str(REPO_ROOT),
@@ -1376,7 +1370,7 @@ def test_plugin_demo_covers_all_three_extension_points():
 
 def test_plugin_demo_reports_plugin_entry_point_snippet():
     out = _run_demo().stdout
-    assert 'orolp.plugins"' in out
+    assert 'adapter.plugins"' in out  # 入口点组名是保留的对外契约，见 PLUGIN_ENTRY_POINT_GROUP
     assert "PluginSpec(" in out
 
 
@@ -1396,32 +1390,21 @@ def test_all_exports_are_importable():
         assert hasattr(P, name), f"__all__ 里的 {name} 不存在"
 
 
-def test_reexported_from_package_root():
-    import orolp
-
-    for name in ("register_post_processor", "register_kinematics", "register_renderer",
-                 "collect_overlays", "OverlayContext", "PluginSpec", "PluginRegistry",
-                 "check_kinematics", "load_entry_points", "default_registry"):
-        assert getattr(orolp, name) is getattr(P, name)
-
-
 def test_version_is_1_4_0():
     """版本口径哨兵：升版时这里必须跟上。
 
-    GUI 窗口标题自 v1.3.0 起**从 ``orolp.__version__`` 派生**（见 app.py），
-    所以真正需要手工同步的只剩三处：``orolp/__init__.py`` / ``pyproject.toml`` /
+    GUI 窗口标题自 v1.3.0 起**从包版本派生**（见 main.py），
+    所以真正需要手工同步的只剩三处：``core/__init__.py`` / ``pyproject.toml`` /
     ``app.spec`` 的 ``CFBundleShortVersionString``。
 
-    v1.4.0 = MVP 发版口径（`python/orolp/features.py` 隐藏未成熟功能入口）。
+    v1.4.0 = MVP 发版口径（`app/features.py` 隐藏未成熟功能入口）。
     """
-    import orolp
+    from support import __version__
 
-    assert orolp.__version__ == "1.4.0"
+    assert __version__ == "1.4.0"
 
 
 def test_plugin_load_error_is_plain_dataclass():
     err = PluginLoadError(name="n", source="s", message="m")
     assert err.detail == ""
-    assert dataclasses.asdict(err) == {
-        "name": "n", "source": "s", "message": "m", "detail": ""
-    }
+    assert dataclasses.asdict(err) == {"name": "n", "source": "s", "message": "m", "detail": ""}

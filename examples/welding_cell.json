@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "robot_urdf": "models/kuka/kr16_2/kr16_2.urdf",
+  "robot_urdf": "assets/models/kuka/kr16_2/kr16_2.urdf",
   "robot_joints_deg": [
     0,
     -10,

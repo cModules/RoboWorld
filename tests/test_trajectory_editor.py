@@ -22,16 +22,16 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 from PySide6 import QtWidgets  # noqa: E402
 
-from orolp import Robot  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import MotionType  # noqa: E402
-from orolp.program_panel import ProgramPanel  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import MotionType  # noqa: E402
+from app.views.program_panel import ProgramPanel  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 JOINTS = [f"joint_{i}" for i in range(1, 7)]
 #: UR5e 一个非奇异常用位形（度）
@@ -46,10 +46,7 @@ def qapp():
 
 
 def _positions(joints_list):
-    return [
-        {name: math.radians(v) for name, v in zip(JOINTS, joints)}
-        for joints in joints_list
-    ]
+    return [{name: math.radians(v) for name, v in zip(JOINTS, joints)} for joints in joints_list]
 
 
 @pytest.fixture()
@@ -111,9 +108,7 @@ def test_move_l_motion_type_appears_in_list(panel):
 
 def test_insert_deletes_and_moves_broadcast(panel):
     events = []
-    panel.taughtPointsChanged.connect(
-        lambda p, t, m: events.append((len(p), list(m)))
-    )
+    panel.taughtPointsChanged.connect(lambda p, t, m: events.append((len(p), list(m))))
     assert panel.insert_point(0) == 1
     assert len(panel._taught) == 3
     # 复制源点的关节值
@@ -149,9 +144,7 @@ def test_buttons_act_on_selected_row(panel):
     / ``delete_point(index=None)`` 会把 ``False``（等于 0）当成行号——删除永远
     砍掉 P1，用户选中谁都没用。
     """
-    panel.set_taught_points(
-        _positions([HOME, SECOND, [30.0] + HOME[1:], [45.0] + HOME[1:]])
-    )
+    panel.set_taught_points(_positions([HOME, SECOND, [30.0] + HOME[1:], [45.0] + HOME[1:]]))
 
     panel.point_list.setCurrentRow(2)  # 选中 P3
     panel.btn_insert_point.click()
@@ -196,14 +189,14 @@ def test_move_keeps_row_selected_not_just_current(panel):
     panel.btn_move_up.click()
 
     assert panel.point_list.currentRow() == 1
-    assert panel.point_list.item(1).isSelected(), (
-        "移动过的那一行应保持选中高亮，而不是淡出的交替行色"
-    )
+    assert panel.point_list.item(
+        1
+    ).isSelected(), "移动过的那一行应保持选中高亮，而不是淡出的交替行色"
 
 
 def test_real_machine_buttons_hidden_in_mvp(panel, monkeypatch):
     """MVP 档不建「上传真机 / 真机验证」入口：藏掉，而不是置灰。"""
-    import orolp.program_panel as pp_mod
+    import app.views.program_panel as pp_mod
 
     assert hasattr(panel, "btn_upload"), "测试档（全功能）应有这两个按钮"
     monkeypatch.setattr(pp_mod, "_feature_enabled", lambda name: False)

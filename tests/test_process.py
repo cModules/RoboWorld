@@ -2,7 +2,7 @@
 """v0.3.3 剩余部分测试：焊接/喷涂工艺模板库 + waitDI 完整语义 + 工艺指令出码。
 
 覆盖：
-1. ``orolp.process``：模板数据类校验、库的内置默认/YAML 读写/名字解析；
+1. ``service.process``：模板数据类校验、库的内置默认/YAML 读写/名字解析；
 2. ``Program``/``ProgramBuilder``：``arc_start/arc_end/spray_on/spray_off``
    链式指令（实例/模板名/默认三路解析）与 ``waitDI`` 边沿触发语义；
 3. 校验透明性：工艺指令混排不影响规划与节拍；
@@ -19,18 +19,18 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.post import get_post_processor  # noqa: E402
-from orolp.process import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from adapter.post import get_post_processor  # noqa: E402
+from service.process import (
     ProcessLibrary,
     SprayProcess,
     WeldProcess,
     resolve_spray,
     resolve_weld,
 )
-from orolp.program import (  # noqa: E402
+from service.program import (
     ArcEnd,
     ArcStart,
     Motion,
@@ -38,9 +38,9 @@ from orolp.program import (  # noqa: E402
     SprayOn,
     WaitDI,
 )
-from orolp.robot import Robot  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 IO_MAP = {
     "arc_start": "Q0.3",
@@ -119,8 +119,7 @@ def test_library_yaml_kind_guessing(tmp_path):
     """历史手写 YAML 可能没有 kind 字段——按字段名猜。"""
     p = tmp_path / "guess.yaml"
     p.write_text(
-        "w1:\n  current: 180\n  voltage: 22\n"
-        "s1:\n  flow: 200\n  fan_width: 60\n",
+        "w1:\n  current: 180\n  voltage: 22\n" "s1:\n  flow: 200\n  fan_width: 60\n",
         encoding="utf-8",
     )
     lib = ProcessLibrary.load_yaml(p)
@@ -304,7 +303,7 @@ def test_waitdi_level_no_edge_todo(robot):
 
 
 def test_plc_scl_ignores_process_commands():
-    from orolp.plc_scl import steps_from_program
+    from service.plc_scl import steps_from_program
 
     class FakeProgram:  # 避免依赖 Robot，只测指令遍历
         items = [

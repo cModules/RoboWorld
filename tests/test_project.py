@@ -1,4 +1,4 @@
-"""工程文件（``.orolp``）测试——v1.3.4。
+"""工程文件（``.core``）测试——v1.3.4。
 
 覆盖三件事：
 * **信封**：段读写、schema 校验、摘要与描述；
@@ -17,9 +17,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.project import (  # noqa: E402
+from service.project import (
     PROJECT_EXTENSION,
     PROJECT_SCHEMA,
     SECTION_NAMES,
@@ -35,7 +35,7 @@ from orolp.project import (  # noqa: E402
 def _good_scene() -> dict:
     return {
         "format_version": 1,
-        "robot_urdf": "models/ur/ur5e/ur5e.urdf",
+        "robot_urdf": "assets/models/ur/ur5e/ur5e.urdf",
         "robot_joints_deg": [0.0] * 6,
         "objects": [{"name": "工件_1"}, {"name": "料箱"}],
     }
@@ -72,14 +72,23 @@ def _full_project() -> Project:
     p.set("scene", _good_scene())
     p.set("program", _good_program())
     p.set("cell", _good_cell())
-    p.set("sequence", {
-        "schema": "orolp.sequence/1",
-        "steps": [
-            {"kind": "signal", "name": "s1", "device": "机器人", "signal": "robot_start", "value": True},
-            {"kind": "dwell", "name": "d1", "device": "机器人", "seconds": 0.25},
-            {"kind": "dwell", "name": "d2", "device": "机器人", "seconds": 0.5},
-        ],
-    })
+    p.set(
+        "sequence",
+        {
+            "schema": "service.sequence/1",
+            "steps": [
+                {
+                    "kind": "signal",
+                    "name": "s1",
+                    "device": "机器人",
+                    "signal": "robot_start",
+                    "value": True,
+                },
+                {"kind": "dwell", "name": "d1", "device": "机器人", "seconds": 0.25},
+                {"kind": "dwell", "name": "d2", "device": "机器人", "seconds": 0.5},
+            ],
+        },
+    )
     p.set("parts", {"sources": ["examples/assets/custom_parts.json"]})
     return p
 
@@ -90,10 +99,16 @@ def _full_project() -> Project:
 
 
 def test_schema_and_section_names():
-    assert PROJECT_SCHEMA == "orolp.project/1"
-    assert PROJECT_EXTENSION == ".orolp"
+    assert PROJECT_SCHEMA == "service.project/1"
+    assert PROJECT_EXTENSION == ".core"
     assert SECTION_NAMES == (
-        "scene", "program", "programs", "sequence", "cell", "parts", "calibration",
+        "scene",
+        "program",
+        "programs",
+        "sequence",
+        "cell",
+        "parts",
+        "calibration",
     )
 
 
@@ -150,17 +165,20 @@ def test_sections_are_json_serializable():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("bad", [
-    [],
-    "not-a-dict",
-    42,
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [],
+        "not-a-dict",
+        42,
+    ],
+)
 def test_from_dict_rejects_non_dict(bad):
     with pytest.raises(ProjectError):
         Project.from_dict(bad)
 
 
-@pytest.mark.parametrize("schema", ["", "orolp.project/2", "orolp.scene/1"])
+@pytest.mark.parametrize("schema", ["", "service.project/2", "core.scene/1"])
 def test_from_dict_rejects_bad_schema(schema):
     with pytest.raises(ProjectError):
         Project.from_dict({"schema": schema, "sections": {}})
@@ -177,7 +195,7 @@ def test_from_dict_rejects_bad_sections_container():
 def test_from_dict_missing_meta_is_tolerated():
     p = Project.from_dict({"schema": PROJECT_SCHEMA, "sections": {"parts": {"sources": []}}})
     assert p.name == ""
-    assert p.orolp_version  # 回填当前库版本
+    assert p.core_version  # 回填当前库版本
     assert p.has("parts")
 
 
@@ -211,16 +229,19 @@ def test_one_bad_section_does_not_block_others():
     assert "工艺时序" in report.describe()
 
 
-@pytest.mark.parametrize("section,payload", [
-    ("scene", "字符串不是对象"),
-    ("program", {"point_types": ["pick"]}),
-    ("program", {"code": 123}),
-    ("sequence", {"steps": 3}),
-    ("cell", {"devices": [{"type": "夹具"}]}),
-    ("cell", {"devices": "x"}),
-    ("parts", {"sources": [1, 2]}),
-    ("calibration", {"schema": "orolp.calibration/9"}),
-])
+@pytest.mark.parametrize(
+    "section,payload",
+    [
+        ("scene", "字符串不是对象"),
+        ("program", {"point_types": ["pick"]}),
+        ("program", {"code": 123}),
+        ("sequence", {"steps": 3}),
+        ("cell", {"devices": [{"type": "夹具"}]}),
+        ("cell", {"devices": "x"}),
+        ("parts", {"sources": [1, 2]}),
+        ("calibration", {"schema": "service.calibration/9"}),
+    ],
+)
 def test_section_shape_problems_are_skipped_with_reason(section, payload):
     p = Project.from_dict({"schema": PROJECT_SCHEMA, "sections": {section: payload}})
     assert not p.has(section)
@@ -243,7 +264,7 @@ def test_unknown_section_and_top_level_key_survive_round_trip(tmp_path):
     assert p.load_report.unknown == ["vision"]
     assert p.load_report.extra_keys == ["authoring"]
 
-    out = tmp_path / "future.orolp"
+    out = tmp_path / "future.core"
     p.save(out)
     back = Project.load(out)
     assert back.raw("vision") == {"cameras": [{"id": "cam1", "fx": 900.0}]}
@@ -251,7 +272,7 @@ def test_unknown_section_and_top_level_key_survive_round_trip(tmp_path):
     assert back.has("scene")
 
     # 二次保存依然保真（不是只有第一次能写回）
-    again = tmp_path / "future2.orolp"
+    again = tmp_path / "future2.core"
     back.save(again)
     raw = json.loads(again.read_text(encoding="utf-8"))
     assert raw["sections"]["vision"]["cameras"][0]["id"] == "cam1"
@@ -260,10 +281,12 @@ def test_unknown_section_and_top_level_key_survive_round_trip(tmp_path):
 
 def test_setting_a_section_overrides_raw_kept_payload():
     """用户显式重写某段后，原样保留的那份必须让位。"""
-    p = Project.from_dict({
-        "schema": PROJECT_SCHEMA,
-        "sections": {"parts": {"sources": [1, 2]}},  # 坏段 → 原样保留
-    })
+    p = Project.from_dict(
+        {
+            "schema": PROJECT_SCHEMA,
+            "sections": {"parts": {"sources": [1, 2]}},  # 坏段 → 原样保留
+        }
+    )
     assert p.raw("parts") == {"sources": [1, 2]}
     p.set("parts", {"sources": ["ok.json"]})
     assert p.raw("parts") is None
@@ -271,18 +294,20 @@ def test_setting_a_section_overrides_raw_kept_payload():
 
 
 def test_version_mismatch_is_noted_not_migrated():
-    p = Project.from_dict({
-        "schema": PROJECT_SCHEMA,
-        "meta": {"orolp_version": "0.0.1"},
-        "sections": {"parts": {"sources": []}},
-    })
+    p = Project.from_dict(
+        {
+            "schema": PROJECT_SCHEMA,
+            "meta": {"core_version": "0.0.1"},
+            "sections": {"parts": {"sources": []}},
+        }
+    )
     note = " ".join(p.load_report.notes)
     assert "0.0.1" in note and "未做版本迁移" in note
 
 
 def test_same_version_has_no_note():
     p = _full_project()
-    p.save(Path("/tmp") / "rw-version-noop.orolp")  # 不落盘也无妨：下面只查加载路径
+    p.save(Path("/tmp") / "rw-version-noop.core")  # 不落盘也无妨：下面只查加载路径
     p2 = Project.from_dict(p.to_dict())
     assert p2.load_report.notes == []
 
@@ -320,29 +345,34 @@ def test_describe_empty_project():
 
 
 def test_describe_raw_kept_section_marks_not_interpreted():
-    p = Project.from_dict({
-        "schema": PROJECT_SCHEMA,
-        "sections": {"parts": {"sources": "坏"}},
-    })
+    p = Project.from_dict(
+        {
+            "schema": PROJECT_SCHEMA,
+            "sections": {"parts": {"sources": "坏"}},
+        }
+    )
     assert "原样保留" in p.summary()["parts"]
     assert "原样保留" in p.describe()
 
 
-@pytest.mark.parametrize("section,payload,fragment", [
-    ("scene", _good_scene(), "2 个对象"),
-    ("scene", "坏", "格式异常"),
-    ("program", _good_program(), "3 个示教点"),
-    ("program", [], "格式异常"),
-    ("sequence", {"steps": [{"kind": "dwell", "seconds": 1.5}]}, "1.5"),
-    ("sequence", None, "格式异常"),
-    ("cell", _good_cell(), "2 台设备"),
-    ("cell", [], "格式异常"),
-    ("parts", {"sources": ["a", "b"]}, "2 个零件库文件"),
-    ("parts", [], "格式异常"),
-    ("calibration", {"schema": "orolp.calibration/1", "tool": {"x": 1}}, "tool"),
-    ("calibration", {"schema": "orolp.calibration/1"}, "内容为空"),
-    ("calibration", [], "格式异常"),
-])
+@pytest.mark.parametrize(
+    "section,payload,fragment",
+    [
+        ("scene", _good_scene(), "2 个对象"),
+        ("scene", "坏", "格式异常"),
+        ("program", _good_program(), "3 个示教点"),
+        ("program", [], "格式异常"),
+        ("sequence", {"steps": [{"kind": "dwell", "seconds": 1.5}]}, "1.5"),
+        ("sequence", None, "格式异常"),
+        ("cell", _good_cell(), "2 台设备"),
+        ("cell", [], "格式异常"),
+        ("parts", {"sources": ["a", "b"]}, "2 个零件库文件"),
+        ("parts", [], "格式异常"),
+        ("calibration", {"schema": "service.calibration/1", "tool": {"x": 1}}, "tool"),
+        ("calibration", {"schema": "service.calibration/1"}, "内容为空"),
+        ("calibration", [], "格式异常"),
+    ],
+)
 def test_describe_section(section, payload, fragment):
     assert fragment in describe_section(section, payload)
 
@@ -367,13 +397,13 @@ def test_save_appends_extension_and_records_path(tmp_path):
 
 def test_save_is_atomic_and_leaves_no_temp_files(tmp_path):
     p = _full_project()
-    target = p.save(tmp_path / "atomic.orolp")
+    target = p.save(tmp_path / "atomic.core")
     entries = sorted(x.name for x in tmp_path.iterdir())
     assert entries == [target.name], entries
 
 
 def test_save_overwrites_previous_content(tmp_path):
-    target = tmp_path / "over.orolp"
+    target = tmp_path / "over.core"
     p = _full_project()
     p.save(target)
     p.set("parts", {"sources": ["b.json"]})
@@ -384,7 +414,7 @@ def test_save_overwrites_previous_content(tmp_path):
 
 def test_save_creates_missing_directories(tmp_path):
     p = _full_project()
-    target = p.save(tmp_path / "deep" / "nest" / "p.orolp")
+    target = p.save(tmp_path / "deep" / "nest" / "p.core")
     assert target.exists()
 
 
@@ -397,8 +427,8 @@ def test_save_refreshes_modified_but_keeps_created(tmp_path):
     p = _full_project()
     p.created = "2000-01-01T00:00:00"
     p.modified = "2000-01-01T00:00:00"
-    p.save(tmp_path / "t.orolp")
-    back = Project.load(tmp_path / "t.orolp")
+    p.save(tmp_path / "t.core")
+    back = Project.load(tmp_path / "t.core")
     assert back.created == "2000-01-01T00:00:00"
     assert back.modified != "2000-01-01T00:00:00"
 
@@ -406,15 +436,15 @@ def test_save_refreshes_modified_but_keeps_created(tmp_path):
 def test_save_fills_name_from_filename(tmp_path):
     p = Project()
     p.set("parts", {"sources": []})
-    p.save(tmp_path / "unnamed.orolp")
+    p.save(tmp_path / "unnamed.core")
     assert p.name == "unnamed"
-    assert Project.load(tmp_path / "unnamed.orolp").name == "unnamed"
+    assert Project.load(tmp_path / "unnamed.core").name == "unnamed"
 
 
 def test_load_missing_file_and_bad_json(tmp_path):
     with pytest.raises(ProjectError):
-        Project.load(tmp_path / "nope.orolp")
-    bad = tmp_path / "bad.orolp"
+        Project.load(tmp_path / "nope.core")
+    bad = tmp_path / "bad.core"
     bad.write_text("{ not json", encoding="utf-8")
     with pytest.raises(ProjectError) as exc:
         Project.load(bad)
@@ -423,7 +453,7 @@ def test_load_missing_file_and_bad_json(tmp_path):
 
 def test_full_round_trip_preserves_every_section(tmp_path):
     p = _full_project()
-    target = p.save(tmp_path / "full.orolp")
+    target = p.save(tmp_path / "full.core")
     back = Project.load(target)
     assert back.load_report.loaded == ["scene", "program", "sequence", "cell", "parts"]
     assert back.load_report.ok()
@@ -435,7 +465,7 @@ def test_full_round_trip_preserves_every_section(tmp_path):
     assert back.name == "demo"
     # 载入的工程再存一次应完全一致（除 modified 时间戳）
     first = json.loads(target.read_text(encoding="utf-8"))
-    second_path = tmp_path / "full2.orolp"
+    second_path = tmp_path / "full2.core"
     back.save(second_path)
     second = json.loads(second_path.read_text(encoding="utf-8"))
     first["meta"]["modified"] = second["meta"]["modified"]
@@ -461,12 +491,20 @@ def test_load_report_dataclass_helpers():
 
 
 def test_cell_snapshot_round_trip():
-    from orolp.cell import CellConfig, Device
+    from service.cell import CellConfig, Device
 
     cell = CellConfig()
-    cell.add(Device(name="机器人", type="机器人", brand="UR", model="UR5e",
-                    comm="Profinet", ip="10.0.0.2",
-                    io_map={"robot_start": "Q0.0"}))
+    cell.add(
+        Device(
+            name="机器人",
+            type="机器人",
+            brand="UR",
+            model="UR5e",
+            comm="Profinet",
+            ip="10.0.0.2",
+            io_map={"robot_start": "Q0.0"},
+        )
+    )
     cell.add(Device(name="夹具_1", type="夹具", io_map={"gripper_open": "Q0.1"}))
     cell.steps = [{"name": "s1", "action": "夹紧", "wait": "clamped"}]
 
@@ -507,18 +545,20 @@ def test_cell_from_snapshot_rejects_bad_payload():
 
 def test_real_sequence_and_calibration_sections_round_trip(tmp_path):
     """与既有属主类对接：ProcessSequence / CalibrationSet 的 to_dict 直接当段用。"""
-    from orolp.calibration import CalibrationSet
-    from orolp.sequence import DwellStep, ProcessSequence, SignalStep
+    from service.calibration import CalibrationSet
+    from service.sequence import DwellStep, ProcessSequence, SignalStep
 
-    seq = ProcessSequence([
-        SignalStep(name="启动", device="机器人", signal="robot_start", value=True),
-        DwellStep(name="保压", device="夹具_1", seconds=0.4),
-    ])
+    seq = ProcessSequence(
+        [
+            SignalStep(name="启动", device="机器人", signal="robot_start", value=True),
+            DwellStep(name="保压", device="夹具_1", seconds=0.4),
+        ]
+    )
     calib = CalibrationSet()
     p = Project(name="对接")
     p.set("sequence", seq.to_dict())
     p.set("calibration", calib.to_dict())
-    target = p.save(tmp_path / "linked.orolp")
+    target = p.save(tmp_path / "linked.core")
     back = Project.load(target)
 
     assert ProcessSequence.from_dict(back.get("sequence")).dwell_total() == pytest.approx(0.4)
@@ -533,15 +573,16 @@ def test_real_sequence_and_calibration_sections_round_trip(tmp_path):
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-m", "orolp.project", *args],
+        [sys.executable, "-m", "service.project", *args],
         cwd=str(REPO_ROOT),
-        env={**__import__("os").environ, "PYTHONPATH": str(REPO_ROOT / "python")},
-        capture_output=True, text=True,
+        env={**__import__("os").environ, "PYTHONPATH": str(REPO_ROOT)},
+        capture_output=True,
+        text=True,
     )
 
 
 def test_cli_prints_summary(tmp_path):
-    target = _full_project().save(tmp_path / "cli.orolp")
+    target = _full_project().save(tmp_path / "cli.core")
     res = _run_cli(str(target))
     assert res.returncode == 0, res.stderr
     assert "工程：demo" in res.stdout
@@ -549,7 +590,7 @@ def test_cli_prints_summary(tmp_path):
 
 
 def test_cli_json_output(tmp_path):
-    target = _full_project().save(tmp_path / "cli2.orolp")
+    target = _full_project().save(tmp_path / "cli2.core")
     res = _run_cli(str(target), "--json")
     assert res.returncode == 0, res.stderr
     payload = json.loads(res.stdout)
@@ -560,7 +601,7 @@ def test_cli_json_output(tmp_path):
 
 
 def test_cli_reports_unreadable_file(tmp_path):
-    bad = tmp_path / "broken.orolp"
+    bad = tmp_path / "broken.core"
     bad.write_text("nope", encoding="utf-8")
     res = _run_cli(str(bad))
     assert res.returncode == 2

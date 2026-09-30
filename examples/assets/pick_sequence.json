@@ -1,5 +1,5 @@
 {
-  "schema": "orolp.sequence/1",
+  "schema": "service.sequence/1",
   "steps": [
     {
       "kind": "wait",

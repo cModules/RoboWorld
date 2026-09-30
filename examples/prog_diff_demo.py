@@ -12,7 +12,7 @@
 运行::
 
     python examples/prog_diff_demo.py
-    # 未安装 orolp 时：PYTHONPATH=python python examples/prog_diff_demo.py
+    # 未安装 core 时：PYTHONPATH=python python examples/prog_diff_demo.py
 
 诚实说明（页面/报告同款）：结构对比是精确的（字段级）；但节拍与 TCP 路径偏移
 是**规划器口径**——回答"仿真里会多花多久、路径会偏多少"，不回答"真机上会怎样"。
@@ -26,20 +26,22 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp.cloudhttp import CloudStoreServer, HTTPCloudStore  # noqa: E402
-from orolp.progdiff import (  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from adapter.cloudhttp import CloudStoreServer, HTTPCloudStore  # noqa: E402
+from service.progdiff import (
     ProgramDiffError,
     ProgramVersionStore,
     program_fingerprint,
 )
-from orolp.twinsync import MemoryCloudStore  # noqa: E402
+from service.twinsync import MemoryCloudStore  # noqa: E402
 
-URDF = REPO_ROOT / "models/ur/ur5e/ur5e.urdf"
+URDF = REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf"
 FAILURES: list = []
 
 

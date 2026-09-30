@@ -3,7 +3,7 @@
 
 为什么需要这个工具
 -------------------
-程序化生成（:mod:`orolp.robot_library.urdf_builder` / ``hifi.py``）产出的
+程序化生成（:mod:`adapter.robot_library.urdf_builder` / ``hifi.py``）产出的
 是"像机器人"的曲面，比例对、结构对，但不是真机。要做离线编程，用户往往
 需要**与真机一致**的几何——外形尺寸、法兰孔位、干涉轮廓都得准。
 
@@ -58,7 +58,7 @@
     python3 tools/vendor_cad_import.py --brand jaka --all     # 一条龙
 
 产物落在 ``assets/vendor/<brand>/``（该目录被 .gitignore 忽略，体积大且
-可随时重新生成；需要入库的减面结果请另存到 models/）。
+可随时重新生成；需要入库的减面结果请另存到 assets/models/）。
 """
 
 from __future__ import annotations
@@ -79,11 +79,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR_DIR = REPO_ROOT / "assets" / "vendor"
 
 # 复用库侧的 OCP 版本兼容层（TopoDS.Face_s → Face 这类改名只在那里改一次），
-# 见 python/orolp/ocpcompat.py 的模块说明。
-if str(REPO_ROOT / "python") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "python"))
+# 见 core/ocpcompat.py 的模块说明。
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.ocpcompat import bbox_of, face_of, triangulation_of  # noqa: E402
+from adapter.ocpcompat import bbox_of, face_of, triangulation_of  # noqa: E402
 
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
@@ -420,17 +420,20 @@ def convert_all(
 # --------------------------------------------------------------------------- #
 def main() -> int:
     parser = argparse.ArgumentParser(description="从厂商官网抓取官方 CAD 并转成 STL")
-    parser.add_argument("--brand", default="jaka", choices=sorted(VENDORS),
-                        help="厂商（目前仅 jaka 完全开放）")
+    parser.add_argument(
+        "--brand", default="jaka", choices=sorted(VENDORS), help="厂商（目前仅 jaka 完全开放）"
+    )
     parser.add_argument("--list", action="store_true", help="列出可抓的型号")
     parser.add_argument("--fetch", action="store_true", help="下载原始 STEP")
     parser.add_argument("--convert", action="store_true", help="STEP → STL")
     parser.add_argument("--all", action="store_true", help="抓取 + 转换")
     parser.add_argument("--out", default=str(VENDOR_DIR), help="产物根目录")
-    parser.add_argument("--rel-deflection", type=float, default=0.002,
-                        help="相对弦高（默认 0.002，越小越精细）")
-    parser.add_argument("--angular-deflection", type=float, default=0.5,
-                        help="角度弦高，弧度（默认 0.5）")
+    parser.add_argument(
+        "--rel-deflection", type=float, default=0.002, help="相对弦高（默认 0.002，越小越精细）"
+    )
+    parser.add_argument(
+        "--angular-deflection", type=float, default=0.5, help="角度弦高，弧度（默认 0.5）"
+    )
     args = parser.parse_args()
 
     src = VENDORS[args.brand]

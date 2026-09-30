@@ -12,19 +12,23 @@ from pathlib import Path
 
 import pytest
 
-# orolp 在 <repo>/python 下；自插路径保证单文件可跑（与 test_packaging_spec 同法）
+# core 在 <repo>/python 下；自插路径保证单文件可跑（与 test_packaging_spec 同法）
 _SRC = str(Path(__file__).resolve().parents[1] / "python")
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 import numpy as np  # noqa: E402
 
-from orolp import ProgramBuilder, Robot, TrajectoryPlanner  # noqa: E402
+from domain.robot import Robot
+from service.planner import TrajectoryPlanner
+from service.program import ProgramBuilder  # noqa: E402
 
 
 @pytest.fixture()
 def robot():
-    return Robot(str(Path(__file__).resolve().parents[1] / "models/ur/ur5e/ur5e.urdf"), "UR5e")
+    return Robot(
+        str(Path(__file__).resolve().parents[1] / "assets/models/ur/ur5e/ur5e.urdf"), "UR5e"
+    )
 
 
 Q0 = [0.0, -90.0, 90.0, -90.0, 0.0, 0.0]
@@ -36,14 +40,7 @@ Q1 = [30.0, -70.0, 80.0, -90.0, 25.0, 0.0]
 
 def test_cycle_time_includes_dwell(robot):
     """同一条程序，加了 waitTime(0.8) 节拍必须精确多出 0.8s。"""
-    base = (
-        ProgramBuilder(robot)
-        .moveJ(Q0, speed=40)
-        .moveJ(Q1, speed=40)
-        .build()
-        .plan()
-        .duration()
-    )
+    base = ProgramBuilder(robot).moveJ(Q0, speed=40).moveJ(Q1, speed=40).build().plan().duration()
     with_dwell = (
         ProgramBuilder(robot)
         .moveJ(Q0, speed=40)
@@ -58,13 +55,7 @@ def test_cycle_time_includes_dwell(robot):
 
 def test_dwell_waypoints_hold_pose(robot):
     """驻留段的路点关节值恒定（时间在走、机器人没动）。"""
-    traj = (
-        ProgramBuilder(robot)
-        .moveJ(Q0, speed=40)
-        .waitTime(0.5)
-        .build()
-        .plan()
-    )
+    traj = ProgramBuilder(robot).moveJ(Q0, speed=40).waitTime(0.5).build().plan()
     wps = traj.waypoints
     assert len(wps) >= 3
     tail = wps[-2:]
@@ -87,30 +78,14 @@ def test_multiple_dwells_sum(robot):
         .build()
     )
     traj = prog.plan()
-    base = (
-        ProgramBuilder(robot)
-        .moveJ(Q0, speed=40)
-        .moveJ(Q1, speed=40)
-        .build()
-        .plan()
-        .duration()
-    )
+    base = ProgramBuilder(robot).moveJ(Q0, speed=40).moveJ(Q1, speed=40).build().plan().duration()
     assert traj.duration() == pytest.approx(base + 0.6, abs=1e-6)
 
 
 def test_zero_and_negative_wait_are_ignored(robot):
     """seconds<=0 不产生路点也不占时间（驻留零长度没有意义）。"""
-    n_ref = len(
-        ProgramBuilder(robot).moveJ(Q0, speed=40).build().plan().waypoints
-    )
-    traj = (
-        ProgramBuilder(robot)
-        .moveJ(Q0, speed=40)
-        .waitTime(0.0)
-        .waitTime(-1.0)
-        .build()
-        .plan()
-    )
+    n_ref = len(ProgramBuilder(robot).moveJ(Q0, speed=40).build().plan().waypoints)
+    traj = ProgramBuilder(robot).moveJ(Q0, speed=40).waitTime(0.0).waitTime(-1.0).build().plan()
     assert len(traj.waypoints) == n_ref
 
 
@@ -135,9 +110,7 @@ def test_report_shows_dwell_total(robot):
 
 
 def test_report_without_dwell_has_no_line(robot):
-    report = TrajectoryPlanner(robot).validate(
-        ProgramBuilder(robot).moveJ(Q0, speed=40).build()
-    )
+    report = TrajectoryPlanner(robot).validate(ProgramBuilder(robot).moveJ(Q0, speed=40).build())
     assert report.dwell_total == 0.0 and report.num_dwells == 0
     assert "waitTime" not in report.format()
 
@@ -146,11 +119,7 @@ def test_dwell_excluded_from_motion_times(robot):
     """节拍明细仍按 Motion 口径（与示教点/夹爪事件对齐），驻留不混进明细。"""
     planner = TrajectoryPlanner(robot)
     report = planner.validate(
-        ProgramBuilder(robot)
-        .moveJ(Q0, speed=40)
-        .waitTime(0.5)
-        .moveJ(Q1, speed=40)
-        .build()
+        ProgramBuilder(robot).moveJ(Q0, speed=40).waitTime(0.5).moveJ(Q1, speed=40).build()
     )
     assert len(report.motion_times) == 2  # 只有两条 Motion
     assert len(planner._motion_spans) == 2
@@ -169,7 +138,7 @@ def test_gripper_events_not_shifted_by_dwell(robot):
     close 事件 = 第 0 条运动结束时刻（与无驻留版完全相同）；
     open 事件 = 第 1 条运动结束时刻（比无驻留版晚 0.7s——那是真实的）。
     """
-    from orolp.world.animation import gripper_events
+    from domain.world.animation import gripper_events
 
     with_dwell = (
         ProgramBuilder(robot)
@@ -211,15 +180,16 @@ def test_dwell_occupies_timeline_for_multirobot(robot):
       对规划器不可见，A 在时间轴上根本不会停在交接点，这类冲突不存在）；
     * 无冲突组：B 等到 A 驻留结束、退回远离交接点的零位之后才到 → 零冲突。
     """
-    from orolp import Pose
-    from orolp.multirobot import RobotJob, scan_timeline
-    from orolp.world.scene import Scene
+    from domain.pose import Pose
+    from service.multirobot import RobotJob, scan_timeline
+    from domain.world.scene import Scene
 
-    urdf = str(Path(__file__).resolve().parents[1] / "models/ur/ur5e/ur5e.urdf")
+    urdf = str(Path(__file__).resolve().parents[1] / "assets/models/ur/ur5e/ur5e.urdf")
     scene = Scene()
     scene.add_robot(urdf, list(Q0), name="A")
-    scene.add_robot(urdf, list(Q0), name="B",
-                    pose=Pose.from_xyz_rpy(300.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+    scene.add_robot(
+        urdf, list(Q0), name="B", pose=Pose.from_xyz_rpy(300.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    )
     robot_b = Robot(urdf, "UR5e")  # B 的程序在 B 自身基座系里规划
 
     # 交接点：A 的 TCP 世界位姿；B 用 IK 去同一个世界点
@@ -230,13 +200,7 @@ def test_dwell_occupies_timeline_for_multirobot(robot):
     qb = [float(v) for v in robot_b.inverse_kinematics(p_b, guess=Qh)]
 
     # A：到交接点 → 驻留 2.0s → 快速退回零位（远离交接区）
-    prog_a = (
-        ProgramBuilder(robot)
-        .moveJ(Qh, speed=80)
-        .waitTime(2.0)
-        .moveJ(Q0, speed=160)
-        .build()
-    )
+    prog_a = ProgramBuilder(robot).moveJ(Qh, speed=80).waitTime(2.0).moveJ(Q0, speed=160).build()
     planner_a = TrajectoryPlanner(robot)
     traj_a = planner_a.plan(prog_a)
     t_arrive = planner_a._motion_spans[0][1]
@@ -285,6 +249,6 @@ def test_waittime_still_reaches_post(robot):
 def test_planner_accepts_programbuilder_and_program_alike(robot):
     """ProgramBuilder 直传与 build() 后的 Program 行为一致（duck typing）。"""
     b = ProgramBuilder(robot).moveJ(Q0, speed=40).waitTime(0.3)
-    t_builder = TrajectoryPlanner(robot).plan(b)   # 直传 builder
+    t_builder = TrajectoryPlanner(robot).plan(b)  # 直传 builder
     t_program = TrajectoryPlanner(robot).plan(b.build())
     assert t_builder.duration() == pytest.approx(t_program.duration(), abs=1e-9)

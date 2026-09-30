@@ -18,15 +18,15 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-import orolp.i18n as i18n  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.post import get_post_processor  # noqa: E402
-from orolp.program import Motion, MotionType, ProgramBuilder, WaitDI  # noqa: E402
+import support.i18n as i18n  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from adapter.post import get_post_processor  # noqa: E402
+from service.program import Motion, MotionType, ProgramBuilder, WaitDI  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 def _cjk(text: str) -> int:
@@ -36,8 +36,8 @@ def _cjk(text: str) -> int:
 @pytest.fixture(autouse=True)
 def _isolated_i18n(monkeypatch, tmp_path):
     """每个用例独享语言状态与配置目录，结束后回到 zh。"""
-    monkeypatch.delenv("OROLP_LANG", raising=False)
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("CORE_LANG", raising=False)
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_ZH, save=False)
     yield
     i18n.set_language(i18n.LANG_ZH, save=False)
@@ -60,6 +60,7 @@ def _pick_program(robot) -> "object":
 # zh 恒等（默认零回归）
 # ---------------------------------------------------------------------------
 
+
 def test_zh_report_head_is_chinese(robot):
     report = TrajectoryPlanner(robot).validate(_pick_program(robot))
     assert report.format().splitlines()[0].startswith("✓ 程序校验通过")
@@ -77,6 +78,7 @@ def test_zh_post_comment_is_chinese():
 # ---------------------------------------------------------------------------
 # en：校验报告与 Issue 消息
 # ---------------------------------------------------------------------------
+
 
 def test_en_report_head_and_data_lines(robot):
     i18n.set_language(i18n.LANG_EN, save=False)
@@ -134,6 +136,7 @@ def test_en_unknown_post_error():
 # en：后处理注释（生成代码里的用户可见文本）
 # ---------------------------------------------------------------------------
 
+
 def test_en_fanuc_todo_comments():
     i18n.set_language(i18n.LANG_EN, save=False)
     items = [
@@ -156,13 +159,12 @@ def test_en_unresolved_signal_warning(capsys):
 
 
 def test_en_arc_comments():
-    from orolp.process import WeldProcess
+    from service.process import WeldProcess
 
     i18n.set_language(i18n.LANG_EN, save=False)
-    proc = WeldProcess(current=200, voltage=24.0, wire_feed=10.0,
-                       gas_preflow=0.5, gas_postflow=1.0)
+    proc = WeldProcess(current=200, voltage=24.0, wire_feed=10.0, gas_preflow=0.5, gas_postflow=1.0)
     items = []
-    from orolp.program import ArcStart, ArcEnd, SetDO
+    from service.program import ArcStart, ArcEnd, SetDO
 
     class _FakeItems(list):
         pass
@@ -193,7 +195,7 @@ def test_en_estun_template_note():
 
 def test_en_motion_type_unsupported():
     i18n.set_language(i18n.LANG_EN, save=False)
-    from orolp.post import PostProcessError
+    from adapter.post import PostProcessError
 
     # SPLINE 走 base 降级（estun 未覆盖 SPLINE），但 ESTUN 未实现任何 SPLINE
     # 转换路径时才会抛——用不存在 via 的 moveC 触发品牌级错误
@@ -207,19 +209,20 @@ def test_en_motion_type_unsupported():
 # 目录卫生
 # ---------------------------------------------------------------------------
 
+
 def test_catalog_values_nonempty():
-    from orolp.i18n import _CATALOG_EN
+    from support.i18n import _CATALOG_EN
 
     for key, val in _CATALOG_EN.items():
         assert val.strip(), f"空译文: {key!r}"
-        assert _cjk(val) == 0 or key.startswith("语言 / Language") or val == key, (
-            f"译文残留中文: {key!r} -> {val!r}"
-        )
+        assert (
+            _cjk(val) == 0 or key.startswith("语言 / Language") or val == key
+        ), f"译文残留中文: {key!r} -> {val!r}"
 
 
 def test_issue_where_label_en(robot):
     """Issue.__str__ 的定位前缀（程序级 / 指令 N）也要走目录。"""
-    from orolp.planner import Issue, SEVERITY_ERROR
+    from service.planner import Issue, SEVERITY_ERROR
 
     i18n.set_language(i18n.LANG_EN, save=False)
     s = str(Issue(SEVERITY_ERROR, "x", None, "boom"))

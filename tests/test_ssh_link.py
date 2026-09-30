@@ -16,19 +16,19 @@ from pathlib import Path
 
 import pytest
 
-# orolp 在 <repo>/python 下；自插路径保证单文件可跑（与 test_packaging_spec 同法）
+# core 在 <repo>/python 下；自插路径保证单文件可跑（与 test_packaging_spec 同法）
 _SRC = str(Path(__file__).resolve().parents[1] / "python")
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-from orolp.link import (
+from domain.link import (
     DEFAULT_SSH_PORT,
     CommandResult,
     SSHLink,
     LinkError,
     _safe_name,
 )
-from orolp.sshstub import SSHStubServer
+from adapter.sshstub import SSHStubServer
 
 pytest.importorskip("paramiko", reason="SSH 打桩与 SSHLink 都需要 paramiko")
 
@@ -214,9 +214,7 @@ def test_metadata_non_scalar_is_json_safe(link, stub):
     from pathlib import Path as _P
 
     link.upload_program("m", "M", {"ext": "txt", "note": _P("/tmp/x")})
-    manifest = json.loads(
-        (stub.root / "programs" / "m.manifest.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads((stub.root / "programs" / "m.manifest.json").read_text(encoding="utf-8"))
     assert manifest["meta"]["note"] == "/tmp/x"  # Path 被转成字符串，不炸部署
 
 
@@ -267,9 +265,7 @@ def test_exec_counter_includes_mkdir(link):
 
 
 def test_fixed_replies_bypass_real_execution(tmp_path):
-    server = SSHStubServer(
-        tmp_path / "root", fixed_replies={"load pick.src": "loaded ok\n"}
-    )
+    server = SSHStubServer(tmp_path / "root", fixed_replies={"load pick.src": "loaded ok\n"})
     try:
         link = SSHLink("127.0.0.1", server.port, password="pw", remote_dir="/programs")
         link.connect()
@@ -334,7 +330,7 @@ def test_stub_cli_serves_address_line(tmp_path):
         [
             sys.executable,
             "-m",
-            "orolp.sshstub",
+            "adapter.sshstub",
             "--port",
             "0",
             "--root",

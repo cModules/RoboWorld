@@ -50,17 +50,18 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np  # noqa: E402
 
-from orolp import Pose, Robot  # noqa: E402
-from orolp.collision import CollisionChecker  # noqa: E402
-from orolp.multirobot import RobotJob, schedule_cell  # noqa: E402
-from orolp.planner import ENVELOPE_TOLERANCE_MM, TrajectoryPlanner  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from domain.collision import CollisionChecker  # noqa: E402
+from service.multirobot import RobotJob, schedule_cell  # noqa: E402
+from service.planner import ENVELOPE_TOLERANCE_MM, TrajectoryPlanner  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 #: 工作平面高度：机器人立柱顶面 / 台面 / 托盘面（毫米）
 PLANE_Z = 800.0
@@ -280,7 +281,7 @@ def run_demo(export_json: Path | None = None) -> dict:
         program = build_program(robots[name], src, dst)
         planner = TrajectoryPlanner(robots[name], scene=scene, robot_name=name)
         # 干涉按包络容差判定：URDF <collision> 是厂商保守包络盒（比真机胖），
-        # 浅穿透是模型误差而非真撞，详见 orolp.planner.ENVELOPE_TOLERANCE_MM
+        # 浅穿透是模型误差而非真撞，详见 service.planner.ENVELOPE_TOLERANCE_MM
         report = planner.validate(program, margin=-ENVELOPE_TOLERANCE_MM)
         traj = planner.plan(program)
         envelope = planner.check_trajectory_collisions(traj, margin=0.0)

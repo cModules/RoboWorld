@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+env:
+  # 全部 GUI 测试跑无头模式（app.py 一 import 就要 Qt）
+  QT_QPA_PLATFORM: offscreen
+
 jobs:
   # 公开仓库一旦提交就无法撤回（git 历史会一直留着），所以把卫生检查
   # 放在最前面、且设成 fail-fast，避免后面的构建白跑。
@@ -29,21 +33,26 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential cmake libeigen3-dev             libpinocchio-dev libfcl-dev pybind11-dev python3-dev
+          sudo apt install -y build-essential cmake libeigen3-dev \
+            libpinocchio-dev libfcl-dev pybind11-dev python3-dev
       - name: Build C++ core
         run: |
           mkdir build && cd build
           cmake .. -DBUILD_PYTHON_BINDINGS=ON -DBUILD_TESTS=ON
           make -j$(nproc)
       - name: Run C++ tests
-        run: cd build && ctest --output-on-failure
+        # core/src/tests 尚未建立：历史写的 ``add_subdirectory(python/tests)`` 指的是
+        # **Python** 侧测试目录（它没有 CMakeLists.txt），曾让 cmake configure 直接
+        # 失败。那个 Python 测试已归位到仓库根的 tests/（由上面的 pytest 步骤覆盖），
+        # 这里守卫"没有 C++ 测试目录时不要判死构建"。
+        run: cd build && ctest --output-on-failure --no-tests=ignore
 
   build-python:
     needs: repo-hygiene
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
@@ -51,15 +60,53 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install deps
+        # 必须带 gui extra：app.py 顶层 import PySide6，缺了它整个 GUI 测试套件
+        # 会连导入都过不去（此前 CI 只装 dev，等于没真正跑过 GUI 回归）。
         run: |
           sudo apt update
-          sudo apt install -y libeigen3-dev libpinocchio-dev libfcl-dev
-          pip install -e ".[dev]"
+          sudo apt install -y libgl1 libegl1 libglib2.0-0
+          pip install -e ".[gui,dev]"
+
+      - name: Architecture guard (AGENTS.md #29)
+        run: python tools/check_arch_rules.py
+
+      - name: Undefined names / syntax gate
+        # 只挑"一定是 bug"的那几类（语法错误、未定义名、f-string 问题）：
+        # 启动壳里 4 处 F821 静默潜伏到 2026-09-25 才被发现，就是因为 CI 的
+        # lint 只扫 python/、从不扫根目录。现在根启动壳与顶层 GUI 包都必须在列。
+        run: flake8 --max-line-length=100 --select=E9,F63,F7,F82 accel/ app/ domain/ service/ adapter/ support/ main.py
+
       - name: Run Python tests
-        # 真实回归套件在 tests/（test_olp.py / test_post.py）；
-        # python/tests/ 是早期占位，一并跑以防回归。
-        run: pytest tests/ python/tests/ -v
-      - name: Lint
+        run: pytest tests/ -q
+
+      - name: Format check (new code)
+        # 新增/迁入的代码必须 black 干净（顶层 GUI 包与 CLI）。
+        run: black --check app
+
+      - name: Format check (whole tree, informational)
+        # 存量格式化欠债（启动壳等）先不拦 CI，但让它在日志里可见——
+        # 收口计划见 docs/BUILD_QUEUE.md「静态检查扫出的既有缺陷」。
+        continue-on-error: true
+        run: black --check accel/ app/ domain/ service/ adapter/ support/ main.py
+
+  wheel-smoke:
+    name: Wheel build + clean-venv smoke (ADR-003)
+    needs: repo-hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build wheel
         run: |
-          black --check python/
-          flake8 python/ --max-line-length=100
+          pip install build
+          python -m build --wheel --outdir wheelhouse
+      - name: Install into a clean venv and smoke-test
+        # ADR-003 的准出条件：packages 漂移过一次（漏 render/world/robot_library），
+        # 而"漏子包"不会让任何功能测试变红——只有在干净环境里 import 才暴露。
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install wheelhouse/*.whl
+          /tmp/smoke/bin/python -c "import core, domain.world, adapter.robot_library, adapter.robot_library; print('core', core.__version__)"
+          /tmp/smoke/bin/core doctor

@@ -16,12 +16,12 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Robot  # noqa: E402
-from orolp.pickplace import PointType  # noqa: E402
-from orolp.world.demo import demo_pick_place_points, demo_taught_points  # noqa: E402
-from orolp.world.templates import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from service.pickplace import PointType  # noqa: E402
+from domain.world.demo import demo_pick_place_points, demo_taught_points  # noqa: E402
+from domain.world.templates import (
     _BELT_TOP_Z,
     _CONVEYOR_Y,
     _WORKPIECE_GAP_Z,
@@ -29,7 +29,8 @@ from orolp.world.templates import (  # noqa: E402
     WORKPIECE_HEIGHT_MM,
     build_grasping_workstation,
 )
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 #: FK 回读容差（毫米）——IK 收敛阈值 0.01 mm，留足余量
 POS_TOL_MM = 0.5
@@ -71,14 +72,14 @@ def test_point_count_matches_types(points_and_types, robot):
 def test_type_sequence(points_and_types):
     _, types = points_and_types
     assert types == [
-        PointType.VIA,        # Home
-        PointType.APPROACH,   # 抓取接近
-        PointType.PICK,       # 抓取（闭合）
-        PointType.LIFT,       # 提升
-        PointType.VIA,        # 落件接近
-        PointType.PLACE,      # 落件（张开）
-        PointType.RETRACT,    # 撤离
-        PointType.VIA,        # 回 Home
+        PointType.VIA,  # Home
+        PointType.APPROACH,  # 抓取接近
+        PointType.PICK,  # 抓取（闭合）
+        PointType.LIFT,  # 提升
+        PointType.VIA,  # 落件接近
+        PointType.PLACE,  # 落件（张开）
+        PointType.RETRACT,  # 撤离
+        PointType.VIA,  # 回 Home
     ]
 
 
@@ -99,9 +100,7 @@ def test_pick_point_fk_roundtrip(points_and_types, robot, cell):
     x, y, z = _fk_position(robot, points[2])
     assert x == pytest.approx(_WORKPIECE_XS[0], abs=POS_TOL_MM)
     assert y == pytest.approx(_CONVEYOR_Y, abs=POS_TOL_MM)
-    assert z == pytest.approx(
-        _BELT_TOP_Z + _WORKPIECE_GAP_Z + WORKPIECE_HEIGHT_MM, abs=POS_TOL_MM
-    )
+    assert z == pytest.approx(_BELT_TOP_Z + _WORKPIECE_GAP_Z + WORKPIECE_HEIGHT_MM, abs=POS_TOL_MM)
 
 
 def test_place_point_fk_roundtrip(points_and_types, robot, cell):
@@ -159,7 +158,7 @@ def test_template_layout_reachable(cell, robot):
 
 def test_unreachable_pose_raises(cell, robot, monkeypatch):
     """落件点被挪到工作空间外时，IK 失败必须抛错而不是返回假解。"""
-    import orolp.world.demo as demo
+    import domain.world.demo as demo
 
     def far_place_top_z(_cell):
         return 5000.0

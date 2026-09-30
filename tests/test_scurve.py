@@ -27,20 +27,20 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.planner import (  # noqa: E402
+from service.planner import (
     TrajectoryPlanner,
     s_curve_time,
     trapezoid_time,
 )
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import Motion, MotionType, Program, ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import Motion, MotionType, Program, ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
-URDF = REPO_ROOT / "models/kuka/kr16_2/kr16_2.urdf"
+URDF = REPO_ROOT / "assets/models/kuka/kr16_2/kr16_2.urdf"
 HOME = [0.0, -20.0, 70.0, 0.0, 40.0, 0.0]
 
 
@@ -56,7 +56,7 @@ def robot() -> Robot:
 
 
 def joint_speeds(robot: Robot) -> np.ndarray:
-    from orolp.planner import AxisLimits
+    from service.planner import AxisLimits
 
     return AxisLimits.from_kinematics(robot.kinematics).max_speed
 
@@ -150,7 +150,7 @@ def test_scurve_moveJ_slower_and_softer(robot):
 
 def test_acceleration_within_axis_limits(robot):
     """两种曲线的差分加速度都不应显著超过轴加速度限位（4×速度）。"""
-    from orolp.planner import AxisLimits
+    from service.planner import AxisLimits
 
     limits = AxisLimits.from_kinematics(robot.kinematics)
     target = list(HOME)
@@ -242,10 +242,8 @@ def test_report_motion_times_align_with_cycle_time(robot):
 
 
 def test_report_without_plan_has_no_motion_times():
-    empty = type(
-        "R", (), {}
-    )  # 未规划时不该出现 motion_times 字段错误
-    from orolp.planner import ProgramReport
+    empty = type("R", (), {})  # 未规划时不该出现 motion_times 字段错误
+    from service.planner import ProgramReport
 
     r = ProgramReport()
     assert r.motion_times is None
@@ -333,7 +331,7 @@ def test_fanuc_post_speed_override(robot):
 def test_spline_lowering_carries_vel_acc(robot):
     """SPLINE 降级为 LIN/PTP 时不得丢失速度/加速度覆盖。"""
     m = Motion(MotionType.SPLINE, Pose(), velocity=300.0, acceleration=1200.0)
-    from orolp.post.base import BasePostProcessor
+    from adapter.post.base import BasePostProcessor
 
     lowered = BasePostProcessor._lower_spline(None, m)  # type: ignore[arg-type]
     assert lowered.velocity == 300.0 and lowered.acceleration == 1200.0

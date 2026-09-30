@@ -9,12 +9,12 @@
 * 环境盒「路障」放在 (300,0,50)（与 base 重叠 → 任何位形都撞）或
   (800,0,300)（高处 → 永不撞）。
 
-核心纪律（见 orolp/incremental.py 模块文档）：
+核心纪律（见 service/incremental.py 模块文档）：
 
 * 键由**全部影响判定的输入**派生——命中就不可能给出过期结论；
   专门有一条「把工件拖进机器人路径后必须重新报干涉」的正确性测试。
 * ``check_config`` 有把关节写回场景的历史契约，命中路径必须复现。
-* 基准（``orolp.perf``）计时期间必须真算——缓存命中的"干涉检查"
+* 基准（``service.perf``）计时期间必须真算——缓存命中的"干涉检查"
   测的不是检查。
 """
 
@@ -25,19 +25,19 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Robot  # noqa: E402
-from orolp.collision import collision_cache_key  # noqa: E402
-from orolp.incremental import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.collision import collision_cache_key  # noqa: E402
+from service.incremental import (
     CollisionResultCache,
     get_collision_cache,
     resolve_collision_cache,
     set_collision_cache,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.world.scene import ROBOT_NAME, Scene  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.world.scene import ROBOT_NAME, Scene  # noqa: E402
 
 THREE_LINK_URDF = """<?xml version="1.0"?>
 <robot name="three_link">
@@ -105,10 +105,13 @@ def make_scene(three_link_urdf, box_xyz=None) -> Scene:
 
 
 def make_planner(scene, **kwargs) -> TrajectoryPlanner:
-    return TrajectoryPlanner(scene=scene, **{
-        "robot": Robot(_robot_urdf_of(scene), "three_link"),
-        **kwargs,
-    })
+    return TrajectoryPlanner(
+        scene=scene,
+        **{
+            "robot": Robot(_robot_urdf_of(scene), "three_link"),
+            **kwargs,
+        },
+    )
 
 
 def _robot_urdf_of(scene) -> str:
@@ -166,7 +169,7 @@ def test_cached_result_equals_uncached(three_link_urdf, isolated_global_cache):
 
     _, uncached = check(planner_off, program)
     _, cached = check(planner_on, program)  # 第一次：实算并存储
-    _, again = check(planner_on, program)   # 第二次：命中
+    _, again = check(planner_on, program)  # 第二次：命中
     assert again == uncached
     assert cached == uncached
 
@@ -264,9 +267,7 @@ def test_invisible_object_excluded_from_key(three_link_urdf, isolated_global_cac
     assert isolated_global_cache.stats()["misses"] >= 2
 
 
-def test_checked_robot_scene_joints_do_not_change_key(
-    three_link_urdf, isolated_global_cache
-):
+def test_checked_robot_scene_joints_do_not_change_key(three_link_urdf, isolated_global_cache):
     """被查机器人在场景里的关节角不进键——轨迹逐路点驱动它。"""
     scene = make_scene(three_link_urdf, box_xyz=(800.0, 0.0, 300.0))
     planner = make_planner(scene)
@@ -327,9 +328,7 @@ def test_parent_chain_move_changes_key(three_link_urdf, isolated_global_cache):
     assert len(second) > 0
 
 
-def test_mounted_on_checked_robot_changes_do_not_change_key(
-    three_link_urdf, isolated_global_cache
-):
+def test_mounted_on_checked_robot_changes_do_not_change_key(three_link_urdf, isolated_global_cache):
     """挂在被查机器人下的对象被豁免（与 _env_items 同一口径）——
     它的位姿不进键，改它不影响命中。"""
     scene = make_scene(three_link_urdf, box_xyz=(800.0, 0.0, 300.0))
@@ -482,21 +481,17 @@ def test_hit_replicates_scene_joint_writeback(three_link_urdf, isolated_global_c
     program = clean_program(planner_off.robot)
     traj_off, _ = check(planner_off, program)
     robot_name = scene_off.robot_names[0]
-    joints_uncached = np.array(
-        scene_off.robots[robot_name].joints_deg, dtype=np.float64
-    )
+    joints_uncached = np.array(scene_off.robots[robot_name].joints_deg, dtype=np.float64)
 
     scene_on = make_scene(three_link_urdf, box_xyz=(800.0, 0.0, 300.0))
     planner_on = make_planner(scene_on)
-    traj_on, _ = check(planner_on, program)   # 实算并存储
-    check(planner_on, program)                # 命中：也应写回
-    joints_cached = np.array(
-        scene_on.robots[scene_on.robot_names[0]].joints_deg, dtype=np.float64
-    )
+    traj_on, _ = check(planner_on, program)  # 实算并存储
+    check(planner_on, program)  # 命中：也应写回
+    joints_cached = np.array(scene_on.robots[scene_on.robot_names[0]].joints_deg, dtype=np.float64)
 
     assert np.array_equal(joints_cached, joints_uncached)
     # 且确实等于最后一个采样点的关节值
-    from orolp.collision import sample_indices
+    from domain.collision import sample_indices
 
     idx = sample_indices(traj_on.waypoints)
     assert np.allclose(
@@ -520,7 +515,7 @@ def test_hit_returns_new_list_container(three_link_urdf, isolated_global_cache):
 
 def test_validate_twice_identical_reports(three_link_urdf, isolated_global_cache):
     """校验两次：报告完全一致，第二次的干涉检查来自缓存。"""
-    from orolp.planner import TrajectoryPlanner as TP
+    from service.planner import TrajectoryPlanner as TP
 
     scene = make_scene(three_link_urdf, box_xyz=(300.0, 0.0, 50.0))
     planner = TP(Robot(three_link_urdf, "three_link"), scene=scene)
@@ -585,11 +580,9 @@ def test_stats_roundtrip():
 # --------------------------------------------------------------------------- #
 
 
-def test_perf_profile_does_not_touch_collision_cache(
-    three_link_urdf, isolated_global_cache
-):
+def test_perf_profile_does_not_touch_collision_cache(three_link_urdf, isolated_global_cache):
     """profile_program 的干涉/校验计时关掉结果缓存——命中测的不是检查。"""
-    from orolp.perf import profile_program
+    from service.perf import profile_program
 
     scene = make_scene(three_link_urdf, box_xyz=(300.0, 0.0, 50.0))
     planner = make_planner(scene)
@@ -599,10 +592,8 @@ def test_perf_profile_does_not_touch_collision_cache(
     assert isolated_global_cache.stats()["hits"] == 0
 
 
-def test_perf_collision_profile_does_not_touch_cache(
-    three_link_urdf, isolated_global_cache
-):
-    from orolp.perf import collision_profile
+def test_perf_collision_profile_does_not_touch_cache(three_link_urdf, isolated_global_cache):
+    from service.perf import collision_profile
 
     scene = make_scene(three_link_urdf, box_xyz=(300.0, 0.0, 50.0))
     planner = make_planner(scene)
@@ -615,19 +606,6 @@ def test_perf_collision_profile_does_not_touch_cache(
 # --------------------------------------------------------------------------- #
 # 包级导出
 # --------------------------------------------------------------------------- #
-
-
-def test_top_level_exports():
-    import orolp
-
-    for name in (
-        "CollisionResultCache",
-        "get_collision_cache",
-        "set_collision_cache",
-        "resolve_collision_cache",
-        "COLLISION_CACHE_MAX_ENTRIES",
-    ):
-        assert hasattr(orolp, name), f"orolp.{name} 未导出"
 
 
 def test_resolve_defaults(three_link_urdf):

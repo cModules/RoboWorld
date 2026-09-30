@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """批量生成机器人库 URDF 模型。
 
-扫描 :mod:`orolp.robot_library.specs` 中的全部型号，为每个型号在
-``models/<brand>/<model>/<model>.urdf`` 生成一份 URDF，并做数值自检：
+扫描 :mod:`adapter.robot_library.specs` 中的全部型号，为每个型号在
+``assets/models/<brand>/<model>/<model>.urdf`` 生成一份 URDF，并做数值自检：
 
 * 零位时 TCP 高度应等于各段长度之和
 * 水平完全伸展时 TCP 到 J1 轴线的水平距离应等于标称臂展
@@ -23,10 +23,10 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.robot_library.specs import ROBOTS, RobotSpec  # noqa: E402
-from orolp.robot_library.urdf_builder import (  # noqa: E402
+from adapter.robot_library.specs import ROBOTS, RobotSpec  # noqa: E402
+from adapter.robot_library.urdf_builder import (
     build_urdf_string,
     derive_geometry,
     forward_kinematics,
@@ -74,7 +74,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="生成机器人库 URDF 模型")
     parser.add_argument("--brand", help="仅生成指定品牌（如 kuka）")
     parser.add_argument("--check", action="store_true", help="只做数值校验，不写文件")
-    parser.add_argument("--models-dir", default=str(REPO_ROOT / "models"))
+    parser.add_argument("--models-dir", default=str(REPO_ROOT / "assets" / "models"))
     parser.add_argument(
         "--primitive",
         action="store_true",
@@ -199,7 +199,7 @@ def _write_brand_readmes(models_dir: Path, robots, hifi: bool = True) -> None:
             "",
             f"- 国别：{brand.country}",
             f"- 典型控制器：{brand.controller}",
-            f"- 模型来源：由 `orolp.robot_library.urdf_builder` 程序化生成（{appearance}，不含厂商 CAD）",
+            f"- 模型来源：由 `adapter.robot_library.urdf_builder` 程序化生成（{appearance}，不含厂商 CAD）",
             "",
             "## 型号列表",
             "",

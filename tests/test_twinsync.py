@@ -21,11 +21,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-import orolp as orp  # noqa: E402
-from orolp import Pose, Robot  # noqa: E402
-from orolp.debug import DebugSession  # noqa: E402
-from orolp.link import ControllerLink, FileLink, SimLink  # noqa: E402
-from orolp.twinsync import (  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot  # noqa: E402
+from service.debug import DebugSession  # noqa: E402
+from domain.link import ControllerLink, FileLink, SimLink  # noqa: E402
+from service.twinsync import (
     TRACE_HEADER_KIND,
     TRACE_SAMPLE_KIND,
     AlignedSample,
@@ -47,7 +48,7 @@ from orolp.twinsync import (  # noqa: E402
     pose_deviation,
 )
 
-URDF = Path(__file__).resolve().parent.parent / "models/ur/ur5e/ur5e.urdf"
+URDF = Path(__file__).resolve().parent.parent / "assets/models/ur/ur5e/ur5e.urdf"
 Q0 = [0.0, -30.0, 30.0, 0.0, 60.0, 0.0]
 
 
@@ -59,7 +60,7 @@ def robot():
 @pytest.fixture
 def traj(robot):
     prog = (
-        orp.ProgramBuilder(robot)
+        ProgramBuilder(robot)
         .moveJ(Q0, speed=40)
         .moveL(Pose.from_xyz_rpy(500, 0, 300, 0, 0, 0), speed=50, blend=8)
         .moveL(Pose.from_xyz_rpy(500, 200, 300, 0, 0, 0), speed=50, blend=8)
@@ -95,9 +96,7 @@ def _trace_with_speeds():
     """两条速度截然不同的样本组：低速段偏差小、高速段偏差大。"""
     qs = [np.zeros(6), np.zeros(6) + 0.01, np.zeros(6) + 1.0, np.zeros(6) + 3.0]
     ts = [0.0, 2.0, 3.0, 3.2]
-    snaps = [
-        _frame(q, t) for q, t in zip(qs, ts)
-    ]
+    snaps = [_frame(q, t) for q, t in zip(qs, ts)]
     for s, dev in zip(snaps, [0.4, 0.5, 1.0, 2.0]):
         s.pos_dev_mm = dev
         s.rot_dev_deg = dev * 0.1
@@ -146,7 +145,9 @@ def test_plant_zero_dof_raises():
 
 
 def test_plant_summarize_marks_synthetic_and_lists_terms():
-    text = PlantModel(joint_bias_deg=0.05, scale_error=1e-3, noise_deg=0.002, lag_tau=0.01).summarize()
+    text = PlantModel(
+        joint_bias_deg=0.05, scale_error=1e-3, noise_deg=0.002, lag_tau=0.01
+    ).summarize()
     assert "合成" in text
     for token in ("零位偏置", "传动比误差", "编码器噪声", "伺服滞后"):
         assert token in text
@@ -186,9 +187,7 @@ def test_plant_link_noise_is_reproducible_with_same_seed(robot):
     for _ in range(2):
         link = PlantLink(robot, model)
         link.connect()
-        seq.append(
-            [tuple(link.command(Q0, at_time=float(i)).round(6)) for i in range(4)]
-        )
+        seq.append([tuple(link.command(Q0, at_time=float(i)).round(6)) for i in range(4)])
     assert seq[0] == seq[1]
 
 
@@ -342,7 +341,7 @@ def test_capture_times_match_trajectory(sim_trace, traj):
 
 
 def test_capture_empty_trajectory_raises():
-    from orolp.simulation import Trajectory
+    from service.simulation import Trajectory
 
     sess = DebugSession(Trajectory([]), None, robot=None)
     with pytest.raises(TwinError, match="轨迹为空"):
@@ -545,9 +544,7 @@ def test_compare_identical_traces_passes(sim_trace):
 
 
 def test_compare_plant_trace_shows_deviation(traj, robot):
-    sim = capture_from_session(
-        DebugSession(traj, _sim_link(robot), robot=robot), source="sim"
-    )
+    sim = capture_from_session(DebugSession(traj, _sim_link(robot), robot=robot), source="sim")
     real = capture_plant_trace(traj, robot, PlantModel(joint_bias_deg=0.3), program_name="P")
     rep = compare_traces(sim, real, tol_pos_mm=0.5, tol_rot_deg=1.0)
     assert rep.available
@@ -641,12 +638,14 @@ def test_format_causes_on_empty_report():
 
 
 def test_report_verdict_text_variants():
-    assert "通过" in TwinReport(
-        samples=[AlignedSample(0.0, 0.0, 0.0, 0.1, 0.1, 0.0, False, 1.0)]
-    ).verdict()
-    assert "超差" in TwinReport(
-        samples=[AlignedSample(0.0, 0.0, 0.0, 9.9, 0.1, 0.0, True, 1.0)]
-    ).verdict()
+    assert (
+        "通过"
+        in TwinReport(samples=[AlignedSample(0.0, 0.0, 0.0, 0.1, 0.1, 0.0, False, 1.0)]).verdict()
+    )
+    assert (
+        "超差"
+        in TwinReport(samples=[AlignedSample(0.0, 0.0, 0.0, 9.9, 0.1, 0.0, True, 1.0)]).verdict()
+    )
     assert "无可用" in TwinReport().verdict()
 
 
@@ -701,9 +700,7 @@ def test_chart_svg_too_small_raises():
 
 
 def test_chart_svg_theme_changes_colors():
-    rep = TwinReport(
-        samples=[AlignedSample(0.0, 0.0, 0.0, 2.0, 0.1, 0.0, True, 1.0)]
-    )
+    rep = TwinReport(samples=[AlignedSample(0.0, 0.0, 0.0, 2.0, 0.1, 0.0, True, 1.0)])
     dark = deviation_chart_svg(rep, theme="dark")
     light = deviation_chart_svg(rep, theme="light")
     assert dark != light
@@ -887,9 +884,7 @@ def test_cloud_link_get_pose_requires_robot(tmp_path, robot, traj):
     with_robot.connect()
     pose = with_robot.get_pose()
     assert pose is not None
-    assert np.allclose(
-        pose.to_xyz_rpy(), robot.forward_kinematics(np.asarray(Q0)).to_xyz_rpy()
-    )
+    assert np.allclose(pose.to_xyz_rpy(), robot.forward_kinematics(np.asarray(Q0)).to_xyz_rpy())
 
 
 def test_cloud_link_set_joints_is_noop(tmp_path):

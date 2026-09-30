@@ -11,7 +11,7 @@
 
     # 提取第 0 条缝 → 生成 UR 程序代码（抬高 2mm、TCP 30mm/s）
     python3 tools/cam_path.py path --input bracket.step --seam 0 \
-        --urdf models/kuka/kr16_2/kr16_2.urdf --robot-name kr16_2 \
+        --urdf assets/models/kuka/kr16_2/kr16_2.urdf --robot-name kr16_2 \
         --post ur --velocity 30 --lift 2 --out weld.program
 
     # 扫描偏差比对：点云 vs 模型焊缝
@@ -28,11 +28,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np  # noqa: E402
 
-from orolp.cam import (  # noqa: E402
+from service.cam import (
     extract_seams,
     load_ply,
     path_to_program,
@@ -68,19 +68,18 @@ def cmd_seams(args) -> None:
 def cmd_path(args) -> None:
     seams, picked = _pick_seam(args)
     seam = picked[0]
-    print(
-        f"选用焊缝：closed={seam.closed} 长度={seam.length:.2f}mm 点数={len(seam)}"
-    )
+    print(f"选用焊缝：closed={seam.closed} 长度={seam.length:.2f}mm 点数={len(seam)}")
     if not args.urdf:
         np.savetxt(args.out if args.out else "cam_path.txt", seam.points, fmt="%.4f")
         print(f"未指定 --urdf，仅导出路径点 → {args.out or 'cam_path.txt'}")
         return
 
-    from orolp.robot import Robot
+    from domain.robot import Robot
 
     robot = Robot(str(Path(args.urdf).resolve()), args.robot_name)
     builder = path_to_program(
-        seam.points, robot,
+        seam.points,
+        robot,
         closed=seam.closed,
         corner_angle_deg=args.corner_angle,
         z_lift=args.lift,
@@ -99,10 +98,14 @@ def cmd_path(args) -> None:
         print(f"  [error] {e.message}")
 
     if args.post:
-        from orolp.post import get_post_processor
+        from adapter.post import get_post_processor
 
         code = get_post_processor(args.post).generate(prog.items, {"name": "cam_seam"})
-        out = Path(args.out) if args.out else Path(f"cam_seam.{get_post_processor(args.post).file_extension}")
+        out = (
+            Path(args.out)
+            if args.out
+            else Path(f"cam_seam.{get_post_processor(args.post).file_extension}")
+        )
         out.write_text(code)
         print(f"已生成 {args.post} 代码 → {out}")
     else:
@@ -124,18 +127,26 @@ def cmd_deviation(args) -> None:
     report = scan_deviation(cloud, path_pts)
     print(report.format())
     if args.out:
-        np.savetxt(args.out, np.column_stack([np.arange(report.n_points), report.distances]),
-                   header="index deviation_mm", fmt=["%d", "%.4f"])
+        np.savetxt(
+            args.out,
+            np.column_stack([np.arange(report.n_points), report.distances]),
+            header="index deviation_mm",
+            fmt=["%d", "%.4f"],
+        )
         print(f"逐点偏差已导出 → {args.out}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="mode", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--input", help="STEP/IGES 文件")
-    common.add_argument("--deflection", type=float, default=0.2, help="边离散弦高容差 mm（默认 0.2）")
+    common.add_argument(
+        "--deflection", type=float, default=0.2, help="边离散弦高容差 mm（默认 0.2）"
+    )
     common.add_argument("--min-length", type=float, default=0.0, help="焊缝最小长度 mm")
     common.add_argument("--seam", type=int, default=None, help="直接按序号选缝")
 

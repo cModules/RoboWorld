@@ -20,10 +20,10 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.world import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.world import (
     COMPONENTS,
     Scene,
     build_component,
@@ -32,9 +32,9 @@ from orolp.world import (  # noqa: E402
     list_templates,
     load_workcell,
 )
-from orolp.world.components import get_component  # noqa: E402
-from orolp.world.scene import ROBOT_NAME  # noqa: E402
-from orolp.world.templates import GRASPING_WORKSTATION_ID  # noqa: E402
+from domain.world.components import get_component  # noqa: E402
+from domain.world.scene import ROBOT_NAME  # noqa: E402
+from domain.world.templates import GRASPING_WORKSTATION_ID  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
@@ -197,9 +197,6 @@ def test_pallet_base_registered_and_buildable():
 
 def _max_z(parts) -> float:
     """零件组的最高点（局部系）。"""
-    from orolp.world.geometry import vertices_of
+    from domain.world.geometry import vertices_of
 
-    return max(
-        float(vertices_of(p.prim, p.transform)[:, 2].max())
-        for p in parts
-    )
+    return max(float(vertices_of(p.prim, p.transform)[:, 2].max()) for p in parts)

@@ -4,7 +4,7 @@
 
 * 链式 API 与运动指令**混排有序**
 * ``gripper("close"/"open")`` 展开出的信号互锁语义与
-  :func:`orolp.pickplace.build_pick_place` 一致
+  :func:`service.pickplace.build_pick_place` 一致
 * ``then()`` 合并 Program 时**不得丢 IO**（早期实现只取 motions，
   抓取动作静默消失）
 * FANUC TP 输出 ``DO[n]=ON`` / ``WAIT DI[n]`` 品牌语法
@@ -23,11 +23,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.post import get_post_processor  # noqa: E402
-from orolp.program import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from adapter.post import get_post_processor  # noqa: E402
+from service.program import (
     Motion,
     MotionType,
     Program,
@@ -36,9 +36,9 @@ from orolp.program import (  # noqa: E402
     WaitDI,
     WaitTime,
 )
-from orolp.robot import Robot  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 IO_MAP = {
     "gripper_close": "Q0.1",
@@ -96,9 +96,7 @@ def test_gripper_close_expands_interlocked(robot):
 def test_gripper_open_expands_interlocked_no_feedback(robot):
     """open = 复位 close + 置位 open；无反馈信号，confirm 不生效。"""
     prog = (
-        robot.moveL(Pose.from_xyz_rpy(600, 0, 800, 0, 180, 0))
-        .gripper("open", confirm=True)
-        .build()
+        robot.moveL(Pose.from_xyz_rpy(600, 0, 800, 0, 180, 0)).gripper("open", confirm=True).build()
     )
     tail = prog.items[1:]
     assert [type(i) for i in tail] == [SetDO, SetDO]
@@ -119,11 +117,7 @@ def test_gripper_invalid_action_raises(robot):
 
 def test_then_merges_program_with_io(robot):
     """合并 Program 必须保留 IO 指令——抓取动作不能静默消失。"""
-    sub = (
-        Program(robot)
-        .setDO("gripper_close", True)
-        .waitDI("clamped", True, timeout=1.0)
-    )
+    sub = Program(robot).setDO("gripper_close", True).waitDI("clamped", True, timeout=1.0)
     prog = robot.moveJ([0, -30, 60, 0, 30, 0]).then(sub).build()
     kinds = [type(i) for i in prog.items]
     assert kinds == [Motion, SetDO, WaitDI]
@@ -132,12 +126,7 @@ def test_then_merges_program_with_io(robot):
 def test_io_program_plans_transparently(robot):
     """IO 混排不影响轨迹规划（SetDO/WaitDI 不占时间；v1.1.3 起 waitTime
     作为驻留段占时间，见 tests/test_dwell.py）。"""
-    prog = (
-        robot.moveJ([0, -30, 60, 0, 30, 0])
-        .setDO("gripper_close", True)
-        .waitTime(0.3)
-        .build()
-    )
+    prog = robot.moveJ([0, -30, 60, 0, 30, 0]).setDO("gripper_close", True).waitTime(0.3).build()
     traj = prog.plan()
     assert len(traj.waypoints) > 0
 
@@ -203,7 +192,7 @@ def test_fanuc_waitdi_and_waittime_syntax(robot):
         .to_post("fanuc_r30ib", metadata={"program_name": "PICK", "io_map": IO_MAP})
     )
     assert "WAIT DI[3]=ON" in code
-    assert "超时" in code          # TP 不支持超时，必须提示而不是静默丢弃
+    assert "超时" in code  # TP 不支持超时，必须提示而不是静默丢弃
     assert "WAIT 0.50(sec)" in code
 
 
@@ -235,7 +224,7 @@ def test_pick_and_place_example_runs_with_io():
         text=True,
         timeout=180,
         env={
-            "PYTHONPATH": str(REPO_ROOT / "python"),
+            "PYTHONPATH": str(REPO_ROOT),
             "PATH": "/usr/bin:/bin:/usr/local/bin",
         },
     )

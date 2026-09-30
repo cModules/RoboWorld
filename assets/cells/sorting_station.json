@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "robot_urdf": "models/ur/ur5e/ur5e.urdf",
+  "robot_urdf": "assets/models/ur/ur5e/ur5e.urdf",
   "robot_joints_deg": [
     0.0,
     -90.0,

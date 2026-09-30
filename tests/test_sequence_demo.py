@@ -18,9 +18,7 @@ JSON_OUT = REPO_ROOT / "examples" / "assets" / "pick_sequence.json"
 
 def _run_demo() -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
-    )
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), str(REPO_ROOT), env.get("PYTHONPATH", "")])
     return subprocess.run(
         [sys.executable, str(SCRIPT)],
         cwd=str(REPO_ROOT),
@@ -101,5 +99,5 @@ def test_demo_script_json_roundtrip_artifact():
     assert "读回：9 条工步" in proc.stdout
     assert "与写入前一致" in proc.stdout
     text = JSON_OUT.read_text(encoding="utf-8")
-    assert '"schema": "orolp.sequence/1"' in text
+    assert '"schema": "service.sequence/1"' in text
     assert '"kind": "call"' in text and '"kind": "dwell"' in text

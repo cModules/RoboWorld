@@ -15,7 +15,7 @@
 运行::
 
     python examples/plugins_demo.py
-    # 或未安装 orolp 时：PYTHONPATH=python python examples/plugins_demo.py
+    # 或未安装 core 时：PYTHONPATH=python python examples/plugins_demo.py
 
 以正式包分发插件（推荐做法）见模块末尾 ``ENTRY_POINTS_SNIPPET`` 的说明。
 """
@@ -29,14 +29,16 @@ from pathlib import Path
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import Pose, ProgramBuilder, Robot  # noqa: E402
-from orolp.kinematics import RobotKinematics  # noqa: E402
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.plugins import (  # noqa: E402
+from domain.pose import Pose
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from domain.kinematics import RobotKinematics  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from adapter.plugins import (
     FrameMarker,
     LineSegments,
     OverlayContext,
@@ -50,12 +52,12 @@ from orolp.plugins import (  # noqa: E402
     register_renderer,
 )
 
-URDF = str(REPO_ROOT / "models/ur/ur5e/ur5e.urdf")
+URDF = str(REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf")
 HOME = [0.0, -90.0, 90.0, -90.0, 90.0, 0.0]
 
-TEMPLATE = """{{ config.comment_char }} ACME V2 / {{ meta.program_name|default('OROLP_PROG') }}
+TEMPLATE = """{{ config.comment_char }} ACME V2 / {{ meta.program_name|default('CORE_PROG') }}
 {{ config.comment_char }} 由第三方插件生成（RobotWorld 插件接口 v1）
-DEF {{ meta.program_name|default('OROLP_PROG') }}()
+DEF {{ meta.program_name|default('CORE_PROG') }}()
 {% for wp in waypoints %}
 {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
   {{ wp.text }}
@@ -78,11 +80,11 @@ def _make_acme_post():
 
     插件写法与内置品牌**完全一致**——继承 ``BasePostProcessor``、给
     ``brand``/``controller``、实现 ``_convert_motion``/``_get_template``。
-    这正是把 :mod:`orolp.post.base` 开放出去的意义：抽象早就在了，只是此前
+    这正是把 :mod:`adapter.post.base` 开放出去的意义：抽象早就在了，只是此前
     外部够不着。
     """
-    from orolp.post.base import BasePostProcessor, PostConfig, PostProcessError
-    from orolp.program import Motion
+    from adapter.post.base import BasePostProcessor, PostConfig, PostProcessError
+    from service.program import Motion
 
     class AcmeV2PostProcessor(BasePostProcessor):
         """第三方品牌 ACME-V2（示例用的极简控制语言）。"""
@@ -162,7 +164,7 @@ class OffsetKinematics(RobotKinematics):
         if arr.size != self.dof:
             raise ValueError(f"joint_offsets_deg 长度 {arr.size} 与 dof {self.dof} 不符")
         self._offsets = arr
-        self._orolp_signature = f"OffsetKinematics（零位偏置 {np.max(np.abs(arr)):g}°）"
+        self._core_signature = f"OffsetKinematics（零位偏置 {np.max(np.abs(arr)):g}°）"
 
     @property
     def joint_offsets_deg(self) -> np.ndarray:
@@ -190,7 +192,7 @@ class ToleranceOverlayRenderer:
     参考轨迹从 ``ctx.extra["reference_path"]`` 取（演示里就是"内置求解器算出的
     同一条关节轨迹"）；没提供、或两条轨迹长度不一致时，退回"与首末点连线的
     垂直距离"这个粗代理——它只适合直线运动，真实场景请改用
-    :func:`orolp.twinsync.align_traces` + ``TwinReport`` 的实测偏差。
+    :func:`service.twinsync.align_traces` + ``TwinReport`` 的实测偏差。
     """
 
     def __init__(self, tolerance_mm: float = 1.0, max_markers: int = 200):
@@ -317,7 +319,7 @@ def main() -> int:
     print(default_registry.summary())
 
     # ---- 入口点发现（正式分发方式） ----
-    print("\n[2] 扫描已安装包的插件入口点（group=orolp.plugins）")
+    print("\n[2] 扫描已安装包的插件入口点（group=adapter.plugins）")
     stats = load_entry_points()
     print(f"    发现 {stats['discovered']} / 登记 {stats['registered']} / "
           f"跳过 {stats['skipped']} / 失败 {stats['failed']}")
@@ -332,7 +334,7 @@ def main() -> int:
         .moveJ([10.0, -70.0, 70.0, -90.0, 90.0, 10.0], speed=60)
         .build()
     )
-    from orolp.post import list_post_processors
+    from adapter.post import list_post_processors
 
     print("\n[3] 后处理器清单（内置 7 个 + 插件）")
     print(f"    {', '.join(list_post_processors())}")
@@ -420,16 +422,16 @@ def main() -> int:
 
 #: 第三方包声明插件的标准写法（宿主 load_entry_points() 会自动发现）
 ENTRY_POINTS_SNIPPET = """
-[project.entry-points."orolp.plugins"]
-acme_v2 = "acme_orolp.plugin:post_processor_spec"
-acme_calibrated = "acme_orolp.plugin:kinematics_spec"
+[project.entry-points."adapter.plugins"]
+acme_v2 = "acme_core.plugin:post_processor_spec"
+acme_calibrated = "acme_core.plugin:kinematics_spec"
 
-# acme_orolp/plugin.py 里返回 PluginSpec（或其列表）
-from orolp.plugins import PluginSpec
+# acme_core/plugin.py 里返回 PluginSpec（或其列表）
+from adapter.plugins import PluginSpec
 
 post_processor_spec = PluginSpec(
     name="acme_v2", kind="post",
-    factory="acme_orolp.post:AcmeV2PostProcessor",
+    factory="acme_core.post:AcmeV2PostProcessor",
     version="1.0.0", description="ACME-V2 控制语言",
 )
 """

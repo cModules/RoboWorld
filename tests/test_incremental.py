@@ -29,11 +29,11 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Robot  # noqa: E402
-from orolp import i18n  # noqa: E402
-from orolp.incremental import (  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from support import i18n  # noqa: E402
+from service.incremental import (
     PLAN_CACHE_MAX_ENTRIES,
     PLAN_CACHE_MAX_WAYPOINTS,
     SEGMENT_CACHE_MAX_ENTRIES,
@@ -51,7 +51,7 @@ from orolp.incremental import (  # noqa: E402
     robot_signature,
     set_cache,
 )
-from orolp.perf import (  # noqa: E402
+from service.perf import (
     SWEEP_BASE,
     CacheScenario,
     PlanCacheProfile,
@@ -61,21 +61,21 @@ from orolp.perf import (  # noqa: E402
     plan_cache_profile,
     sweep_program,
 )
-from orolp.planner import (  # noqa: E402
+from service.planner import (
     SEVERITY_ERROR,
     SEVERITY_WARNING,
     TrajectoryPlanner,
 )
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import (
     Motion,
     MotionType,
     Program,
     ProgramBuilder,
 )
-from orolp.simulation import Waypoint  # noqa: E402
+from service.simulation import Waypoint  # noqa: E402
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 
 # --------------------------------------------------------------------------- #
@@ -231,8 +231,7 @@ def _differs(a, b, tol: float = 1.0) -> bool:
     if abs(a.duration() - b.duration()) > 1e-9:
         return True
     return any(
-        float(np.abs(x.joints - y.joints).max()) > tol
-        for x, y in zip(a.waypoints, b.waypoints)
+        float(np.abs(x.joints - y.joints).max()) > tol for x, y in zip(a.waypoints, b.waypoints)
     )
 
 
@@ -509,9 +508,7 @@ def test_plan_waypoint_budget_evicts_before_entry_budget():
 def test_segment_waypoint_budget_evicts_oldest():
     cache = TrajectoryCache(segment_max_entries=100, segment_max_waypoints=4)
     for i in range(4):
-        cache.store_segment(
-            f"s{i}", SegmentPayload(pts=tuple(np.zeros(6) for _ in range(2)))
-        )
+        cache.store_segment(f"s{i}", SegmentPayload(pts=tuple(np.zeros(6) for _ in range(2))))
     stats = cache.stats()
     assert stats["segment_entries"] == 2
     assert stats["segment_waypoints"] == 4
@@ -911,14 +908,13 @@ def test_middle_edit_result_differs_from_baseline():
 
 def test_head_edit_perturbs_every_following_segment_key():
     """首条改动会让 k+1 的起点也变——如果起点不在键里，这里会错误地全中。"""
-    _planner_obj, _traj, stats = _scenario(
-        lambda items, r: _bump_joint(items, 0), n_motions=12
-    )
+    _planner_obj, _traj, stats = _scenario(lambda items, r: _bump_joint(items, 0), n_motions=12)
     assert stats["segment_misses"] >= 2
 
 
 def test_speed_only_edit_keeps_the_suffix_hot():
     """只改速度不动关节值 → 起点不变 → 后缀全中，这正是增量重算的主要收益。"""
+
     def edit(items, robot):
         pos = [i for i, x in enumerate(items) if isinstance(x, Motion)]
         items[pos[4]].speed = 33.0
@@ -930,7 +926,7 @@ def test_speed_only_edit_keeps_the_suffix_hot():
 
 def test_insert_dwell_keeps_every_motion_hot():
     def edit(items, robot):
-        from orolp.program import WaitTime
+        from service.program import WaitTime
 
         items.insert(2, WaitTime(0.7))
 
@@ -940,7 +936,7 @@ def test_insert_dwell_keeps_every_motion_hot():
 
 
 def test_inserted_dwell_lengthens_the_clock():
-    from orolp.program import WaitTime
+    from service.program import WaitTime
 
     _p, short, _s = _scenario(None, n_motions=10)
     _p, long, _s = _scenario(lambda items, r: items.insert(2, WaitTime(0.7)), n_motions=10)
@@ -1039,7 +1035,7 @@ def test_failed_segment_is_cached_in_the_segment_layer():
 
     不缓存失败就会每次重放同一个异常，而且命中率会虚高。
     """
-    from orolp.program import WaitTime
+    from service.program import WaitTime
 
     robot = _robot()
     items = list(_failing_program(robot).items)
@@ -1064,9 +1060,7 @@ def test_failure_text_contains_no_instruction_index():
     cache = TrajectoryCache()
     set_cache(cache)
     _planner().plan(_failing_program(robot))
-    texts = [
-        payload.error for payload in cache._segments.values() if payload.error is not None
-    ]
+    texts = [payload.error for payload in cache._segments.values() if payload.error is not None]
     assert texts
     for text in texts:
         assert "指令" not in text and "[0]" not in text
@@ -1107,7 +1101,7 @@ def test_warning_is_rebuilt_with_current_index_and_time():
     assert warn[0].motion_index == 1
     base_time = warn[0].time
 
-    from orolp.program import WaitTime
+    from service.program import WaitTime
 
     shifted = list(_clone_items(items, robot).items)
     shifted.insert(0, WaitTime(0.5))
@@ -1230,21 +1224,39 @@ def test_plan_cache_profile_to_dict_is_json_friendly():
 
 def test_cache_scenario_properties():
     good = CacheScenario(
-        label="x", seconds=0.01, segment_hits=3, segment_total=4,
-        plan_hits=0, waypoints=10, equivalent=True, max_delta=0.0,
+        label="x",
+        seconds=0.01,
+        segment_hits=3,
+        segment_total=4,
+        plan_hits=0,
+        waypoints=10,
+        equivalent=True,
+        max_delta=0.0,
         baseline_seconds=0.04,
     )
     assert good.reuse_rate == pytest.approx(0.75)
     assert good.speedup == pytest.approx(4.0)
     plan_hit = CacheScenario(
-        label="y", seconds=0.001, segment_hits=0, segment_total=0,
-        plan_hits=1, waypoints=10, equivalent=True, max_delta=0.0,
+        label="y",
+        seconds=0.001,
+        segment_hits=0,
+        segment_total=0,
+        plan_hits=1,
+        waypoints=10,
+        equivalent=True,
+        max_delta=0.0,
         baseline_seconds=0.5,
     )
     assert plan_hit.reuse_rate == 1.0
     zero = CacheScenario(
-        label="z", seconds=0.0, segment_hits=0, segment_total=1,
-        plan_hits=0, waypoints=1, equivalent=False, max_delta=1.0,
+        label="z",
+        seconds=0.0,
+        segment_hits=0,
+        segment_total=1,
+        plan_hits=0,
+        waypoints=1,
+        equivalent=False,
+        max_delta=1.0,
     )
     assert zero.speedup == 0.0
 
@@ -1270,7 +1282,7 @@ def test_default_edit_scenarios_apply_to_plain_item_lists():
 
 
 def test_plan_cache_profile_format_english(monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     i18n.set_language("en")
     try:
         profile = plan_cache_profile(
@@ -1286,7 +1298,7 @@ def test_plan_cache_profile_format_english(monkeypatch):
 
 
 def test_default_scenario_labels_english(monkeypatch):
-    monkeypatch.setenv("OROLP_LANG", "en")
+    monkeypatch.setenv("CORE_LANG", "en")
     i18n.set_language("en")
     try:
         labels = [label for label, _fn in default_edit_scenarios()]
@@ -1297,7 +1309,7 @@ def test_default_scenario_labels_english(monkeypatch):
 
 def test_incremental_module_documents_its_limits():
     """模块说明必须写清"不能做什么"——否则"增量重算"会被当成万能加速。"""
-    text = (REPO_ROOT / "python" / "orolp" / "incremental.py").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "service" / "incremental.py").read_text(encoding="utf-8")
     assert "不能" in text
     assert "只读" in text
     assert "干涉检查" in text  # 明说干涉检查不在缓存范围内
@@ -1305,7 +1317,7 @@ def test_incremental_module_documents_its_limits():
 
 
 def test_planner_docstring_mentions_the_cache_contract():
-    text = (REPO_ROOT / "python" / "orolp" / "planner.py").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "service" / "planner.py").read_text(encoding="utf-8")
     assert "use_cache" in text
     assert "内容寻址" in text or "增量重算" in text
 

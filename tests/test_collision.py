@@ -20,17 +20,17 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp import Robot  # noqa: E402
-from orolp.collision import CollisionChecker, parts_aabb, singularity_proximity  # noqa: E402
-from orolp.planner import ENVELOPE_TOLERANCE_MM  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.world.components import Part  # noqa: E402
-from orolp.world.geometry import Box  # noqa: E402
-from orolp.world.scene import ROBOT_NAME, Scene  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.collision import CollisionChecker, parts_aabb, singularity_proximity  # noqa: E402
+from service.planner import ENVELOPE_TOLERANCE_MM  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.world.components import Part  # noqa: E402
+from domain.world.geometry import Box  # noqa: E402
+from domain.world.scene import ROBOT_NAME, Scene  # noqa: E402
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 
 THREE_LINK_URDF = """<?xml version="1.0"?>
 <robot name="three_link">
@@ -83,7 +83,7 @@ def make_three_link_scene(three_link_urdf) -> Scene:
 @pytest.fixture(scope="module")
 def workstation_scene():
     """真实 UR5e + 抓取工作站（只读，用于环境干涉与轨迹定位）。"""
-    from orolp.world import build_grasping_workstation
+    from domain.world import build_grasping_workstation
 
     return build_grasping_workstation().scene
 
@@ -96,9 +96,11 @@ def workstation_scene():
 def test_parts_aabb_union():
     parts = [
         Part(Box((100, 100, 100)), np.eye(4), (0.6, 0.6, 0.65)),
-        Part(Box((100, 100, 100)), np.array(
-            [[1, 0, 0, 300], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], float),
-            (0.6, 0.6, 0.65)),
+        Part(
+            Box((100, 100, 100)),
+            np.array([[1, 0, 0, 300], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], float),
+            (0.6, 0.6, 0.65),
+        ),
     ]
     box = parts_aabb(parts)
     assert box is not None
@@ -118,8 +120,7 @@ def test_parts_aabb_empty():
 def test_link_env_collision_reports_link(three_link_urdf):
     scene = make_three_link_scene(three_link_urdf)
     # 工件盒放在原点附近：与 base 长条（x∈[0,0.5]m）重叠
-    scene.add("workpiece_box", name="障碍物",
-              pose=Pose.from_xyz_rpy(150, 0, 25, 0, 0, 0))
+    scene.add("workpiece_box", name="障碍物", pose=Pose.from_xyz_rpy(150, 0, 25, 0, 0, 0))
     checker = CollisionChecker(scene, margin=-0.5)
     hits = checker.check_config([0.0, 180.0])  # tool 甩远端，只剩 base 撞工件
     env_hits = [h for h in hits if h.obj_b == "障碍物"]
@@ -139,8 +140,7 @@ def test_clean_config_no_collision(three_link_urdf):
 def test_env_cache_invalidation(three_link_urdf):
     scene = make_three_link_scene(three_link_urdf)
     checker = CollisionChecker(scene, margin=-0.5)
-    scene.add("workpiece_box", name="障碍物",
-              pose=Pose.from_xyz_rpy(150, 0, 25, 0, 0, 0))
+    scene.add("workpiece_box", name="障碍物", pose=Pose.from_xyz_rpy(150, 0, 25, 0, 0, 0))
     assert checker.check_config([0.0, 180.0])  # 有障碍 → 碰撞
     scene.remove("障碍物")
     checker.invalidate_env()
@@ -168,9 +168,7 @@ def test_adjacent_links_exempt(three_link_urdf):
     hits = checker.check_config([0.0, 0.0], include_self=True)
     for h in hits:
         pair = {h.link_a, h.link_b}
-        assert pair not in ({"base", "arm"}, {"arm", "tool"}), (
-            "关节直连的连杆对不应报告自碰撞"
-        )
+        assert pair not in ({"base", "arm"}, {"arm", "tool"}), "关节直连的连杆对不应报告自碰撞"
 
 
 def test_include_self_off(three_link_urdf):
@@ -199,9 +197,8 @@ def test_trajectory_collision_localized_to_motion(workstation_scene):
     robot = Robot(str(UR5E), "UR5e")
     home = [0, -90, 90, -90, 90, 0]
     # 第二段 moveL 把 TCP 规划进输送带体内（皮带面 z=268mm，点取 z=120）
-    program = (
-        robot.moveJ(home, speed=80)
-        .then(robot.moveL(Pose.from_xyz_rpy(200, -400, 120, 180, 0, 0), speed=40))
+    program = robot.moveJ(home, speed=80).then(
+        robot.moveL(Pose.from_xyz_rpy(200, -400, 120, 180, 0, 0), speed=40)
     )
     report = program.validate(scene=workstation_scene)
     col_issues = [i for i in report.issues if i.code == "collision"]
@@ -230,7 +227,7 @@ def test_envelope_tolerance_does_not_blind_deep_collisions():
     用三级 margin 把结论钉死：严格口径报 → 容差口径仍报 → 荒谬口径
     （-1000mm）才不报，说明真实穿透量落在 20~1000mm 之间，远深于容差。
     """
-    from orolp.world.templates import build_grasping_workstation
+    from domain.world.templates import build_grasping_workstation
 
     scene = build_grasping_workstation().scene
     scene.add(
@@ -240,9 +237,8 @@ def test_envelope_tolerance_does_not_blind_deep_collisions():
         params={"length": 300.0, "width": 300.0, "height": 400.0},
     )
     robot = Robot(str(UR5E), "UR5e")
-    program = (
-        robot.moveJ([0, -90, 90, -90, 90, 0], speed=80)
-        .then(robot.moveL(Pose.from_xyz_rpy(0, -250, 200, 180, 0, 0), speed=40))
+    program = robot.moveJ([0, -90, 90, -90, 90, 0], speed=80).then(
+        robot.moveL(Pose.from_xyz_rpy(0, -250, 200, 180, 0, 0), speed=40)
     )
 
     def collisions(margin: float) -> int:

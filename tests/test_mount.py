@@ -20,12 +20,12 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.world.scene import ROBOT_NAME, Scene  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from domain.world.scene import ROBOT_NAME, Scene  # noqa: E402
 
-URDF = REPO_ROOT / "models/kuka/kr16_2/kr16_2.urdf"
+URDF = REPO_ROOT / "assets/models/kuka/kr16_2/kr16_2.urdf"
 
 Q_A = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 Q_B = [30.0, -20.0, 15.0, 0.0, 45.0, 10.0]
@@ -111,8 +111,7 @@ def test_attach_snap_to_flange(scene):
     """keep_world=False：吸附到法兰原点（安装工具语义）。"""
     g = scene.add("tool_gripper", pose=Pose.from_xyz_rpy(999, 999, 999, 0, 0, 0))
     scene.attach(g.name, ROBOT_NAME, keep_world=False)
-    assert np.allclose(xyz(scene, g.name),
-                       scene.flange_transform()[:3, 3], atol=1e-6)
+    assert np.allclose(xyz(scene, g.name), scene.flange_transform()[:3, 3], atol=1e-6)
 
 
 def test_detach_keeps_world_position_and_stops_following(scene):
@@ -172,8 +171,9 @@ def test_set_robot_joints_tolerates_length_mismatch(scene):
     """
     scene.set_robot_joints([10.0] * 7)
     assert len(scene._robot_joints_deg) == 6
-    assert np.allclose(scene.flange_transform()[:3, 3],
-                       scene.flange_transform()[:3, 3])  # 不抛异常即可
+    assert np.allclose(
+        scene.flange_transform()[:3, 3], scene.flange_transform()[:3, 3]
+    )  # 不抛异常即可
 
 
 def test_missing_parent_degrades_gracefully(scene):
@@ -195,9 +195,9 @@ def test_mounted_object_excluded_from_robot_collision(scene):
     """
     g = scene.add("tool_gripper", parent=ROBOT_NAME)
     hits = scene.check_collisions()
-    assert not any({h.obj_a, h.obj_b} == {ROBOT_NAME, g.name} for h in hits), (
-        f"挂载件被误报为干涉: {hits}"
-    )
+    assert not any(
+        {h.obj_a, h.obj_b} == {ROBOT_NAME, g.name} for h in hits
+    ), f"挂载件被误报为干涉: {hits}"
 
 
 def test_unmounted_object_still_checked_against_robot(scene):
@@ -210,14 +210,15 @@ def test_unmounted_object_still_checked_against_robot(scene):
     """
     tcp = scene.flange_transform()[:3, 3]
     box = scene.add(
-        "workpiece_box", name="挡在TCP",
+        "workpiece_box",
+        name="挡在TCP",
         params={"length": 60.0, "width": 60.0, "height": 60.0},
         pose=Pose.from_xyz_rpy(float(tcp[0]), float(tcp[1]), float(tcp[2]), 0, 0, 0),
     )
     hits = scene.check_collisions()
-    assert any({h.obj_a, h.obj_b} == {ROBOT_NAME, box.name} for h in hits), (
-        f"未挂载对象被漏检: {hits}"
-    )
+    assert any(
+        {h.obj_a, h.obj_b} == {ROBOT_NAME, box.name} for h in hits
+    ), f"未挂载对象被漏检: {hits}"
 
 
 def test_robot_mounted_on_base_is_exempt_from_collision(scene):
@@ -226,16 +227,17 @@ def test_robot_mounted_on_base_is_exempt_from_collision(scene):
     否则"给机器人配个基座"这一常规布局动作会被恒定报成撞机。
     """
     base = scene.add(
-        "worktable", name="底座",
+        "worktable",
+        name="底座",
         params={"length": 400.0, "width": 400.0, "height": 200.0},
     )
     scene.attach(ROBOT_NAME, base.name, keep_world=True)
     assert scene.objects[ROBOT_NAME].parent == base.name
 
     hits = scene.check_collisions()
-    assert not any({h.obj_a, h.obj_b} == {ROBOT_NAME, base.name} for h in hits), (
-        f"装在底座上的机器人被误报为干涉: {hits}"
-    )
+    assert not any(
+        {h.obj_a, h.obj_b} == {ROBOT_NAME, base.name} for h in hits
+    ), f"装在底座上的机器人被误报为干涉: {hits}"
 
 
 def test_robot_follows_its_base(scene):
@@ -256,14 +258,15 @@ def test_robot_mounted_on_base_sits_on_top_center(scene):
     回归：world_aabb 曾按 visual 取数，机器人只剩一个 TCP 标记球，
     ground_offset 算出约 -1000mm，会把机器人塞到地底下。
     """
-    from orolp.world.placement import (
+    from domain.world.placement import (
         ground_offset,
         mount_on_top_of,
         world_aabb,
     )
 
     base = scene.add(
-        "worktable", name="底座",
+        "worktable",
+        name="底座",
         params={"length": 400.0, "width": 400.0, "height": 200.0},
         pose=Pose.from_xyz_rpy(1000.0, 0.0, 0.0, 0.0, 0.0, 0.0),
     )
@@ -274,9 +277,7 @@ def test_robot_mounted_on_base_sits_on_top_center(scene):
     p = scene.world_transform(ROBOT_NAME)[:3, 3]
     assert p[0] == pytest.approx(0.5 * (box.lo[0] + box.hi[0]), abs=1e-6)
     assert p[1] == pytest.approx(0.5 * (box.lo[1] + box.hi[1]), abs=1e-6)
-    assert p[2] == pytest.approx(
-        float(box.hi[2]) - ground_offset(scene, ROBOT_NAME), abs=1e-6
-    )
+    assert p[2] == pytest.approx(float(box.hi[2]) - ground_offset(scene, ROBOT_NAME), abs=1e-6)
     # 机器人基座原点就在安装面，落点应正好等于顶面高度
     assert ground_offset(scene, ROBOT_NAME) == pytest.approx(0.0, abs=1e-6)
 
@@ -288,10 +289,11 @@ def test_mount_on_top_of_before_attach_places_in_world(scene):
     只有对象已经是 host 的子对象时才成立。先摆（还没 attach）时，host 离
     原点越远，对象被写到越偏的地方："挂到底座上却悬在半空"。
     """
-    from orolp.world.placement import mount_on_top_of, world_aabb
+    from domain.world.placement import mount_on_top_of, world_aabb
 
     base = scene.add(
-        "worktable", name="底座",
+        "worktable",
+        name="底座",
         params={"length": 400.0, "width": 400.0, "height": 200.0},
         pose=Pose.from_xyz_rpy(1000.0, 500.0, 0.0, 0.0, 0.0, 0.0),
     )
@@ -315,9 +317,7 @@ def test_serialization_preserves_robot_mounted_on_base(scene):
     restored = Scene.from_dict(scene.to_dict())
 
     assert restored.objects[ROBOT_NAME].parent == base.name
-    assert np.allclose(
-        restored.world_transform(ROBOT_NAME)[:3, 3], expected, atol=1e-6
-    )
+    assert np.allclose(restored.world_transform(ROBOT_NAME)[:3, 3], expected, atol=1e-6)
 
 
 def test_serialization_preserves_mount(scene):

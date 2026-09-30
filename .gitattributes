@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+# 机器人模型网格（assets/models/**，约 1041 个 .stl / 40MB）
+#
+# 现状（2026-09-26 核实，勿想当然）：
+#   * 这些 STL **不是 LFS 对象**——它们以普通 git 对象入库：
+#     `git lfs ls-files --all` 为 0；索引 blob 体积与磁盘一致
+#     （例：models 迁到 assets/models 前，ur16e/link_5_00.stl 的 blob
+#      b36a8ab… = 9684 字节 = 磁盘大小）。
+#   * 也就是说下面两条规则**从未真正接管过**这些文件（规则是后加的）。
+#
+# 为什么现在保持注释状态（而不是把路径改到 assets/models/**）：
+#   这些文件的索引内容是真文件，而 LFS clean filter 会产出指针——实测同一文件
+#   `hash-object --path=… ` 得到 721354f1… ≠ 索引的 b36a8ab…。若让规则匹配到它们，
+#   1041 个 STL 会立刻被 git 判成"已修改"，且任一次 `git add` 都会把真内容换成
+#   约 130 字节的指针；而 LFS 服务端并没有这些对象 —— 新克隆会检出坏指针，
+#   等同于丢数据。
+#
+# 真要启用 LFS，正确做法是重写历史（属单独决策，会改动全部提交）：
+#   git lfs migrate import --include="assets/models/**/*.stl"
+#   git lfs migrate import --include="assets/models/**/*.STL"
+# 确认迁移完成、`git lfs ls-files` 显示 1041 个文件后，再取消下面的注释。
+# ---------------------------------------------------------------------------
+# assets/models/**/*.stl filter=lfs diff=lfs merge=lfs -text
+# assets/models/**/*.STL filter=lfs diff=lfs merge=lfs -text

@@ -30,7 +30,7 @@ import pytest
 from PySide6 import QtWidgets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -55,7 +55,7 @@ def qapp():
 
 @pytest.fixture()
 def window(qapp):
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -175,18 +175,10 @@ def test_one_click_demo_keeps_buttons_live(window, monkeypatch):
     from PySide6 import QtWidgets
 
     # 失败路径会弹模态框，离屏测试里必须挡住，否则整轮挂住
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox, "exec", lambda self: QtWidgets.QMessageBox.Ok
-    )
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None)
-    )
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None)
-    )
-    monkeypatch.setattr(
-        QtWidgets.QMessageBox, "critical", staticmethod(lambda *a, **k: None)
-    )
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", lambda self: QtWidgets.QMessageBox.Ok)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", staticmethod(lambda *a, **k: None))
 
     window.load_grasping_workstation_demo()
 
@@ -208,7 +200,7 @@ def test_one_click_demo_keeps_buttons_live(window, monkeypatch):
 
 
 def test_tab_titles_have_english_translations(monkeypatch):
-    from orolp import i18n
+    from support import i18n
 
     monkeypatch.setattr(i18n, "_LANGUAGE", "en", raising=False)
     for text in LEFT_TABS + RIGHT_TABS:
@@ -216,9 +208,9 @@ def test_tab_titles_have_english_translations(monkeypatch):
 
 
 def test_window_title_carries_library_version(window):
-    import orolp
+    from support import __version__
 
-    assert orolp.__version__ in window.windowTitle()
+    assert __version__ in window.windowTitle()
 
 
 # --------------------------------------------------------------------------- #
@@ -292,6 +284,4 @@ def test_playback_button_rows_fit_the_side_bar(window):
     for row, widgets in rows.items():
         need = sum(w.minimumSizeHint().width() for w in widgets)
         need += grid.horizontalSpacing() * (len(widgets) - 1)
-        assert need <= limit, (
-            f"第 {row} 行按钮需要 {need}px，左栏只有 {limit}px——会被压扁"
-        )
+        assert need <= limit, f"第 {row} 行按钮需要 {need}px，左栏只有 {limit}px——会被压扁"

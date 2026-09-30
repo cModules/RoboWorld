@@ -31,25 +31,25 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.collision import (  # noqa: E402
+from domain.collision import (
     CollisionChecker,
     parts_separation,
     prim_separation,
 )
-from orolp.multirobot import (  # noqa: E402
+from service.multirobot import (
     STRATEGIES,
     RobotJob,
     build_job,
     scan_timeline,
     schedule_cell,
 )
-from orolp.pose import Pose  # noqa: E402
-from orolp.simulation import Trajectory, Waypoint  # noqa: E402
-from orolp.world.components import Part  # noqa: E402
-from orolp.world.geometry import Box, Sphere  # noqa: E402
-from orolp.world.scene import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.simulation import Trajectory, Waypoint  # noqa: E402
+from domain.world.components import Part  # noqa: E402
+from domain.world.geometry import Box, Sphere  # noqa: E402
+from domain.world.scene import (
     GEOMETRY_COLLISION,
     GEOMETRY_VISUAL,
     ROBOT_NAME,
@@ -59,7 +59,7 @@ from orolp.world.scene import (  # noqa: E402
     load_robot_visuals,
 )
 
-UR5E = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+UR5E = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 DEMO = REPO_ROOT / "examples" / "multi_robot_cell_demo.py"
 
 FLAG_URDF = """<?xml version="1.0"?>
@@ -101,9 +101,7 @@ def flag_urdf(tmp_path_factory) -> str:
 def _traj(*points: tuple[float, float]) -> Trajectory:
     """一自由度轨迹：``(时刻 s, 关节角 deg)`` 序列。"""
     home = Pose()
-    return Trajectory(
-        [Waypoint(np.array([deg], dtype=float), home, float(t)) for t, deg in points]
-    )
+    return Trajectory([Waypoint(np.array([deg], dtype=float), home, float(t)) for t, deg in points])
 
 
 def _home_traj(joints: float, duration: float) -> Trajectory:
@@ -126,10 +124,7 @@ def _two_robot_scene(flag_urdf, gap_mm=0.0, joints_a=0.0, joints_b=0.0):
 
 def _jobs(scene, jobs: list[RobotJob]) -> list[RobotJob]:
     """按名字取同名机器人重建作业（``schedule_cell`` 会就地改 ``start``）。"""
-    return [
-        RobotJob(robot=j.robot, trajectory=j.trajectory, label=j.label)
-        for j in jobs
-    ]
+    return [RobotJob(robot=j.robot, trajectory=j.trajectory, label=j.label) for j in jobs]
 
 
 # --------------------------------------------------------------------------- #
@@ -165,9 +160,7 @@ def test_robot_state_geometry_source_switch():
     box = Part(Box((10.0, 10.0, 10.0)), np.eye(4), (1.0, 0.0, 0.0))
     sphere = Part(Sphere(5.0), np.eye(4), (0.0, 1.0, 0.0))
 
-    full = RobotState(
-        name="r", urdf="x", visuals=[sphere], collision_parts=[box]
-    )
+    full = RobotState(name="r", urdf="x", visuals=[sphere], collision_parts=[box])
     assert full.geometry(GEOMETRY_COLLISION) == [box]
     assert full.geometry(GEOMETRY_VISUAL) == [sphere]
 
@@ -379,9 +372,7 @@ def test_multi_robot_roundtrip_keeps_names_joints_and_poses(flag_urdf):
     assert back.robot_names == [a, b]
     assert back.robots[a].joints_deg == [10.0]
     assert back.robots[b].joints_deg == [20.0]
-    assert np.allclose(
-        back.objects[b].pose.matrix, scene.objects[b].pose.matrix, atol=1e-9
-    )
+    assert np.allclose(back.objects[b].pose.matrix, scene.objects[b].pose.matrix, atol=1e-9)
 
 
 def test_from_dict_falls_back_to_shell_when_urdf_missing(tmp_path):
@@ -529,10 +520,10 @@ def test_robot_job_basic_fields(flag_urdf):
 def test_robot_job_joints_at_clamps_outside_window():
     """区间外夹紧到两端位形——待机位形也要参与干涉检查。"""
     job = build_job("机器人A", _traj((0.0, 10.0), (2.0, 50.0)), start=3.0)
-    assert job.joints_at(0.0)[0] == pytest.approx(10.0)   # 未开工 → 首路点
-    assert job.joints_at(3.0)[0] == pytest.approx(10.0)   # 开工瞬间
-    assert job.joints_at(4.0)[0] == pytest.approx(30.0)   # 中段插值
-    assert job.joints_at(9.0)[0] == pytest.approx(50.0)   # 收工后 → 末路点
+    assert job.joints_at(0.0)[0] == pytest.approx(10.0)  # 未开工 → 首路点
+    assert job.joints_at(3.0)[0] == pytest.approx(10.0)  # 开工瞬间
+    assert job.joints_at(4.0)[0] == pytest.approx(30.0)  # 中段插值
+    assert job.joints_at(9.0)[0] == pytest.approx(50.0)  # 收工后 → 末路点
 
 
 def test_robot_job_empty_trajectory_has_no_pose():
@@ -711,9 +702,7 @@ def test_schedule_greedy_respects_max_wait(flag_urdf):
         build_job(a, _home_traj(180.0, 3.0)),
         build_job(b, _home_traj(0.0, 2.0)),
     ]
-    gre = schedule_cell(
-        scene, _jobs(scene, jobs), strategy="greedy", sample_dt=0.5, max_wait=1.0
-    )
+    gre = schedule_cell(scene, _jobs(scene, jobs), strategy="greedy", sample_dt=0.5, max_wait=1.0)
     assert gre.jobs[b].start <= 1.0 + 1e-9
     assert not gre.robots_ok
 
@@ -764,8 +753,16 @@ def test_cell_schedule_summary_shape(flag_urdf):
     data = sched.summary()
 
     assert set(data) >= {
-        "strategy", "makespan", "sample_dt", "clearance", "iterations",
-        "ok", "robots_ok", "robots", "interferences", "env_interferences",
+        "strategy",
+        "makespan",
+        "sample_dt",
+        "clearance",
+        "iterations",
+        "ok",
+        "robots_ok",
+        "robots",
+        "interferences",
+        "env_interferences",
     }
     assert data["strategy"] == "serial"
     assert data["makespan"] == pytest.approx(6.0)
@@ -789,7 +786,7 @@ def test_cell_schedule_format_is_readable(flag_urdf):
 
 
 def test_cell_schedule_format_empty():
-    from orolp.multirobot import CellSchedule
+    from service.multirobot import CellSchedule
 
     empty = CellSchedule()
     assert empty.makespan == 0.0
@@ -808,7 +805,7 @@ def test_interference_str_and_kind(flag_urdf):
     text = str(hit)
     assert "↔" in text and "mm" in text
     assert f"{hit.robot_a}:{hit.link_a}" in text
-    from orolp.multirobot import _interference_dict
+    from service.multirobot import _interference_dict
 
     assert _interference_dict(hit)["kind"] == "robot-robot"
 
@@ -824,9 +821,7 @@ def demo_run(tmp_path_factory):
     out_dir = tmp_path_factory.mktemp("multirobot_demo")
     json_path = out_dir / "summary.json"
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / "python"), str(REPO_ROOT), env.get("PYTHONPATH", "")]
-    )
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO_ROOT), str(REPO_ROOT), env.get("PYTHONPATH", "")])
     proc = subprocess.run(
         [sys.executable, str(DEMO), "--json", str(json_path)],
         cwd=str(REPO_ROOT),
@@ -903,9 +898,9 @@ def test_multi_robot_demo_summary_invariants(demo_run):
     # 净空 0 时两机判为不干涉（没穿透）；把判据换成 60mm 安全净空，同刻齐发立刻
     # 暴露一片近失。若这条断言失败，说明轨迹被改得"太平顺"——演示就失去了说服力。
     assert not scheds["parallel"]["interferences"], "净空 0 口径：并发应无穿透"
-    assert scheds["parallel_clearance_60"]["interferences"], (
-        "净空 60mm 口径下同刻齐发应有近失，否则'必须错峰'的结论不成立"
-    )
+    assert scheds["parallel_clearance_60"][
+        "interferences"
+    ], "净空 60mm 口径下同刻齐发应有近失，否则'必须错峰'的结论不成立"
     # 近失全部由贪心错峰清掉，且总节拍仍优于串行
     assert scheds["greedy_clearance_60"]["robots_ok"] is True
     assert scheds["greedy_clearance_60"]["makespan"] <= scheds["serial"]["makespan"] + 1e-6

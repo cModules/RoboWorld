@@ -4,11 +4,12 @@ RobotWorld Example: Welding Path with Weave Pattern
 Demonstrates Cartesian path generation for continuous processes.
 """
 
-import orolp as orp
+from domain.pose import Pose
+from domain.robot import Robot
 import numpy as np
 
-robot = orp.Robot("models/kuka/kr6_r900.urdf", name="KUKA_1")
-robot.tool = orp.Pose.from_xyz_rpy(0, 0, 200, 0, 0, 0)  # Welding torch
+robot = Robot("assets/models/kuka/kr6_r900.urdf", name="KUKA_1")
+robot.tool = Pose.from_xyz_rpy(0, 0, 200, 0, 0, 0)  # Welding torch
 
 # Define seam path: straight line with sinusoidal weave
 start_pt = np.array([400, 200, 100])
@@ -22,7 +23,7 @@ for i in range(num_points):
     # Weave amplitude 5mm, frequency 3 cycles over seam
     weave = 5 * np.sin(2 * np.pi * 3 * t)
     pos = base + np.array([0, weave, 0])
-    pose = orp.Pose.from_xyz_rpy(pos[0], pos[1], pos[2], 0, 0, 0)
+    pose = Pose.from_xyz_rpy(pos[0], pos[1], pos[2], 0, 0, 0)
     wp = robot.moveL(pose, speed=30, blend=2)
     waypoints.append(wp)
 

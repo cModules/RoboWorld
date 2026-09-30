@@ -2,10 +2,10 @@
 
 被测对象：
 
-* :func:`orolp.dynamics.dynamics_cache_key` —— 内容寻址键：模型内容签名
+* :func:`domain.dynamics.dynamics_cache_key` —— 内容寻址键：模型内容签名
   （连杆惯性/末端负载/额定力矩）+ 逐路点关节位置/速度/加速度 + 指令时间区间；
-* :class:`orolp.incremental.DynamicsResultCache` —— LRU 结果缓存骨架的实例化；
-* :meth:`orolp.planner.TrajectoryPlanner._check_dynamics` 的缓存接线 ——
+* :class:`service.incremental.DynamicsResultCache` —— LRU 结果缓存骨架的实例化；
+* :meth:`service.planner.TrajectoryPlanner._check_dynamics` 的缓存接线 ——
   命中与实算走同一条"应用到报表"路径，结论逐字段一致。
 
 核心约定与 v1.2.2 干涉检查结果缓存同构：**改负载、改惯性、改程序都换键**，
@@ -18,20 +18,20 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-import orolp  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.dynamics import dynamics_cache_key  # noqa: E402
-from orolp.incremental import (  # noqa: E402
+# noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.dynamics import dynamics_cache_key  # noqa: E402
+from service.incremental import (
     DYNAMICS_CACHE_MAX_ENTRIES,
     DynamicsResultCache,
     get_dynamics_cache,
     resolve_dynamics_cache,
     set_dynamics_cache,
 )
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
 # 与 test_collision_cache.py 同款三连杆：几何给 Scene 用，动力学靠
 # set_link_inertial 手动补（URDF 本体不带 <inertial>，正好用来测
@@ -86,11 +86,15 @@ def make_planner(three_link_urdf, fill_inertials=True, **kwargs) -> TrajectoryPl
     planner = TrajectoryPlanner(scene=scene, robot=robot, **kwargs)
     if fill_inertials:
         planner.dynamics_model.set_link_inertial(
-            "arm", mass=2.0, com=(0.0, 0.0, 0.1),
+            "arm",
+            mass=2.0,
+            com=(0.0, 0.0, 0.1),
             inertia=[[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.001]],
         )
         planner.dynamics_model.set_link_inertial(
-            "tool", mass=0.5, com=(0.0, 0.0, 0.05),
+            "tool",
+            mass=0.5,
+            com=(0.0, 0.0, 0.05),
             inertia=[[0.0002, 0, 0], [0, 0.0002, 0], [0, 0, 0.0002]],
         )
     return planner
@@ -146,7 +150,9 @@ def test_key_changes_with_inertial(three_link_urdf):
     program = prog_swing(p.robot)
     before = key_of(p, program)
     p.dynamics_model.set_link_inertial(
-        "arm", mass=2.5, com=(0.0, 0.0, 0.1),
+        "arm",
+        mass=2.5,
+        com=(0.0, 0.0, 0.1),
         inertia=[[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.001]],
     )
     assert key_of(p, program) != before
@@ -173,10 +179,7 @@ def test_key_changes_with_torque_limits(tmp_path):
 
     p_light = make_planner(str(light_path))
     p_heavy = make_planner(str(heavy_path))
-    assert (
-        p_light.dynamics_model.content_signature()
-        != p_heavy.dynamics_model.content_signature()
-    )
+    assert p_light.dynamics_model.content_signature() != p_heavy.dynamics_model.content_signature()
 
 
 # --------------------------------------------------------------------------- #
@@ -258,7 +261,9 @@ def test_inertial_change_is_miss(three_link_urdf):
 
     p.validate(program)
     p.dynamics_model.set_link_inertial(
-        "tool", mass=1.5, com=(0.0, 0.0, 0.05),
+        "tool",
+        mass=1.5,
+        com=(0.0, 0.0, 0.05),
         inertia=[[0.0002, 0, 0], [0, 0.0002, 0], [0, 0, 0.0002]],
     )
     p.validate(program)
@@ -366,10 +371,12 @@ def test_lru_eviction(three_link_urdf):
     p.validate(prog_swing(p.robot))
     p.validate(prog_other(p.robot))
     p.validate(
-        (lambda r: (r.set_joints([0.0, 175.0]),
-                    r.moveJ([45.0, 120.0]).then(r.moveJ([-45.0, 175.0])))[1])(
-            p.robot
-        )
+        (
+            lambda r: (
+                r.set_joints([0.0, 175.0]),
+                r.moveJ([45.0, 120.0]).then(r.moveJ([-45.0, 175.0])),
+            )[1]
+        )(p.robot)
     )
     assert cache.stats()["entries"] == 2
     assert cache.stats()["evictions"] == 1
@@ -403,13 +410,13 @@ def test_max_entries_default():
 
 
 # --------------------------------------------------------------------------- #
-# 5. 计时诚实性（orolp.perf）
+# 5. 计时诚实性（service.perf）
 # --------------------------------------------------------------------------- #
 
 
 def test_profile_program_does_not_touch_dynamics_cache(three_link_urdf):
     """基准报告的是真算耗时——profile_program 不得读写动力学结果缓存。"""
-    from orolp.perf import profile_program
+    from service.perf import profile_program
 
     p = make_planner(three_link_urdf)
     cache = DynamicsResultCache()
@@ -424,7 +431,7 @@ def test_profile_program_does_not_touch_dynamics_cache(three_link_urdf):
 
 def test_caches_off_restores_globals(three_link_urdf):
     """_caches_off 不带 planner：全局默认换成 None，退出原样还原。"""
-    from orolp.perf import _caches_off
+    from service.perf import _caches_off
 
     dyn = DynamicsResultCache()
     set_dynamics_cache(dyn)
@@ -445,7 +452,7 @@ def test_caches_off_vetoes_instance_caches(three_link_urdf):
     这是 v1.2.3 诚实性测试抓出的 v1.2.2 缺口的回归测试：只关全局时，
     自带实例缓存的规划器在基准计时里照样命中。
     """
-    from orolp.perf import _caches_off
+    from service.perf import _caches_off
 
     p = make_planner(three_link_urdf)
     cache = DynamicsResultCache()
@@ -467,14 +474,3 @@ def test_caches_off_vetoes_instance_caches(three_link_urdf):
 # --------------------------------------------------------------------------- #
 # 6. 顶层导出
 # --------------------------------------------------------------------------- #
-
-
-def test_top_level_exports():
-    for name in (
-        "DYNAMICS_CACHE_MAX_ENTRIES",
-        "DynamicsResultCache",
-        "get_dynamics_cache",
-        "set_dynamics_cache",
-        "resolve_dynamics_cache",
-    ):
-        assert hasattr(orolp, name), f"orolp.{name} 未导出"

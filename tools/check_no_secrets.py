@@ -69,9 +69,25 @@ _SKIP_DIRS = (
 #: 视为二进制、不做文本扫描的扩展名
 _BINARY_SUFFIXES = frozenset(
     {
-        ".stl", ".ply", ".step", ".stp", ".iges", ".igs",
-        ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf",
-        ".so", ".pyd", ".dll", ".dylib", ".zip", ".gz", ".whl",
+        ".stl",
+        ".ply",
+        ".step",
+        ".stp",
+        ".iges",
+        ".igs",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".ico",
+        ".pdf",
+        ".so",
+        ".pyd",
+        ".dll",
+        ".dylib",
+        ".zip",
+        ".gz",
+        ".whl",
     }
 )
 
@@ -125,13 +141,11 @@ def _build_rules() -> List[Rule]:
         Rule(
             name="hardcoded-token",
             # token/secret/password/api_key = "..." 且值够长够随机
-            pattern=re.compile(
-                r"""(?ix)
+            pattern=re.compile(r"""(?ix)
                 # tok / token / secret / password / api_key / access_key / auth
                 \b(?:tok|token|secret|password|passwd|pwd|api[_-]?key|access[_-]?key|auth)
                 \b\s*[:=]\s*["']?(?P<value>[A-Za-z0-9_\-]{20,})["']?
-                """
-            ),
+                """),
             hint="疑似硬编码凭据；请用环境变量或密钥管理服务",
         ),
         Rule(
@@ -233,9 +247,7 @@ def _redact(text: str, keep: int = 4) -> str:
 
 
 #: URL 内联凭据 ``scheme://user:pass@host``
-_CRED_PATTERN = re.compile(
-    r"([a-z][a-z0-9+.\-]*://)([^/\s:@]+):([^/\s:@]+)@", re.IGNORECASE
-)
+_CRED_PATTERN = re.compile(r"([a-z][a-z0-9+.\-]*://)([^/\s:@]+):([^/\s:@]+)@", re.IGNORECASE)
 
 
 def _safe_excerpt(text: str) -> str:

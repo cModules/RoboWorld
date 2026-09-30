@@ -4,7 +4,7 @@
 离屏（``QT_QPA_PLATFORM=offscreen``）跑完**对外承诺的那条闭环**：
 
     冷启动 → 一键演示 → 干涉检查(F6) → 校验与节拍(F7) → 回放（含抓取随动）
-    → 出机器人代码 → 存 .orolp → 关 → 冷启动重开同一工程 → 退出
+    → 出机器人代码 → 存 .core → 关 → 冷启动重开同一工程 → 退出
 
 与 pytest 的分工：单元测试证明「每个零件算得对」，这里只问一句——
 **新手第一次打开、照着演示点一遍，会不会撞上什么**。每一步都打印可见结果，
@@ -12,7 +12,7 @@
 
 两个刻意的隔离（否则脚本会 hang 在等待人类点对话框）：
 
-* ``OROLP_CONFIG_DIR`` 指向临时目录：冷启动＝干净用户，不会被开发者机器上
+* ``CORE_CONFIG_DIR`` 指向临时目录：冷启动＝干净用户，不会被开发者机器上
   残留的自动保存快照挡住（``maybe_prompt_recovery`` 会在 showEvent 里问人）；
 * 模态对话框一律 stub：QMessageBox / QFileDialog / QDialog 都不真正弹。
 
@@ -40,7 +40,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
 
@@ -64,29 +64,29 @@ def parse_args(argv=None):
 args = parse_args()
 
 if args.features:
-    os.environ["OROLP_FEATURES"] = args.features
+    os.environ["CORE_FEATURES"] = args.features
 
 # 冷启动＝干净用户：隔离用户级配置目录，避免读到开发机上的自动保存/最近打开
 _CONFIG_DIR = Path(tempfile.mkdtemp(prefix="rw-smoke-"))
-os.environ["OROLP_CONFIG_DIR"] = str(_CONFIG_DIR)
+os.environ["CORE_CONFIG_DIR"] = str(_CONFIG_DIR)
 
 # 卡住不留悬案
 faulthandler.dump_traceback_later(args.timeout, exit=True)
 
 from PySide6 import QtCore, QtWidgets  # noqa: E402
 
-import app  # noqa: E402
+import main  # noqa: E402
 
 #: 构建档位（打印出来，报告里才知道这份结果属于哪一档）
 try:
-    from orolp.features import describe as _features_describe
+    from app.features import describe as _features_describe
 except Exception:  # pragma: no cover - features 缺失时按全功能对待
     _features_describe = lambda: "full（features 模块缺失）"  # noqa: E731
 
-from orolp.i18n import tr  # noqa: E402
+from support.i18n import tr  # noqa: E402
 
 #: 出码演示暂时替换掉的展示入口（finally 里还原）
-_ORIGINAL_SHOW_GENERATED = app.MainWindow._show_generated_code
+_ORIGINAL_SHOW_GENERATED = main.MainWindow._show_generated_code
 
 
 class _Checklist:
@@ -123,10 +123,10 @@ def _stub_dialogs(projects_dir: Path):
         )
     QtWidgets.QDialog.exec = lambda self, *a, **k: QtWidgets.QDialog.Rejected
     QtWidgets.QFileDialog.getSaveFileName = staticmethod(
-        lambda *a, **k: (str(projects_dir / "smoke.orolp"), "")
+        lambda *a, **k: (str(projects_dir / "smoke.core"), "")
     )
     QtWidgets.QFileDialog.getOpenFileName = staticmethod(
-        lambda *a, **k: (str(projects_dir / "smoke.orolp"), "")
+        lambda *a, **k: (str(projects_dir / "smoke.core"), "")
     )
 
 
@@ -148,8 +148,8 @@ def main() -> int:
     print("[1/9] 冷启动")
     qapp = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     # 变量名不能叫 ``app``：它会遮蔽模块 ``app``（MainWindow 的所在），
-    # 于是 ``app.MainWindow()`` 变成在 QApplication 上找属性——必然 AttributeError
-    window = app.MainWindow()
+    # 于是 ``main.MainWindow()`` 变成在 QApplication 上找属性——必然 AttributeError
+    window = main.MainWindow()
     window.show()
     _pump(qapp)
     cl.check(window.isVisible(), "主窗口已显示")
@@ -160,9 +160,7 @@ def main() -> int:
     frames = []
     gripper_states = []
     # 多机改造后这两个信号都带上了机器人名：``(机器人名, 载荷)``
-    window.program_panel.playbackFrame.connect(
-        lambda _robot, values: frames.append(values)
-    )
+    window.program_panel.playbackFrame.connect(lambda _robot, values: frames.append(values))
     window.program_panel.gripperStateChanged.connect(
         lambda _robot, action: gripper_states.append(action)
     )
@@ -220,23 +218,26 @@ def main() -> int:
     # ---------------------------------------------------------------- 6 出码
     print("[6/9] 生成机器人代码 (Ctrl+G)")
     captured = {}
-    app.MainWindow._show_generated_code = lambda self, code, robot: captured.update(
+    main.MainWindow._show_generated_code = lambda self, code, robot: captured.update(
         code=code, robot=robot
     )
     try:
         window.generate_robot_code()
         _pump(qapp)
         code = captured.get("code")
-        cl.check(bool(code and code.strip()), "后处理产出非空代码",
-                 f"{len(code.splitlines()) if code else 0} 行")
+        cl.check(
+            bool(code and code.strip()),
+            "后处理产出非空代码",
+            f"{len(code.splitlines()) if code else 0} 行",
+        )
     finally:
-        app.MainWindow._show_generated_code = _ORIGINAL_SHOW_GENERATED
+        main.MainWindow._show_generated_code = _ORIGINAL_SHOW_GENERATED
 
     # ---------------------------------------------------------------- 7 存工程
-    print("[7/9] 保存工程 (.orolp)")
+    print("[7/9] 保存工程 (.core)")
     window.save_project()
     _pump(qapp)
-    saved = projects_dir / "smoke.orolp"
+    saved = projects_dir / "smoke.core"
     if cl.check(saved.exists(), "工程文件已落盘", str(saved.name)):
         payload = json.loads(saved.read_text(encoding="utf-8"))
         cl.note(f"顶层键: {sorted(payload.keys())}")
@@ -247,7 +248,7 @@ def main() -> int:
     window.close()
     _pump(qapp, 10)
 
-    reopened = app.MainWindow()
+    reopened = main.MainWindow()
     try:
         reopened.show()
         _pump(qapp)
@@ -267,7 +268,7 @@ def main() -> int:
     # --------------------------------------------------------------- 9 干净退出
     print("[9/9] 退出")
     _pump(qapp, 10)
-    # 崩溃日志清理过了：本次冒烟没有写 ~/.orolp（隔离目录），也不用为一時的
+    # 崩溃日志清理过了：本次冒烟没有写 ~/.core（隔离目录），也不用为一時的
     # 临时目录负责——tmppath 由系统回收（macOS NSTemporaryDirectory 自动清理）
 
     if cl.problems:

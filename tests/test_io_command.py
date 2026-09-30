@@ -22,11 +22,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.pose import Pose  # noqa: E402
-from orolp.post import get_post_processor, list_post_processors  # noqa: E402
-from orolp.program import (  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from adapter.post import get_post_processor, list_post_processors  # noqa: E402
+from service.program import (
     Motion,
     MotionType,
     Program,
@@ -34,9 +34,9 @@ from orolp.program import (  # noqa: E402
     WaitDI,
     WaitTime,
 )
-from orolp.robot import Robot  # noqa: E402
+from domain.robot import Robot  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "kuka" / "kr16_2" / "kr16_2.urdf"
 
 IO_MAP = {
     "gripper_close": "Q0.1",
@@ -108,7 +108,7 @@ def test_add_appends(robot):
     [
         ("Q0.0", 0),
         ("Q0.1", 1),
-        ("Q1.3", 11),   # 1*8+3
+        ("Q1.3", 11),  # 1*8+3
         ("I0.3", 3),
         ("i2.7", 23),
     ],
@@ -138,10 +138,10 @@ def test_kuka_io_syntax(robot):
         "kuka_krc4",
         metadata={"program_name": "PICK", "io_map": IO_MAP},
     )
-    assert "$OUT[1] = TRUE" in code          # gripper_close → Q0.1
-    assert "$OUT[0] = TRUE" in code          # gripper_open  → Q0.0
+    assert "$OUT[1] = TRUE" in code  # gripper_close → Q0.1
+    assert "$OUT[0] = TRUE" in code  # gripper_open  → Q0.0
     assert "WAIT SEC 0.500" in code
-    assert "WAIT FOR $IN[3]" in code         # clamped       → I0.3
+    assert "WAIT FOR $IN[3]" in code  # clamped       → I0.3
 
 
 def test_abb_io_syntax(robot):
@@ -223,10 +223,12 @@ def test_every_brand_emits_io_operand(robot, name):
     waittime = pp.format_waittime(0.5).strip()
 
     code = pp.generate(
-        [Motion(MotionType.JOINTS, [0, 0, 0, 0, 0, 0]),
-         SetDO("gripper_close", True),
-         WaitDI("clamped", True),
-         WaitTime(0.5)],
+        [
+            Motion(MotionType.JOINTS, [0, 0, 0, 0, 0, 0]),
+            SetDO("gripper_close", True),
+            WaitDI("clamped", True),
+            WaitTime(0.5),
+        ],
         metadata={"program_name": "T", "io_map": IO_MAP},
     )
 

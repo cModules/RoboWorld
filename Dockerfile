@@ -1,14 +1,14 @@
 # Dockerfile（仓库根目录）
 # RobotWorld 交付用制成品镜像（无头 CI 验证用）
 # - 真实依赖见 pyproject.toml，仓库无 requirements.txt，直接 pip 装核心依赖
-# - C++ 扩展 orolp_core 为可选（__init__ 已 try/except ImportError），跳过编译以加速
+# - C++ 扩展 accel_native 为可选（accel/__init__.py 已 try/except ImportError），跳过编译以加速
 # - PySide6/PyOpenGL 仅 GUI 面板用，测试与核心 API 不依赖，无头镜像不装
 FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/python \
+    PYTHONPATH=/app \
     PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
     PIP_TIMEOUT=120 \
     PIP_RETRIES=10

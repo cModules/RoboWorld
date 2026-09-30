@@ -28,17 +28,17 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 from PySide6 import QtWidgets  # noqa: E402
 
-import orolp.i18n as i18n  # noqa: E402
-from orolp import Robot  # noqa: E402
-from orolp.controller_panel import ControllerPanel  # noqa: E402
-from orolp.linkstub import ControllerStubServer  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
+import support.i18n as i18n  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from app.views.controller_panel import ControllerPanel  # noqa: E402
+from adapter.linkstub import ControllerStubServer  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
 
-URDF = REPO_ROOT / "models" / "ur" / "ur5e" / "ur5e.urdf"
+URDF = REPO_ROOT / "assets" / "models" / "ur" / "ur5e" / "ur5e.urdf"
 JOINTS = [f"joint_{i}" for i in range(1, 7)]
 HOME = [0.0, -90.0, 90.0, -90.0, 0.0, 0.0]
 SECOND = [15.0, -80.0, 80.0, -85.0, 10.0, 0.0]
@@ -80,6 +80,7 @@ def panel(qapp, stub, robot):
 
 def _provider(robot, post=None):
     """两步示教程序（moveJ×2），模拟离线编程面板的当前程序。"""
+
     def provider():
         builder = ProgramBuilder(robot)
         builder.moveJ(HOME, speed=50.0)
@@ -96,6 +97,7 @@ def _log_text(panel):
 # --------------------------------------------------------------------------- #
 # 初始状态
 # --------------------------------------------------------------------------- #
+
 
 def test_initial_state_not_connected(panel):
     assert not panel.is_connected
@@ -121,11 +123,12 @@ def test_connect_failure_returns_false(panel, qapp):
 # 连接
 # --------------------------------------------------------------------------- #
 
+
 def test_connect_success_shows_caps(panel, stub):
     assert panel.connect_to_controller() is True
     assert panel.is_connected
     info = panel.label_info.text()
-    assert "orolp.ControllerStubServer" in info
+    assert "core.ControllerStubServer" in info
     assert "dof 6" in info.replace("关节数 6", "dof 6") or "6" in info
     # 能力表如实展示（默认全开）
     assert "feedback" in info
@@ -158,6 +161,7 @@ def test_duplicate_connect_is_reconnect(panel, stub):
 # --------------------------------------------------------------------------- #
 # 程序部署
 # --------------------------------------------------------------------------- #
+
 
 def test_deploy_without_connection_warns(panel):
     panel.set_program_provider(_provider(Robot(str(URDF), "UR5e")))
@@ -230,6 +234,7 @@ def test_deploy_without_provider_warns(panel, stub):
 # 关节回读
 # --------------------------------------------------------------------------- #
 
+
 def test_read_joints_emits_signal(panel, stub, qapp):
     got = []
     panel.jointsRead.connect(lambda q: got.append(q))
@@ -268,13 +273,14 @@ def test_read_joints_without_connection(panel):
 # MainWindow 接线
 # --------------------------------------------------------------------------- #
 
+
 def test_main_window_applies_read_joints_to_viewport(qapp, monkeypatch, tmp_path):
     """app.py 的 on_controller_joints_read 把真机关节（度）摆进视口。"""
     import importlib.util
 
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_ZH, save=False)
-    spec = importlib.util.spec_from_file_location("app_under_test", REPO_ROOT / "app.py")
+    spec = importlib.util.spec_from_file_location("app_under_test", REPO_ROOT / "main.py")
     app_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(app_mod)
 
@@ -298,10 +304,11 @@ def test_main_window_applies_read_joints_to_viewport(qapp, monkeypatch, tmp_path
 # i18n
 # --------------------------------------------------------------------------- #
 
+
 def test_panel_text_en(monkeypatch, tmp_path, stub, robot):
     """en 模式下面板按钮与状态文案为英文。"""
-    monkeypatch.delenv("OROLP_LANG", raising=False)
-    monkeypatch.setenv("OROLP_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("CORE_LANG", raising=False)
+    monkeypatch.setenv("CORE_CONFIG_DIR", str(tmp_path / "cfg"))
     i18n.set_language(i18n.LANG_EN, save=False)
     try:
         p = ControllerPanel()

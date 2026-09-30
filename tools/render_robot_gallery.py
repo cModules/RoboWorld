@@ -35,7 +35,7 @@ import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
-sys.path.insert(0, str(_REPO_ROOT / "python"))
+sys.path.insert(0, str(_REPO_ROOT))
 
 
 def _ensure_display() -> str:
@@ -135,10 +135,10 @@ class Verdict:
 
     ok: bool
     reason: str = ""
-    coverage: float = 0.0     # 非背景像素占比
-    hue: float = -1.0         # 画面主色调（度）
+    coverage: float = 0.0  # 非背景像素占比
+    hue: float = -1.0  # 画面主色调（度）
     target_hue: float = -1.0  # 期望色调（品牌 primary / accent）
-    match: float = 0.0        # 与期望色调接近的像素占比
+    match: float = 0.0  # 与期望色调接近的像素占比
 
 
 def _hsv(rgb: np.ndarray):
@@ -151,7 +151,8 @@ def _hsv(rgb: np.ndarray):
     is_r = mx == r
     is_g = (mx == g) & ~is_r
     h = np.where(
-        is_r, ((g - b) / safe) % 6.0,
+        is_r,
+        ((g - b) / safe) % 6.0,
         np.where(is_g, ((b - r) / safe) + 2.0, ((r - g) / safe) + 4.0),
     )
     h = (h * 60.0) % 360.0
@@ -182,7 +183,7 @@ def verify_tile(rgb: np.ndarray, key: str) -> Verdict:
     * **主色调匹配** —— 画面主色调是否接近品牌 primary（或 accent）的色相。
       色相对光照不敏感（光照只缩放明度），能可靠证明"是这台机器人、且着色正常"。
     """
-    from orolp.robot_library.specs import BRANDS
+    from adapter.robot_library.specs import BRANDS
 
     bg = np.array([38, 38, 46], dtype=np.int16)
     diff = np.abs(rgb.astype(np.int16) - bg).sum(axis=2)
@@ -208,9 +209,7 @@ def verify_tile(rgb: np.ndarray, key: str) -> Verdict:
         target = float(ah[0, 0])
 
     if hue < 0:
-        return Verdict(
-            coverage >= 0.02, "画面几乎没有彩色像素", coverage, hue, target
-        )
+        return Verdict(coverage >= 0.02, "画面几乎没有彩色像素", coverage, hue, target)
 
     dh = abs(hue - target)
     dh = min(dh, 360.0 - dh)
@@ -219,7 +218,9 @@ def verify_tile(rgb: np.ndarray, key: str) -> Verdict:
     match = float(near.sum()) / float(diff.size)
 
     ok = coverage >= 0.015 and dh < 25.0
-    reason = "" if ok else f"coverage={coverage:.3f} hue={hue:.0f}° target={target:.0f}° Δ={dh:.0f}°"
+    reason = (
+        "" if ok else f"coverage={coverage:.3f} hue={hue:.0f}° target={target:.0f}° Δ={dh:.0f}°"
+    )
     return Verdict(ok, reason, coverage, hue, target, match)
 
 
@@ -243,14 +244,14 @@ def main() -> int:
     _ensure_display()
 
     from PySide6 import QtWidgets
-    from orolp.robot_library.catalog import RobotCatalog
+    from adapter.robot_library.catalog import RobotCatalog
 
     QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
 
     # 延迟导入 olp，它会在 import 时构造 Qt 相关常量
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("olp_main", _REPO_ROOT / "app.py")
+    spec = importlib.util.spec_from_file_location("olp_main", _REPO_ROOT / "main.py")
     olp = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(olp)
@@ -260,7 +261,7 @@ def main() -> int:
     keys = list(keys)
     if "lerobot/so101" not in keys:
         # 带 STL 网格的模型必须纳入验证——它检验的是 <mesh> 渲染通路
-        so101 = _REPO_ROOT / "models" / "lerobot" / "so101" / "urdf" / "so101.urdf"
+        so101 = _REPO_ROOT / "assets" / "models" / "lerobot" / "so101" / "urdf" / "so101.urdf"
         if so101.is_file():
             keys.append("lerobot/so101")
 
@@ -313,9 +314,7 @@ def main() -> int:
     failed = [k for k, i in infos if not i["verdict"].ok]
     cov = [i["verdict"].coverage for _k, i in infos]
     print(f"\n已输出 {len(tiles)} 台机器人 → {out_path}")
-    print(
-        f"覆盖率 min={min(cov):.1%} 中位={sorted(cov)[len(cov)//2]:.1%} max={max(cov):.1%}"
-    )
+    print(f"覆盖率 min={min(cov):.1%} 中位={sorted(cov)[len(cov)//2]:.1%} max={max(cov):.1%}")
     if failed:
         print(f"✗ {len(failed)} 台未通过外观校验: {', '.join(failed)}")
         return 1

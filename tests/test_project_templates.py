@@ -23,12 +23,12 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "python"):
+for _p in (REPO_ROOT, REPO_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from orolp.project import Project
-from orolp.project_templates import (
+from service.project import Project
+from service.project_templates import (
     build_project_template,
     list_project_templates,
     save_project_template,
@@ -77,7 +77,7 @@ def test_grasping_template_scene_and_full_program():
 
 def test_grasping_template_roundtrip_is_a_normal_project(tmp_path):
     project = build_project_template("grasping_workstation")
-    target = project.save(tmp_path / "tpl.orolp")
+    target = project.save(tmp_path / "tpl.core")
     assert target.exists()
 
     back = Project.load(target)
@@ -129,8 +129,8 @@ def test_unknown_template_id_raises_keyerror():
 
 
 def test_save_project_template_helper(tmp_path):
-    target = save_project_template("sorting_station", tmp_path / "s.orolp")
+    target = save_project_template("sorting_station", tmp_path / "s.core")
     back = Project.load(target)
     assert back.has("scene")
     raw = json.loads(target.read_text(encoding="utf-8"))
-    assert raw["schema"] == "orolp.project/1"
+    assert raw["schema"] == "service.project/1"

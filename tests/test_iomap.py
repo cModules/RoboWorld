@@ -30,12 +30,12 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.cell import HANDSHAKE_SIGNALS, CellConfig, Device  # noqa: E402
-from orolp.i18n import tr  # noqa: E402
-from orolp.iomap import (  # noqa: E402
+from service.cell import HANDSHAKE_SIGNALS, CellConfig, Device  # noqa: E402
+from support.i18n import tr  # noqa: E402
+from service.iomap import (
     DEFAULT_DIRECTIONS,
     DIRECTIONS,
     DIRECTION_PLC_TO_ROBOT,
@@ -50,9 +50,9 @@ from orolp.iomap import (  # noqa: E402
     used_signals,
     validate_cell_io,
 )
-from orolp.plc_scl import Step, default_steps, generate_scl  # noqa: E402
-from orolp.process import WeldProcess  # noqa: E402
-from orolp.program import ArcStart, Program, SprayOn, SetDO, WaitDI  # noqa: E402
+from service.plc_scl import Step, default_steps, generate_scl  # noqa: E402
+from service.process import WeldProcess  # noqa: E402
+from service.program import ArcStart, Program, SprayOn, SetDO, WaitDI  # noqa: E402
 
 
 def _cell(**devices) -> CellConfig:
@@ -212,7 +212,7 @@ def test_used_signals_ignores_motion_commands():
 
 
 def test_used_signals_extracts_spray_outputs():
-    from orolp.process import SprayProcess
+    from service.process import SprayProcess
 
     program = Program("S")
     program.spray_on(SprayProcess(spray_on_signal="sp_on", spray_off_signal="sp_off"))
@@ -284,8 +284,8 @@ def test_address_of_and_multiple_owners(cell, smap):
     cell.add(Device(name="夹具1", type="夹具", io_map={"robot_done": "I9.9"}))
     p = next(x for x in smap.points() if x.signal == "robot_done")
     assert p.devices == ["PLC1", "夹具1"]
-    assert p.device == "PLC1"          # 多归属时取第一个，但 devices 全留
-    assert p.address == "I0.0"          # 取第一个有值的
+    assert p.device == "PLC1"  # 多归属时取第一个，但 devices 全留
+    assert p.address == "I0.0"  # 取第一个有值的
 
 
 def test_signal_map_requires_cell():
@@ -310,13 +310,13 @@ def test_assign_falls_back_to_plc_then_first_device(smap):
     assert smap.cell.plc().io_map["brand_new"] == "Q1.0"
 
     empty = SignalMap(CellConfig())
-    assert empty.assign("x", "Q0.0") is False      # 没有任何设备可挂
+    assert empty.assign("x", "Q0.0") is False  # 没有任何设备可挂
 
 
 def test_unassign_removes_only_targeted_device(smap):
     smap.cell.add(Device(name="夹具3", type="夹具", io_map={"robot_start": "Q7.7"}))
     assert smap.unassign("robot_start", "夹具3") is True
-    assert smap.address_of("robot_start") == "Q0.0"   # PLC1 上的还在
+    assert smap.address_of("robot_start") == "Q0.0"  # PLC1 上的还在
     assert smap.unassign("从来没映射过") is False
 
 
@@ -324,8 +324,8 @@ def test_auto_assign_splits_input_and_output_prefixes(smap):
     # Q0.0 / I0.0 已被 robot_start / robot_done 占用 → 从下一位接着编
     got = smap.auto_assign("PLC1", ["gripper_close", "part_present", "safety_ok"])
 
-    assert got["gripper_close"] == "Q0.1"    # PLC 驱动 → 输出侧
-    assert got["part_present"] == "I0.1"     # 传感器 → 输入侧
+    assert got["gripper_close"] == "Q0.1"  # PLC 驱动 → 输出侧
+    assert got["part_present"] == "I0.1"  # 传感器 → 输入侧
     assert got["safety_ok"] == "I0.2"
     assert not any(addr.startswith("Q0.0") or addr == "I0.0" for addr in got.values())
 
@@ -352,7 +352,7 @@ def test_auto_assign_uses_input_prefix_for_read_only_signal(cell):
     program = Program("P")
     program.waitDI("mystery_read")
     got = smap.auto_assign("PLC1", ["mystery_read"], program=program)
-    assert got["mystery_read"] == "I0.1"     # I0.0 被 robot_done 占着，从下一位起
+    assert got["mystery_read"] == "I0.1"  # I0.0 被 robot_done 占着，从下一位起
 
 
 def test_auto_assign_default_when_signals_omitted_fills_unmapped(smap):
@@ -397,10 +397,7 @@ def test_validate_duplicate_detects_german_alias(cell):
     cell.add(Device(name="夹具5", type="夹具", io_map={"gripper_close": "E0.0"}))
     # robot_done 是 I0.0；E0.0 就是 I0.0
     report = SignalMap(cell).validate()
-    assert any(
-        i.code == "duplicate_address" and i.signal == "gripper_close"
-        for i in report.errors
-    )
+    assert any(i.code == "duplicate_address" and i.signal == "gripper_close" for i in report.errors)
 
 
 def test_validate_does_not_invent_duplicates_across_vendor_numbering(cell):
@@ -415,7 +412,7 @@ def test_validate_ambiguous_owner_is_warning(cell):
     report = SignalMap(cell).validate()
     hit = next(i for i in report.warnings if i.code == "ambiguous_owner")
     assert "PLC1" in hit.message and "夹具7" in hit.message
-    assert report.ok is True   # 歧义是警告：不阻塞，但必须人工确认
+    assert report.ok is True  # 歧义是警告：不阻塞，但必须人工确认
 
 
 def test_validate_address_format_warning(cell):
@@ -466,7 +463,7 @@ def test_report_summary_format_and_dict(cell):
 
     assert f"点表 {len(report.points)} 点" in report.summary()
     text = report.format()
-    assert " | " in text          # 用竖线分隔而不是假对齐（中文双宽补不出对齐）
+    assert " | " in text  # 用竖线分隔而不是假对齐（中文双宽补不出对齐）
     assert "ghost" in text and "✗" in text
     data = report.to_dict()
     assert data["ok"] is False
@@ -477,13 +474,22 @@ def test_report_summary_format_and_dict(cell):
 
 def test_report_format_without_issues():
     # 全部握手信号都映射到、且程序没用任何一个 → 无错误也无警告
-    cell = _cell(PLC1={
-        "robot_start": "Q0.0", "robot_done": "I0.0", "gripper_open": "Q0.1",
-        "gripper_close": "Q0.2", "part_present": "I0.1", "safety_ok": "I0.2",
-    })
+    cell = _cell(
+        PLC1={
+            "robot_start": "Q0.0",
+            "robot_done": "I0.0",
+            "gripper_open": "Q0.1",
+            "gripper_close": "Q0.2",
+            "part_present": "I0.1",
+            "safety_ok": "I0.2",
+        }
+    )
     report = SignalMap(cell).validate()
     assert report.issues == []
-    assert tr("点表未发现问题") in report.format()
+    # 必须用**完整**的 i18n key（含前缀 ``  ✓ ``）：zh 是恒等函数，写短一点也能
+    # 靠子串匹配蒙混过关；切到 en 后 key 查不到就原样返回中文，而报告已经翻成
+    # 英文——断言必然失败。这类"只在英文下红"的测试正是 H9 要抓的。
+    assert tr("  ✓ 点表未发现问题") in report.format()
     assert "✓" in report.format()
 
 
@@ -494,7 +500,7 @@ def test_validate_cell_io_is_a_shortcut(cell):
 
 def test_number_of_handshake_defaults_matches_plc_declaration_lists():
     # 谁驱动谁只有一处定义：plc_scl 反向引用本模块
-    from orolp import plc_scl
+    from service import plc_scl
 
     assert tuple(plc_scl._OUTPUT_SIGNALS) == PLC_OUTPUT_SIGNALS
     assert tuple(plc_scl._INPUT_SIGNALS) == PLC_INPUT_SIGNALS
@@ -526,12 +532,14 @@ def test_json_round_trip_is_lossless(cell):
 
 def test_load_rows_distinguishes_applied_unchanged_and_skipped(smap):
     """三种结果必须分开报——静默丢点是最难查的一类问题。"""
-    stats = smap.load_rows([
-        {"signal": "gripper_close", "address": "Q0.2", "device": "PLC1"},   # applied
-        {"signal": "part_present", "address": ""},                          # unchanged
-        {"signal": "幽灵信号", "address": "Q9.9", "device": "不存在的设备"},   # skipped
-        {"signal": "", "address": "Q1.1"},                                  # skipped
-    ])
+    stats = smap.load_rows(
+        [
+            {"signal": "gripper_close", "address": "Q0.2", "device": "PLC1"},  # applied
+            {"signal": "part_present", "address": ""},  # unchanged
+            {"signal": "幽灵信号", "address": "Q9.9", "device": "不存在的设备"},  # skipped
+            {"signal": "", "address": "Q1.1"},  # skipped
+        ]
+    )
     assert stats["applied"] == 1
     assert stats["unchanged"] == 1
     assert stats["skipped"] == 2
@@ -554,7 +562,7 @@ def test_yaml_round_trip(tmp_path, cell):
     SignalMap.load_yaml(target, path)
     assert SignalMap(target).address_of("clamped") == "I0.3"
     body = path.read_text(encoding="utf-8")
-    assert "点表" in body or "points" in body   # allow_unicode：中文不转义
+    assert "点表" in body or "points" in body  # allow_unicode：中文不转义
     assert "\\u" not in body
 
 
@@ -591,7 +599,7 @@ def test_scl_unmapped_declaration_is_visible_in_var_block():
 
 
 def test_scl_post_processor_passes_program_through(cell):
-    from orolp.plc_scl import SCLPostProcessor
+    from service.plc_scl import SCLPostProcessor
 
     code = SCLPostProcessor().generate(
         cell, metadata={"program_name": "CellA"}, items=[SetDO("ghost", True)]
@@ -615,7 +623,7 @@ def qapp():
 @pytest.fixture(scope="module")
 def window(qapp):
     """整个模块共用一个主窗口：MainWindow 构造成本不低，而各用例都自建 cell。"""
-    import app as rw
+    import main as rw
 
     win = rw.MainWindow()
     yield win
@@ -629,7 +637,7 @@ def test_path_code_editor_is_a_qwidget_without_status_bar(window):
     早期代码直接 ``self.statusBar()``，一点「生成 PLC」就 AttributeError。
     现在必须走 ``_notify``（有主窗口用主窗口的，没有则发信号）。
     """
-    import app as rw
+    import main as rw
 
     assert not hasattr(rw.PathCodeEditor, "statusBar")
     assert hasattr(window.code_editor, "statusMessage")
@@ -638,7 +646,7 @@ def test_path_code_editor_is_a_qwidget_without_status_bar(window):
 
 
 def test_notify_falls_back_to_signal_without_main_window(qapp):
-    import app as rw
+    import main as rw
 
     ed = rw.PathCodeEditor()
     seen = []
@@ -666,17 +674,19 @@ def test_write_io_map_from_table_writes_and_clears(window):
     smap = ed._signal_map()
 
     table = QtWidgets.QTableWidget(4, 4)
-    for r, (sig, addr) in enumerate([
-        ("gripper_close", "Q0.2"),   # 新映射
-        ("robot_start", ""),         # 摘掉地址
-        ("clamped", " I0.5 "),       # 两边带空白 → 必须 strip
-    ]):
+    for r, (sig, addr) in enumerate(
+        [
+            ("gripper_close", "Q0.2"),  # 新映射
+            ("robot_start", ""),  # 摘掉地址
+            ("clamped", " I0.5 "),  # 两边带空白 → 必须 strip
+        ]
+    ):
         table.setItem(r, 0, QtWidgets.QTableWidgetItem(sig))
         table.setItem(r, 1, QtWidgets.QTableWidgetItem(addr))
-    table.setItem(3, 0, QtWidgets.QTableWidgetItem("  "))   # 空信号行
+    table.setItem(3, 0, QtWidgets.QTableWidgetItem("  "))  # 空信号行
 
     handled = ed._write_io_map_from_table(table, "PLC1", smap)
-    assert handled == 3                       # 第三行是空信号，不计
+    assert handled == 3  # 第三行是空信号，不计
     assert smap.address_of("gripper_close") == "Q0.2"
     assert smap.address_of("robot_start") == ""
     assert smap.address_of("clamped") == "I0.5"
@@ -715,7 +725,7 @@ def test_generate_plc_emits_code_with_point_table(window, monkeypatch):
 
 
 def test_generate_plc_without_cell_says_so(qapp):
-    import app as rw
+    import main as rw
 
     ed = rw.PathCodeEditor()
     ed.cell = None

@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
 import matplotlib  # noqa: E402
 
@@ -32,15 +32,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 
-from orolp.planner import TrajectoryPlanner  # noqa: E402
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from service.planner import TrajectoryPlanner  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
-URDF = REPO_ROOT / "models/kuka/kr16_2/kr16_2.urdf"
+URDF = REPO_ROOT / "assets/models/kuka/kr16_2/kr16_2.urdf"
 HOME = [0.0, -20.0, 70.0, 0.0, 40.0, 0.0]
 
 _CJK_FONT_CANDIDATES = (
@@ -142,9 +142,7 @@ def arc_radius_error() -> tuple[np.ndarray, np.ndarray, float]:
     r0 = _tcp_xyz(traj.waypoints[0].pose) - center
     for wp in traj.waypoints:
         r = _tcp_xyz(wp.pose) - center
-        ang = math.degrees(
-            math.atan2(float(np.cross(r0, r)[2]), float(r0 @ r))
-        )
+        ang = math.degrees(math.atan2(float(np.cross(r0, r)[2]), float(r0 @ r)))
         angles.append(abs(ang))
         errs.append(abs(float(np.linalg.norm(r)) - radius))
     return np.array(angles), np.array(errs), float(max(errs))
@@ -237,9 +235,14 @@ def main() -> int:
     )
     ax.legend(facecolor="#2b2b33", labelcolor=FG, fontsize=8, loc="upper left")
     ax.text(
-        0.98, 0.92,
+        0.98,
+        0.92,
         f"全程 < 0.05 mm\n（峰值 {dev_max:.1e} mm，DLS 收敛精度）\n→ 逐点逆解插补生效",
-        transform=ax.transAxes, ha="right", va="top", color=GOOD, fontsize=8,
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        color=GOOD,
+        fontsize=8,
     )
 
     # --- 2. moveC 圆弧度 ---
@@ -260,13 +263,25 @@ def main() -> int:
     speeds, times = cycle_time_sweep()
     ax.plot(speeds, times, marker="o", color=ACCENT, linewidth=1.6, markersize=5)
     for s, t in zip(speeds, times):
-        ax.annotate(f"{t:.2f}s", (s, t), textcoords="offset points",
-                    xytext=(0, 7), ha="center", color=FG, fontsize=7.5)
+        ax.annotate(
+            f"{t:.2f}s",
+            (s, t),
+            textcoords="offset points",
+            xytext=(0, 7),
+            ha="center",
+            color=FG,
+            fontsize=7.5,
+        )
     _style(ax, "节拍 vs 进给速度（轴1 转 90°）", "进给速度 (%)", "估算节拍 (s)")
     ax.text(
-        0.98, 0.94, f"100% → 50%：{times[-1]:.2f}s → {times[2]:.2f}s\n"
-                     f"受加速段主导，非严格翻倍",
-        transform=ax.transAxes, ha="right", va="top", color=FG, fontsize=8,
+        0.98,
+        0.94,
+        f"100% → 50%：{times[-1]:.2f}s → {times[2]:.2f}s\n" f"受加速段主导，非严格翻倍",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        color=FG,
+        fontsize=8,
     )
 
     # --- 4. 沿路径干涉 ---
@@ -274,8 +289,13 @@ def main() -> int:
     heights, flags, first_hit = collision_profile()
     ax.plot(heights, flags, color=ACCENT, linewidth=1.6, drawstyle="steps-post")
     if first_hit > 0:
-        ax.axvline(first_hit, color=BAD, linestyle="--", linewidth=1.2,
-                   label=f"首次干涉 z={first_hit:.0f}mm")
+        ax.axvline(
+            first_hit,
+            color=BAD,
+            linestyle="--",
+            linewidth=1.2,
+            label=f"首次干涉 z={first_hit:.0f}mm",
+        )
         ax.legend(facecolor="#2b2b33", labelcolor=FG, fontsize=8, loc="upper right")
     ax.set_yticks([0, 1])
     ax.set_yticklabels(["无", "干涉"])

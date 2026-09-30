@@ -19,16 +19,16 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.world import build_component  # noqa: E402
-from orolp.world.components import (  # noqa: E402
+from domain.world import build_component  # noqa: E402
+from domain.world.components import (
     COMPONENTS,
     Part,
     get_component,
 )
-from orolp.world.geometry import Box, Cylinder, Sphere  # noqa: E402
-from orolp.world.parts_library import (  # noqa: E402
+from domain.world.geometry import Box, Cylinder, Sphere  # noqa: E402
+from domain.world.parts_library import (
     CUSTOM_CATEGORY,
     CUSTOM_ID_PREFIX,
     CustomPartSpec,
@@ -48,6 +48,7 @@ def _plate(name="平板", pid="plate") -> CustomPartSpec:
 
 
 # ---------------- PrimitiveSpec / CustomPartSpec 校验 ---------------- #
+
 
 def test_unknown_primitive_kind_rejected():
     with pytest.raises(ValueError, match="未知基本体类型"):
@@ -83,12 +84,16 @@ def test_color_components_in_range():
 
 def test_part_id_must_be_identifier():
     with pytest.raises(ValueError, match="id"):
-        CustomPartSpec(id="1bad", name="x", primitives=[PrimitiveSpec(kind="sphere", radius=5.0)]).validate()
+        CustomPartSpec(
+            id="1bad", name="x", primitives=[PrimitiveSpec(kind="sphere", radius=5.0)]
+        ).validate()
 
 
 def test_part_requires_name_and_primitives():
     with pytest.raises(ValueError, match="显示名"):
-        CustomPartSpec(id="ok", name="  ", primitives=[PrimitiveSpec(kind="sphere", radius=5.0)]).validate()
+        CustomPartSpec(
+            id="ok", name="  ", primitives=[PrimitiveSpec(kind="sphere", radius=5.0)]
+        ).validate()
     with pytest.raises(ValueError, match="基本体"):
         CustomPartSpec(id="ok", name="空件", primitives=[]).validate()
 
@@ -96,7 +101,8 @@ def test_part_requires_name_and_primitives():
 def test_duplicate_primitive_names_rejected():
     with pytest.raises(ValueError, match="重名"):
         CustomPartSpec(
-            id="ok", name="双板",
+            id="ok",
+            name="双板",
             primitives=[
                 PrimitiveSpec(kind="box", size=(1, 1, 1), name="板"),
                 PrimitiveSpec(kind="box", size=(2, 2, 2), name="板"),
@@ -111,30 +117,44 @@ def test_rpy_rotation_maps_x_to_y():
     而 offset 本身原样生效。
     """
     prim = PrimitiveSpec(
-        kind="box", size=(10.0, 10.0, 10.0),
-        offset=(100.0, 0.0, 0.0), rpy_deg=(0.0, 0.0, 90.0),
+        kind="box",
+        size=(10.0, 10.0, 10.0),
+        offset=(100.0, 0.0, 0.0),
+        rpy_deg=(0.0, 0.0, 90.0),
     )
     part = prim.to_part()
     assert np.allclose(part.transform[:3, 3], [100.0, 0.0, 0.0], atol=1e-9)
     assert np.allclose(
         part.transform[:3, :3] @ np.array([1.0, 0.0, 0.0]),
-        [0.0, 1.0, 0.0], atol=1e-9,
+        [0.0, 1.0, 0.0],
+        atol=1e-9,
     )
 
 
 # ---------------- JSON 往返 ---------------- #
 
+
 def test_json_roundtrip(tmp_path):
-    lib = CustomPartsLibrary([
-        _plate(),
-        CustomPartSpec(
-            id="flange", name="法兰盘", description="示例",
-            primitives=[
-                PrimitiveSpec(kind="cylinder", radius=80.0, height=16.0, offset=(0, 0, 8.0),
-                              color=(0.4, 0.4, 0.4), name="盘体"),
-            ],
-        ),
-    ])
+    lib = CustomPartsLibrary(
+        [
+            _plate(),
+            CustomPartSpec(
+                id="flange",
+                name="法兰盘",
+                description="示例",
+                primitives=[
+                    PrimitiveSpec(
+                        kind="cylinder",
+                        radius=80.0,
+                        height=16.0,
+                        offset=(0, 0, 8.0),
+                        color=(0.4, 0.4, 0.4),
+                        name="盘体",
+                    ),
+                ],
+            ),
+        ]
+    )
     path = tmp_path / "parts.json"
     lib.save_json(path)
     back = CustomPartsLibrary.load_json(path)
@@ -146,6 +166,7 @@ def test_json_roundtrip(tmp_path):
 
 def test_bad_schema_rejected(tmp_path):
     import json
+
     path = tmp_path / "bad.json"
     path.write_text(json.dumps({"schema": "nope/9", "parts": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="schema"):
@@ -164,6 +185,7 @@ def test_library_remove_unknown_rejected():
 
 
 # ---------------- 注册进组件目录 ---------------- #
+
 
 @pytest.fixture()
 def clean_registry():
@@ -214,7 +236,8 @@ def test_unregister_ignores_builtin_ids():
 
 def test_part_to_part_list_mixed_primitives():
     spec = CustomPartSpec(
-        id="mix", name="组合件",
+        id="mix",
+        name="组合件",
         primitives=[
             PrimitiveSpec(kind="box", size=(10.0, 10.0, 10.0)),
             PrimitiveSpec(kind="cylinder", radius=5.0, height=20.0),
@@ -227,6 +250,7 @@ def test_part_to_part_list_mixed_primitives():
 
 
 # ---------------- GUI：场景设备库的「导入零件…」 ---------------- #
+
 
 @pytest.fixture()
 def qapp():
@@ -245,24 +269,21 @@ def _example_parts_path() -> Path:
 def test_panel_import_parts_file(qapp, clean_registry):
     from PySide6.QtCore import Qt
 
-    from orolp.robot_library.panel import RobotLibraryPanel
+    from adapter.robot_library.panel import RobotLibraryPanel
 
-    panel = RobotLibraryPanel(models_dir=REPO_ROOT / "models")
+    panel = RobotLibraryPanel(models_dir=REPO_ROOT / "assets" / "models")
     n = panel.import_parts_file(_example_parts_path())
     assert n == 2
-    listed = [
-        panel.list_widget.item(i).data(Qt.UserRole)
-        for i in range(panel.list_widget.count())
-    ]
+    listed = [panel.list_widget.item(i).data(Qt.UserRole) for i in range(panel.list_widget.count())]
     assert {"kind": "component", "id": "custom_flange_plate"} in listed
     assert {"kind": "component", "id": "custom_l_bracket"} in listed
 
 
 def test_panel_reimport_is_idempotent(qapp, clean_registry):
     """重复导入同一文件不撞名、不残留旧批（先撤上一批再注册）。"""
-    from orolp.robot_library.panel import RobotLibraryPanel
+    from adapter.robot_library.panel import RobotLibraryPanel
 
-    panel = RobotLibraryPanel(models_dir=REPO_ROOT / "models")
+    panel = RobotLibraryPanel(models_dir=REPO_ROOT / "assets" / "models")
     assert panel.import_parts_file(_example_parts_path()) == 2
     assert panel.import_parts_file(_example_parts_path()) == 2
     customs = [cid for cid in COMPONENTS if cid.startswith(CUSTOM_ID_PREFIX)]
@@ -271,9 +292,9 @@ def test_panel_reimport_is_idempotent(qapp, clean_registry):
 
 def test_panel_import_bad_file_reports_not_raises(qapp, clean_registry, tmp_path):
     """坏文件在按钮路径上走状态栏反馈，不当场炸 GUI。"""
-    from orolp.robot_library.panel import RobotLibraryPanel
+    from adapter.robot_library.panel import RobotLibraryPanel
 
-    panel = RobotLibraryPanel(models_dir=REPO_ROOT / "models")
+    panel = RobotLibraryPanel(models_dir=REPO_ROOT / "assets" / "models")
     msgs = []
     panel.statusMessage.connect(msgs.append)
     bad = tmp_path / "bad.json"

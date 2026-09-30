@@ -21,10 +21,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.world import Scene, build_template, list_templates  # noqa: E402
-from orolp.world.templates import (  # noqa: E402
+from domain.world import Scene, build_template, list_templates  # noqa: E402
+from domain.world.templates import (
     AUTO_WELDING_ID,
     MACHINE_TENDING_ID,
     SORTING_STATION_ID,
@@ -72,7 +72,14 @@ def test_sorting_station_is_complete_and_collision_free():
 def test_machine_tending_is_complete_and_collision_free():
     cell = build_template(MACHINE_TENDING_ID)
     names = set(cell.scene.objects)
-    for required in ("上料输送带", "加工工作台", "台钳", "数控机床（示意）", "成品料箱", "夹爪工具"):
+    for required in (
+        "上料输送带",
+        "加工工作台",
+        "台钳",
+        "数控机床（示意）",
+        "成品料箱",
+        "夹爪工具",
+    ):
         assert required in names, f"机床上下料缺少 {required}"
     assert len(cell.grasp_objects) == 2
     assert cell.place_target == "成品料箱"
@@ -94,8 +101,15 @@ def test_3c_assembly_is_complete_and_collision_free():
     cell = build_template(THREE_C_ASSEMBLY_ID)
     names = set(cell.scene.objects)
     for required in (
-        "上料托盘", "板件_1", "板件_2", "板件_3",
-        "装配工作台", "装配治具", "成品托盘", "安全围栏", "夹爪工具",
+        "上料托盘",
+        "板件_1",
+        "板件_2",
+        "板件_3",
+        "装配工作台",
+        "装配治具",
+        "成品托盘",
+        "安全围栏",
+        "夹爪工具",
     ):
         assert required in names, f"3C 装配工位缺少 {required}"
     assert cell.scene.robot_urdf and "ur5e" in cell.scene.robot_urdf.lower()
@@ -116,8 +130,14 @@ def test_auto_welding_is_complete_and_collision_free():
     cell = build_template(AUTO_WELDING_ID)
     names = set(cell.scene.objects)
     for required in (
-        "焊接变位机", "焊接工件", "输送辊道",
-        "待焊钣金_1", "待焊钣金_2", "焊接控制柜", "安全围栏", "焊枪工具",
+        "焊接变位机",
+        "焊接工件",
+        "输送辊道",
+        "待焊钣金_1",
+        "待焊钣金_2",
+        "焊接控制柜",
+        "安全围栏",
+        "焊枪工具",
     ):
         assert required in names, f"汽车焊装工位缺少 {required}"
     assert cell.grasp_objects == ["待焊钣金_1", "待焊钣金_2"]

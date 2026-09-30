@@ -24,23 +24,23 @@ import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "python"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from orolp.planner import (  # noqa: E402
+from service.planner import (
     AxisLimits,
     PlanningError,
     TrajectoryPlanner,
     _synchronized_time,
     trapezoid_time,
 )
-from orolp.pose import Pose  # noqa: E402
-from orolp.program import Motion, MotionType, Program, ProgramBuilder  # noqa: E402
-from orolp.robot import Robot  # noqa: E402
-from orolp.world.scene import Scene  # noqa: E402
+from domain.pose import Pose  # noqa: E402
+from service.program import Motion, MotionType, Program, ProgramBuilder  # noqa: E402
+from domain.robot import Robot  # noqa: E402
+from domain.world.scene import Scene  # noqa: E402
 
 warnings.filterwarnings("ignore")  # RPY 在腕部奇异处会报 gimbal lock，与被测逻辑无关
 
-URDF = REPO_ROOT / "models/kuka/kr16_2/kr16_2.urdf"
+URDF = REPO_ROOT / "assets/models/kuka/kr16_2/kr16_2.urdf"
 #: KR16-2 的一个舒展位形，TCP 约在 (458, 0, 1454)
 HOME = [0.0, -20.0, 70.0, 0.0, 40.0, 0.0]
 
@@ -287,9 +287,7 @@ def test_moveC_sweeps_the_full_angle():
 
     start_vec = tcp_xyz(traj.waypoints[0].pose) - center
     end_vec = tcp_xyz(traj.waypoints[-1].pose) - center
-    cos_a = float(start_vec @ end_vec) / (
-        np.linalg.norm(start_vec) * np.linalg.norm(end_vec)
-    )
+    cos_a = float(start_vec @ end_vec) / (np.linalg.norm(start_vec) * np.linalg.norm(end_vec))
     assert math.degrees(math.acos(np.clip(cos_a, -1, 1))) == pytest.approx(90.0, abs=2.0)
 
 
@@ -344,7 +342,7 @@ def test_spline_now_supported():
 
 def test_issue_string_is_actionable():
     """问题文本要能定位到第几条指令、什么时刻。"""
-    issue = __import__("orolp.planner", fromlist=["Issue"]).Issue(
+    issue = __import__("service.planner", fromlist=["Issue"]).Issue(
         "error", "collision", 3, "干涉：robot ↔ 工作台", progress=0.5, time=1.25
     )
     text = str(issue)
@@ -391,12 +389,18 @@ def build_scene(robot_urdf: Path, table_x: float = 1200.0) -> Scene:
     """机器人 + 工作台 + 台面工件。"""
     scene = Scene()
     scene.set_robot(str(robot_urdf))
-    scene.add("worktable", name="工作台",
-              params={"length": 1400.0, "width": 900.0, "height": 780.0},
-              pose=Pose.from_xyz_rpy(table_x, 0.0, 0.0, 0.0, 0.0, 0.0))
-    scene.add("workpiece_box", name="工件",
-              params={"length": 300.0, "width": 200.0, "height": 150.0},
-              pose=Pose.from_xyz_rpy(table_x, 0.0, 780.0, 0.0, 0.0, 0.0))
+    scene.add(
+        "worktable",
+        name="工作台",
+        params={"length": 1400.0, "width": 900.0, "height": 780.0},
+        pose=Pose.from_xyz_rpy(table_x, 0.0, 0.0, 0.0, 0.0, 0.0),
+    )
+    scene.add(
+        "workpiece_box",
+        name="工件",
+        params={"length": 300.0, "width": 200.0, "height": 150.0},
+        pose=Pose.from_xyz_rpy(table_x, 0.0, 780.0, 0.0, 0.0, 0.0),
+    )
     return scene
 
 
@@ -435,8 +439,11 @@ def test_collision_issue_is_located_in_time():
     scene = build_scene(URDF, table_x=1200.0)
     scene.set_robot_joints(HOME)
     p0 = robot.forward_kinematics()
-    report = ProgramBuilder(robot).moveL(p0.with_position(900.0, 0.0, 500.0)).build().validate(
-        scene=scene
+    report = (
+        ProgramBuilder(robot)
+        .moveL(p0.with_position(900.0, 0.0, 500.0))
+        .build()
+        .validate(scene=scene)
     )
     coll = [i for i in report.issues if i.code == "collision"]
     assert coll, report.format()
@@ -557,7 +564,7 @@ def test_all_robot_models_plan_joint_motions():
     用 moveJ 而不是 moveL，是因为关节空间插补不依赖工作空间几何——
     "模型能不能用"这件事不该被"自动挑的起始姿态好不好"绑架。
     """
-    urdfs = sorted((REPO_ROOT / "models").rglob("*.urdf"))
+    urdfs = sorted((REPO_ROOT / "assets" / "models").rglob("*.urdf"))
     assert len(urdfs) >= 20, f"模型数量异常：{len(urdfs)}"
 
     failures = []
@@ -595,7 +602,7 @@ def test_industrial_brands_plan_cartesian_motions():
     failures = []
     checked = 0
     for brand in INDUSTRIAL_BRANDS:
-        for path in sorted((REPO_ROOT / "models" / brand).rglob("*.urdf")):
+        for path in sorted((REPO_ROOT / "assets" / "models" / brand).rglob("*.urdf")):
             tag = f"{brand}/{path.parent.name}"
             checked += 1
             try:
@@ -631,7 +638,7 @@ def test_unreachable_cartesian_motion_fails_cleanly():
     若误按内旋 ``Rx·Ry·Rz`` 组合，正解给出的末端位姿自相矛盾，反而会把
     近在咫尺的目标判成不可达。
     """
-    path = REPO_ROOT / "models/lerobot/so101/urdf/so101.urdf"
+    path = REPO_ROOT / "assets/models/lerobot/so101/urdf/so101.urdf"
     if not path.exists():
         pytest.skip("SO-101 模型不存在")
 
@@ -642,9 +649,9 @@ def test_unreachable_cartesian_motion_fails_cleanly():
 
     # 正向对照：小幅退刀必须可达，证明运动学本身是自洽的
     near = p0.with_position(*(tcp_xyz(p0) - 10.0 * approach))
-    assert ProgramBuilder(robot).moveL(near).build().validate().ok, (
-        "10mm 退刀本应可达——检查 rpy 是否又退化成内旋组合"
-    )
+    assert (
+        ProgramBuilder(robot).moveL(near).build().validate().ok
+    ), "10mm 退刀本应可达——检查 rpy 是否又退化成内旋组合"
 
     target = p0.with_position(*(tcp_xyz(p0) - 150.0 * approach))
     report = ProgramBuilder(robot).moveL(target).build().validate()
@@ -676,7 +683,7 @@ def test_urdf_rpy_is_fixed_axis_not_intrinsic():
     恰好全是单轴 rpy，所以这个错误能悄悄潜伏——直到遇到 CAD 导出的、
     带完整三轴 rpy 的真实模型（如 SO-101）才暴露。
     """
-    from orolp.kinematics import _rotmat_rpy
+    from domain.kinematics import _rotmat_rpy
 
     rpy = np.array([0.3, -0.75, 1.1])  # 三轴都非零，内外旋必然分道扬镳
 

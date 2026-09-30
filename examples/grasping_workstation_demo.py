@@ -11,7 +11,7 @@
 运行::
 
     python examples/grasping_workstation_demo.py
-    # 或未安装 orolp 时：PYTHONPATH=python python examples/grasping_workstation_demo.py
+    # 或未安装 core 时：PYTHONPATH=python python examples/grasping_workstation_demo.py
 
 GUI 对照：app.py 菜单 File → 抓取工作站演示（一键）(&D)。
 """
@@ -22,15 +22,16 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-for p in (str(REPO_ROOT / "python"), str(REPO_ROOT)):
+for p in (str(REPO_ROOT), str(REPO_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from orolp import ProgramBuilder, Robot  # noqa: E402
-from orolp.pickplace import gripper_action_for  # noqa: E402
-from orolp.planner import ENVELOPE_TOLERANCE_MM, TrajectoryPlanner  # noqa: E402
-from orolp.world.demo import demo_pick_place_points  # noqa: E402
-from orolp.world.templates import build_grasping_workstation  # noqa: E402
+from domain.robot import Robot
+from service.program import ProgramBuilder  # noqa: E402
+from service.pickplace import gripper_action_for  # noqa: E402
+from service.planner import ENVELOPE_TOLERANCE_MM, TrajectoryPlanner  # noqa: E402
+from domain.world.demo import demo_pick_place_points  # noqa: E402
+from domain.world.templates import build_grasping_workstation  # noqa: E402
 
 #: 演示程序用的 IO 点表（信号逻辑名 → 物理地址），与网页演示一致
 IO_MAP = {
