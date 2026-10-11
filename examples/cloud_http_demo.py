@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：HTTP / S3 云通道全流程（v1.0.6）。
+"""RoboWorld 示例：HTTP / S3 云通道全流程（v1.0.6）。
 
 v1.0.3 的云协作给了两种传输：`MemoryCloudStore`（进程内）与 `LocalCloudStore`
 （本机目录）。两者都能把"程序库 / 轨迹库 / 状态回显"跑通，但都只在**一台机器**上
@@ -408,7 +408,7 @@ def section_dialog(server: CloudStoreServer, root: Path) -> None:
 
 
 def main() -> int:
-    print("RobotWorld · HTTP / S3 兼容云通道演示（v1.0.6）")
+    print("RoboWorld · HTTP / S3 兼容云通道演示（v1.0.6）")
 
     robot = Robot(str(URDF), "UR5e")
     tmp = Path(tempfile.mkdtemp(prefix="rwcloud-"))

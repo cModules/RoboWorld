@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：真机连接（Socket）全流程（v1.0.5）。
+"""RoboWorld 示例：真机连接（Socket）全流程（v1.0.5）。
 
 离线编程的最后一公里此前只有两种**离线**形态（`FileLink` 落盘、`SimLink` 进程内
 仿真）。本示例走的是**真 TCP socket**：客户端 :class:`domain.link.SocketLink` 连到

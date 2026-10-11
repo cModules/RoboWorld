@@ -8,13 +8,13 @@ name = "core"
 # （setuptools 用 AST 静态读取，构建 wheel 时不需要安装运行依赖）。
 # 历史：这里曾与 app.spec / 包内 __version__ / 窗口标题四处手写，v1.0.1 就漏改过这里。
 dynamic = ["version"]
-description = "RobotWorld - Open-source Offline Programming Software for Industrial Robots"
+description = "RoboWorld - Open-source Offline Programming Software for Industrial Robots"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "RobotWorld Contributors"}
+    {name = "RoboWorld Contributors"}
 ]
-keywords = ["robotics", "offline-programming", "OLP", "industrial-robot", "digital-twin"]
+keywords = ["industrial-robotics", "offline-programming", "robot-simulation", "robotics-digital-twin", "trajectory-planning", "motion-planning", "inverse-kinematics", "collision-checking", "multi-robot-coordination", "force-control", "cad-cam", "plc", "urdf", "python", "pyside6"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Manufacturing",
@@ -45,10 +45,10 @@ dev = ["pytest>=7.0", "black", "flake8", "mypy", "sphinx"]
 all = ["core[gui,ros2,dev]"]
 
 [project.urls]
-Homepage = "https://github.com/your-org/openrobolp"
-Documentation = "https://openrobolp.readthedocs.io"
-Repository = "https://github.com/your-org/openrobolp"
-Issues = "https://github.com/your-org/openrobolp/issues"
+Homepage = "https://github.com/cModules/RoboWorld"
+Documentation = "https://github.com/cModules/RoboWorld/tree/main/docs"
+Repository = "https://github.com/cModules/RoboWorld"
+Issues = "https://github.com/cModules/RoboWorld/issues"
 
 [project.scripts]
 core = "app.cli:main"

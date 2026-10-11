@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 架构守护脚本（对应 docs/develop/CODING_RULES.md v2 / AGENTS.md）
+"""RoboWorld 架构守护脚本（对应 docs/develop/CODING_RULES.md v2 / AGENTS.md）
 
 检查项：
   H1  PySide6/OpenGL 只允许出现在 GUI 归宿（app/ + 已登记债务文件）

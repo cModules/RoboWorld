@@ -1,4 +1,4 @@
-# RobotWorld 扩展开发指南：新硬件接入 & 新工艺单元
+# RoboWorld 扩展开发指南：新硬件接入 & 新工艺单元
 
 > 版本 v1.0 · 2026-09-25 · 配套 `docs/develop/CODING_RULES.md`（§1 归属查表、§6 扩展点）与 `docs/develop/DOMAIN_ARCHITECTURE.svg`
 > 核心原则：**领域归属按业务产出价值判定；扩展点一律走注册表；接口先行、实现后置。**

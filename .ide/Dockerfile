@@ -1,7 +1,7 @@
 # .ide/Dockerfile
-# RobotWorld 云端开发容器（Cloud Studio）—— 编码 + 网页试运行 GUI
+# RoboWorld 云端开发容器（Cloud Studio）—— 编码 + 网页试运行 GUI
 # 基础保留 node:20，兼容 code-server / CodeBuddy Code CLI / 插件生态；
-# 其上叠加 Python3.11、RobotWorld 运行/测试/GUI 依赖，以及 xvfb + x11vnc + websockify + noVNC，
+# 其上叠加 Python3.11、RoboWorld 运行/测试/GUI 依赖，以及 xvfb + x11vnc + websockify + noVNC，
 # 让 app.py 跑在虚拟桌面并经 noVNC 投到浏览器，方便网站浏览测试。
 
 FROM node:20

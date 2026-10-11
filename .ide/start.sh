@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# RobotWorld 云端试运行编排：虚拟显示 → GUI → VNC → noVNC 网页
+# RoboWorld 云端试运行编排：虚拟显示 → GUI → VNC → noVNC 网页
 set -e
 
 # 1) 启动虚拟显示（无物理显示器也能跑 Qt GUI）
 Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
 sleep 2
 
-# 2) 在虚拟显示上启动 RobotWorld 图形界面
+# 2) 在虚拟显示上启动 RoboWorld 图形界面
 DISPLAY=:99 python3 /app/app.py >/tmp/app.log 2>&1 &
 sleep 3
 

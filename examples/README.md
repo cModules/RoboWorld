@@ -1,6 +1,6 @@
-# RobotWorld 示例程序
+# RoboWorld 示例程序
 
-本目录包含 RobotWorld 的各种示例程序，演示如何使用 Python API 进行机器人离线编程。
+本目录包含 RoboWorld 的各种示例程序，演示如何使用 Python API 进行机器人离线编程。
 
 ## 目录结构
 
@@ -249,9 +249,9 @@ python examples/pick_and_place.py
 ## 进阶学习
 
 - [后处理器开发指南](../docs/manual/post_dev_guide.md)
-- [API 文档](https://openrobolp.readthedocs.io)
+- [API 文档](https://github.com/cModules/RoboWorld/tree/main/docs)
 - [贡献指南](../CONTRIBUTING.md)
 
 ## 技术支持
 
-如有问题，请提交 Issue：https://github.com/your-org/openrobolp/issues
+如有问题，请提交 Issue：https://github.com/cModules/RoboWorld/issues

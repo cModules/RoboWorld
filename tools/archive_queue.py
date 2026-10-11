@@ -36,7 +36,7 @@ ARCHIVE_WHOLE_PREFIXES = (
 
 #: 原样保留：规则要每轮读，待评审想法是待办池（没有 - [ ] 计数但是待办）
 KEEP_AS_IS_PREFIXES = (
-    "# RobotWorld 自动开发队列",
+    "# RoboWorld 自动开发队列",
     "## 执行规则",
     "## 新增功能想法",
     "## 任务队列",

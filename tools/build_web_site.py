@@ -3737,7 +3737,7 @@ _TPL = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RobotWorld · 抓取工作站仿真编程演示</title>
+<title>RoboWorld · 抓取工作站仿真编程演示</title>
 <style>
   :root { --bg:#161a20; --panel:#1e242d; --line:#3a4250; --txt:#e8ecf2; --dim:#9aa5b5;
           --accent:#e8a33d; --blue:#3d6fa8; }
@@ -3769,7 +3769,7 @@ _TPL = """<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>RobotWorld <b>·</b> 抓取工作站仿真编程</h1>
+  <h1>RoboWorld <b>·</b> 抓取工作站仿真编程</h1>
   <p style="color:var(--dim);font-size:13px;margin-top:8px">开源工业机器人离线编程 · UR5e + 真空吸盘 · 输送带上料 / 托盘码放 · TCP 与手眼标定 · 相机触发抓取 · 多机器人协同（双机共享交接区 + 节拍统筹）· 力控柔顺（阻抗/导纳）</p>
 </header>
 <main>
@@ -5163,7 +5163,7 @@ prune_missing()（清理失效条目的返回值）：@@SES_PRUNED@@
 </section>
 
 <footer>
-  RobotWorld — 开源工业机器人离线编程 · <a href="https://github.com/">GitHub</a> ·
+  RoboWorld — 开源工业机器人离线编程 · <a href="https://github.com/">GitHub</a> ·
   本页由 <code>tools/build_web_site.py</code> 自动生成，数据来自真实仿真与后处理
 </footer>
 </main>

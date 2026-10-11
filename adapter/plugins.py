@@ -667,7 +667,7 @@ class PluginRegistry:
 
     def summary(self) -> str:
         """人类可读的注册表现状（CLI / GUI 关于框用）。"""
-        lines = [f"RobotWorld 插件注册表（宿主 API {PLUGIN_API_VERSION}）"]
+        lines = [f"RoboWorld 插件注册表（宿主 API {PLUGIN_API_VERSION}）"]
         if not self._specs:
             lines.append("  （未登记任何插件）")
         for kind in PLUGIN_KINDS:

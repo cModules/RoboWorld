@@ -139,7 +139,7 @@ flowchart TD
 ## 目录结构
 
 ```
-RobotWorld/
+RoboWorld/
 ├── python/orolp/
 │   ├── world/
 │   │   ├── scene.py          # [MODIFY] 1) 新增 flange_transform()：由 _kinematics 与

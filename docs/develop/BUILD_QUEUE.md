@@ -1,7 +1,7 @@
-# RobotWorld 自动开发队列（BUILD_QUEUE）
+# RoboWorld 自动开发队列（BUILD_QUEUE）
 
 > 本文件是「自动开发循环」的执行入口。定时任务每次运行时按此文件工作，完成后通过飞书通知用户。
-> 手动触发方式：对 WorkBuddy 说"继续 RobotWorld 队列"即可。
+> 手动触发方式：对 WorkBuddy 说"继续 RoboWorld 队列"即可。
 
 
 > **归档规则（2026-09-27 起）**：本文件是**活跃队列**，只保留**未完成条目**；

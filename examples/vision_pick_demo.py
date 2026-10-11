@@ -331,7 +331,7 @@ def run_vision_pick(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="RobotWorld 相机触发抓取演示（v0.3.4）")
+    parser = argparse.ArgumentParser(description="RoboWorld 相机触发抓取演示（v0.3.4）")
     parser.add_argument("--noise", type=float, default=0.15, help="手眼标定位置噪声 (mm)")
     parser.add_argument("--noise-deg", type=float, default=0.03, help="手眼标定姿态噪声 (度)")
     parser.add_argument("--pixel-noise", type=float, default=0.2, help="视觉像素噪声 (px)")
@@ -347,7 +347,7 @@ def main() -> int:
     )
 
     print("=" * 74)
-    print("RobotWorld · 相机触发抓取演示（标定 → 手眼 → 视觉 → 抓取）")
+    print("RoboWorld · 相机触发抓取演示（标定 → 手眼 → 视觉 → 抓取）")
     print("=" * 74)
     print(f"工作站: {data['cell_id']} | 目标工件: 第 {data['workpiece_index'] + 1} 个")
 

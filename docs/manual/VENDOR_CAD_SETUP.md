@@ -101,7 +101,7 @@ bsk session stop <id>             # 任务结束必须调用，关闭 Agent Wind
 
 ### 目录约定
 ```
-RobotWorld/assets/vendor/<brand>/step/<model>.STEP
+RoboWorld/assets/vendor/<brand>/step/<model>.STEP
 ```
 例：
 ```

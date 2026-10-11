@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：数字孪生与云协作全流程（v1.0.3）。
+"""RoboWorld 示例：数字孪生与云协作全流程（v1.0.3）。
 
 一条命令跑通"仿真 → 云端 → 回读 → 偏差比对 → 成因定位"的闭环，数据全部来自
 真实 API（模板工作站 + IK + 规划器 + 调试会话 + 孪生层），无 GUI：
@@ -93,7 +93,7 @@ def build_program(robot: Robot, cell):
 
 def main() -> int:
     print("=" * 72)
-    print("RobotWorld 数字孪生与云协作演示（v1.0.3 · 无 GUI 全流程）")
+    print("RoboWorld 数字孪生与云协作演示（v1.0.3 · 无 GUI 全流程）")
     print("=" * 72)
 
     # 1) 规划：模板工作站 → 示教点 → 程序 → 轨迹

@@ -1,4 +1,4 @@
-"""RobotWorld 命令行入口（ADR-003）：``core doctor / post / world``。
+"""RoboWorld 命令行入口（ADR-003）：``core doctor / post / world``。
 
 用法::
 
@@ -76,7 +76,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     """环境自检：把"为什么跑不起来"一次说清。"""
     hard_fail = 0
 
-    print(f"RobotWorld {__version__} — {tr('环境自检')}")
+    print(f"RoboWorld {__version__} — {tr('环境自检')}")
 
     py_ok = sys.version_info[:2] >= _REQUIRED_PYTHON
     print(
@@ -222,7 +222,7 @@ def cmd_world(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     """构造参数解析器（独立出来便于测试直接复用）。"""
     parser = argparse.ArgumentParser(
-        prog="core", description=tr("RobotWorld 命令行：环境自检与资源查询")
+        prog="core", description=tr("RoboWorld 命令行：环境自检与资源查询")
     )
     parser.add_argument("--version", action="version", version=f"core {__version__}")
     sub = parser.add_subparsers(dest="command")

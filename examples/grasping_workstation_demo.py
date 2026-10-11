@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：抓取工作站一键全流程（S5 展示物料）。
+"""RoboWorld 示例：抓取工作站一键全流程（S5 展示物料）。
 
 无 GUI、一条命令跑通「抓取工作站仿真编程」能力展示的完整链路，
 数据全部来自真实 API（模板场景 + 数值 IK + 规划器 + 品牌后处理），
@@ -69,7 +69,7 @@ def build_demo_program(robot: Robot, cell) -> Program:  # noqa: F821
 
 def main() -> int:
     print("=" * 62)
-    print("RobotWorld 抓取工作站演示（无 GUI 全流程）")
+    print("RoboWorld 抓取工作站演示（无 GUI 全流程）")
     print("=" * 62)
 
     # 1) 一键搭建标准抓取工作站（UR5e + 吸盘 + 输送带 + 4 工件 + 托盘）

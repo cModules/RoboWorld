@@ -1,4 +1,4 @@
-# 安装 RobotWorld 所需 Python 依赖
+# 安装 RoboWorld 所需 Python 依赖
 
 # 优先使用 .venv 虚拟环境，否则使用系统 python
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"

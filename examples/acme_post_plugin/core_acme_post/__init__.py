@@ -1,4 +1,4 @@
-"""core-plugin-acme-post —— RobotWorld 第一方示例插件包。
+"""core-plugin-acme-post —— RoboWorld 第一方示例插件包。
 
 把 ``examples/plugins_demo.py`` 里的 ACME-V2 品牌后处理器挪成一个真正可
 ``pip install`` 的独立包，用于验证 ``adapter.plugins`` 的 **importlib.metadata

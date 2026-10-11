@@ -1,6 +1,6 @@
 # Qt6 3D 查看器演示
 
-这是 RobotWorld 的一个最小可运行 3D 可视化演示。
+这是 RoboWorld 的一个最小可运行 3D 可视化演示。
 
 ## 编译说明
 
@@ -48,7 +48,7 @@ brew install qt@6
 
 ### 编译
 ```bash
-cd openrobolp
+cd RoboWorld
 mkdir build && cd build
 cmake .. -DBUILD_GUI=ON -DBUILD_PYTHON_BINDINGS=ON
 make -j$(nproc)

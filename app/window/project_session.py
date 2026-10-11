@@ -72,7 +72,7 @@ class ProjectSessionMixin:
         """标题带工程名与未保存标记——"这个界面里装的是哪个工程"一眼可见。"""
         mark = tr(" •未保存") if self._project_dirty else ""
         name = self._project_name() or tr("未命名工程")
-        self.setWindowTitle(f"RobotWorld Terminal v{_CORE_VERSION} — {name}{mark}")
+        self.setWindowTitle(f"RoboWorld Terminal v{_CORE_VERSION} — {name}{mark}")
 
     def _set_project_dirty(self, dirty: bool = True) -> None:
         if not _HAS_PROJECT:

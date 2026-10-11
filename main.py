@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld - OLP Terminal（启动壳）。
+"""RoboWorld - OLP Terminal（启动壳）。
 
 ADR-002 拆解完成态：窗口与视图已全部落地 ``app/``，本文件**不再定义任何类**，
 只做三件事——``sys.path`` 前导、崩溃处理、拉起主窗口。
@@ -96,7 +96,7 @@ def write_crash_log(exc_type, exc_value, exc_tb) -> "Path | None":
         stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         path = log_dir / f"crash-{stamp}.log"
         lines = [
-            f"RobotWorld v{_CORE_VERSION} 崩溃日志",
+            f"RoboWorld v{_CORE_VERSION} 崩溃日志",
             f"时间: {_dt.datetime.now().isoformat(timespec='seconds')}",
             f"平台: {_platform.platform()}",
             f"Python: {_platform.python_version()}",

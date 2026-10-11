@@ -2,7 +2,7 @@
 OPEN-CORE 边界声明 / OPEN-CORE BOUNDARY NOTICE
 ================================================================================
 
-RobotWorld 是 **open-core**（内核开源）项目：**内核、数据格式与规范开源；
+RoboWorld 是 **open-core**（内核开源）项目：**内核、数据格式与规范开源；
 AI 云服务、协作平台、高级工艺模块闭源。**
 
 【开源部分 — 本仓库，Apache License 2.0】
@@ -212,7 +212,7 @@ AI 云服务、协作平台、高级工艺模块闭源。**
 
    END OF TERMS AND CONDITIONS
 
-   Copyright 2026 RobotWorld Contributors
+   Copyright 2026 RoboWorld Contributors
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.

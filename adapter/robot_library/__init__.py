@@ -1,6 +1,6 @@
 """机器人库 (Robot Library)。
 
-对标商业 OLP 软件的 eCatalog / 组件库能力，为 RobotWorld 提供：
+对标商业 OLP 软件的 eCatalog / 组件库能力，为 RoboWorld 提供：
 
 * :mod:`.specs` —— 多品牌机器人型号规格数据库（KUKA、JAKA、ABB、FANUC、UR、埃斯顿）
 * :mod:`.urdf_builder` —— 由规格程序化生成 URDF（仅使用基本几何体）

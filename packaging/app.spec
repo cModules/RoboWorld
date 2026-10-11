@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-RobotWorld - PyInstaller Spec File
+RoboWorld - PyInstaller Spec File
 
 **本文件位于 ``packaging/``**（P0-3 目录重整），因此所有资源路径都必须先算出
 仓库根：``SPECPATH`` 是 ``packaging/``，往上**一级**才是仓库根。早先它躺在仓库
@@ -9,8 +9,8 @@ RobotWorld - PyInstaller Spec File
 静默少打（应用能启动、功能悄悄失效）。
 
 跨平台打包：
-* Windows / Linux：产出 RobotWorld 可执行文件，图标取 logo.png
-* macOS：额外生成 RobotWorld.app，**Dock 名称与图标由 Info.plist 的
+* Windows / Linux：产出 RoboWorld 可执行文件，图标取 logo.png
+* macOS：额外生成 RoboWorld.app，**Dock 名称与图标由 Info.plist 的
   CFBundleName 和 logo.icns 决定**（需先由 logo.png 生成 logo.icns）
 """
 
@@ -145,7 +145,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='RobotWorld',
+    name='RoboWorld',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -173,12 +173,12 @@ _icns = os.path.join(_pkg_dir, 'logo.icns')
 
 app = BUNDLE(
     exe,
-    name='RobotWorld.app',
+    name='RoboWorld.app',
     icon=_icns if os.path.exists(_icns) else None,
     bundle_identifier='com.openrobot.work.robotworld',
     info_plist={
-        'CFBundleName': 'RobotWorld',
-        'CFBundleDisplayName': 'RobotWorld',
+        'CFBundleName': 'RoboWorld',
+        'CFBundleDisplayName': 'RoboWorld',
         'CFBundleShortVersionString': _VERSION,
         'NSHighResolutionCapable': True,
     },

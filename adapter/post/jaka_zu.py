@@ -79,7 +79,7 @@ class JAKAZuPostProcessor(BasePostProcessor):
     def _get_template(self) -> str:
         note = tr("# NOTE: 语法未经真实控制器验证，使用前请核对")
         header = (
-            "# RobotWorld v{{ meta.version|default('0.1.0') }} generated JAKA script\n"
+            "# RoboWorld v{{ meta.version|default('0.1.0') }} generated JAKA script\n"
             "# Robot: {{ meta.robot_name|default('unknown') }}\n"
             f"# {note}\n"
             "\n"

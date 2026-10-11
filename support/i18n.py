@@ -142,7 +142,7 @@ _CATALOG_EN: dict[str, str] = {
     "抓取工作站演示已就绪：{n} 个示例示教点{cycle_txt}，回放中（可暂停/单步/停止）": "Grasping workstation demo ready: {n} demo taught points{cycle_txt}, playing back (pause/step/stop available)",
     "，节拍 {t} s": ", cycle {t} s",
     "节拍 {t} s": "Cycle {t} s",
-    "RobotWorld": "RobotWorld",
+    "RoboWorld": "RoboWorld",
     "IO —": "IO —",
     "节拍 —": "Cycle —",
     "干涉 {n}": "Interference {n}",
@@ -869,7 +869,7 @@ _CATALOG_EN: dict[str, str] = {
         "{name} cannot be dragged: mounted on {host}; unmount it first"
     ),
     # ---- 规模与性能基准（v1.1.8）----
-    "RobotWorld 规划/校验规模基准": "RobotWorld planning / validation scale benchmark",
+    "RoboWorld 规划/校验规模基准": "RoboWorld planning / validation scale benchmark",
     "机器人 URDF 路径": "robot URDF path",
     "单次基准的运动条数": "number of motions in the single-run benchmark",
     "规模表用的运动条数（逗号分隔，如 20,50,100）": (
@@ -1203,7 +1203,7 @@ _CATALOG_EN: dict[str, str] = {
     "示教点语义含未知值（{msg}），已按默认语义重建": (
         "Point semantics contain an unknown value ({msg}); rebuilt with default " "semantics"
     ),
-    "RobotWorld 工程 (*.core);;所有文件 (*)": "RobotWorld project (*.core);;All Files (*)",
+    "RoboWorld 工程 (*.core);;所有文件 (*)": "RoboWorld project (*.core);;All Files (*)",
     "示教程序": "Teach program",
     "各机示教程序": "Per-robot teach programs",
     "各机示教程序段必须是对象": "Per-robot teach programs section must be an object",
@@ -1266,7 +1266,7 @@ _CATALOG_EN: dict[str, str] = {
     "未知工程段：{name}（可用：{opts}）": "Unknown project section: {name} (available: {opts})",
     "备注：{note}": "Note: {note}",
     "工程里没有：{names}": "Not in this project: {names}",
-    "不是 RobotWorld 工程文件（schema={got}，期望 {want}）": "Not a RobotWorld project file (schema={got}, expected {want})",
+    "不是 RoboWorld 工程文件（schema={got}，期望 {want}）": "Not a RoboWorld project file (schema={got}, expected {want})",
     "工程由 core {saved} 保存，当前库版本 {cur}——按现行 schema 读取，未做版本迁移": (
         "Saved by core {saved}; current library version is {cur} — read with the "
         "current schema, no version migration was performed"
@@ -1431,8 +1431,8 @@ _CATALOG_EN: dict[str, str] = {
     "第 {line} 行不是可执行的 movej 指令": ("Line {line} is not an executable movej instruction"),
     # ---- 命令行入口（ADR-003：core doctor / post / world） ---- #
     "环境自检": "Environment self-check",
-    "RobotWorld 命令行：环境自检与资源查询": (
-        "RobotWorld command line: environment self-check and resource queries"
+    "RoboWorld 命令行：环境自检与资源查询": (
+        "RoboWorld command line: environment self-check and resource queries"
     ),
     "可用": "OK",
     "缺失": "missing",

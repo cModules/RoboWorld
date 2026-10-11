@@ -1,10 +1,10 @@
 ---
-description: RobotWorld 架构规范强制执行——编码前归属判定与自检（依据 AGENTS.md #23-#29 与 docs/CODING_RULES.md）
+description: RoboWorld 架构规范强制执行——编码前归属判定与自检（依据 AGENTS.md #23-#29 与 docs/CODING_RULES.md）
 alwaysApply: true
 enabled: true
 ---
 
-# RobotWorld 架构规范（CodeBuddy 强制规则）
+# RoboWorld 架构规范（CodeBuddy 强制规则）
 
 完整规则见 `docs/CODING_RULES.md`（细则）、`docs/EXTENSION_GUIDE.md`（扩展流水线）、`AGENTS.md`（硬规则）。
 自动门禁：`python3 tools/check_arch_rules.py` 必须退出码 0。

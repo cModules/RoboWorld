@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：程序版本对比（v1.0.7）。
+"""RoboWorld 示例：程序版本对比（v1.0.7）。
 
 一句话需求："程序在云端被人改过一版——改了哪几条指令、节拍变多少、TCP 路径
 偏多少？"本示例用 **真 HTTP 版本库** + **真规划器** 跑完整个评审流程：
@@ -172,7 +172,7 @@ def section_edges() -> None:
 
 
 def main() -> int:
-    print("RobotWorld · 程序版本对比演示（v1.0.7）")
+    print("RoboWorld · 程序版本对比演示（v1.0.7）")
     srv, store, v1, v2 = section_store()
     try:
         section_diff(store, v1, v2)

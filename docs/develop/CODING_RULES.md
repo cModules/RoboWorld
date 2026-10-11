@@ -1,4 +1,4 @@
-# RobotWorld 编码规范 v2（落地版）
+# RoboWorld 编码规范 v2（落地版）
 
 > 版本：v2.0 · 日期：2026-09-25
 > 定位：本文件是 `AGENTS.md` 的**详细版**，与 `docs/develop/ARCHITECTURE.md`（架构依据）、`tools/check_arch_rules.py`（可执行守护）三位一体。

@@ -1,4 +1,4 @@
-# 任务概览：RobotWorld 整体架构设计与开发规则
+# 任务概览：RoboWorld 整体架构设计与开发规则
 
 ## 完成内容
 1. **代码库盘点**（Explore 代理 + 人工核实；**以下为 2026-09-25 诊断快照**，当前值见 `docs/develop/ARCHITECTURE.md` §1）：Python 层约 4.2 万行为事实主体；C++ 核心仅 ~700 行近乎闲置（try/except 可选加载，kinematics.py 有纯 Python 重复实现）；启动壳单体 6,895 行（现 `main.py` **160 行**，ADR-002 启动壳拆解已完成：`MainWindow` 落地

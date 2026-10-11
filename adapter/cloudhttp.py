@@ -1151,7 +1151,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """
     ap = argparse.ArgumentParser(
         prog="python -m adapter.cloudhttp",
-        description="RobotWorld 参考对象存储服务端（本机验收 / 自建自用）",
+        description="RoboWorld 参考对象存储服务端（本机验收 / 自建自用）",
     )
     ap.add_argument("--root", required=True, help="存储根目录")
     ap.add_argument("--host", default="127.0.0.1")

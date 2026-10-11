@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：插件接口全流程（v1.0.4）。
+"""RoboWorld 示例：插件接口全流程（v1.0.4）。
 
 一条命令演示三个扩展点各自"从外部挂进来"的完整用法，全部基于真实 API：
 
@@ -56,7 +56,7 @@ URDF = str(REPO_ROOT / "assets/models/ur/ur5e/ur5e.urdf")
 HOME = [0.0, -90.0, 90.0, -90.0, 90.0, 0.0]
 
 TEMPLATE = """{{ config.comment_char }} ACME V2 / {{ meta.program_name|default('CORE_PROG') }}
-{{ config.comment_char }} 由第三方插件生成（RobotWorld 插件接口 v1）
+{{ config.comment_char }} 由第三方插件生成（RoboWorld 插件接口 v1）
 DEF {{ meta.program_name|default('CORE_PROG') }}()
 {% for wp in waypoints %}
 {% if wp.cmd in ['SETDO', 'WAITDI', 'WAITTIME', 'ARCSTART', 'ARCEND', 'SPRAYON', 'SPRAYOFF', 'FORCEMODE', 'FORCEMODEEND'] %}
@@ -283,7 +283,7 @@ def _pose_frame_overlay():
 
 def main() -> int:
     print("=" * 72)
-    print("RobotWorld 插件接口演示（v1.0.4 · 三个扩展点 · 无 GUI）")
+    print("RoboWorld 插件接口演示（v1.0.4 · 三个扩展点 · 无 GUI）")
     print("=" * 72)
 
     # ---- 登记三个插件 ----

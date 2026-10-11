@@ -1,9 +1,9 @@
 ---
 name: robotworld-web-dev-container
-overview: 将 .ide/Dockerfile 从通用 node 模板升级为 RobotWorld 云端开发+网页试运行容器：保留 code-server/CodeBuddy/SSH（依赖 node），叠加 Python3.11、运行时/测试/GUI 依赖（含 PySide6/PyOpenGL）、xvfb 虚拟显示，以及 x11vnc + websockify + noVNC，使 app.py 跑在虚拟桌面并经 noVNC 投到浏览器，方便网页浏览测试。同步把 .cnb.yml vscode 段的 launch 从错误的 node index.js 改为启动该 noVNC 试运行栈。
+overview: 将 .ide/Dockerfile 从通用 node 模板升级为 RoboWorld 云端开发+网页试运行容器：保留 code-server/CodeBuddy/SSH（依赖 node），叠加 Python3.11、运行时/测试/GUI 依赖（含 PySide6/PyOpenGL）、xvfb 虚拟显示，以及 x11vnc + websockify + noVNC，使 app.py 跑在虚拟桌面并经 noVNC 投到浏览器，方便网页浏览测试。同步把 .cnb.yml vscode 段的 launch 从错误的 node index.js 改为启动该 noVNC 试运行栈。
 todos:
   - id: rewrite-ide-dockerfile
-    content: 重写 .ide/Dockerfile：叠加 Python3.11、RobotWorld 依赖、PySide6/PyOpenGL、xvfb、x11vnc、websockify、noVNC，保留 code-server/CodeBuddy
+    content: 重写 .ide/Dockerfile：叠加 Python3.11、RoboWorld 依赖、PySide6/PyOpenGL、xvfb、x11vnc、websockify、noVNC，保留 code-server/CodeBuddy
     status: completed
   - id: add-start-script
     content: 新增可执行 .ide/start.sh，编排 Xvfb→app.py→x11vnc→websockify/noVNC
@@ -24,19 +24,19 @@ todos:
 
 ## 用户需求
 
-更新 `.ide/Dockerfile`，把 Cloud Studio 通用开发容器升级为「既能云端写代码、又能在浏览器里直接看到并操作 RobotWorld GUI」的网页试运行环境；同时修正 `.cnb.yml` 中 vscode 段错误的 `launch: node index.js`（仓库无 index.js、镜像也无 Python）。
+更新 `.ide/Dockerfile`，把 Cloud Studio 通用开发容器升级为「既能云端写代码、又能在浏览器里直接看到并操作 RoboWorld GUI」的网页试运行环境；同时修正 `.cnb.yml` 中 vscode 段错误的 `launch: node index.js`（仓库无 index.js、镜像也无 Python）。
 
 ## 产品概述
 
-将现有基于 `node:20` 的通用模板改造为 RobotWorld 云端开发+网页试运行容器：保留 code-server（浏览器版 VS Code）与 CodeBuddy Code 编码环境，叠加 Python 运行时、RobotWorld 核心/GUI 依赖，用 xvfb 虚拟显示启动 `app.py`，再经 x11vnc + websockify + noVNC 把虚拟桌面投到网页，使开发者在浏览器中即可查看并操作 RobotWorld 图形界面，方便网站浏览测试。
+将现有基于 `node:20` 的通用模板改造为 RoboWorld 云端开发+网页试运行容器：保留 code-server（浏览器版 VS Code）与 CodeBuddy Code 编码环境，叠加 Python 运行时、RoboWorld 核心/GUI 依赖，用 xvfb 虚拟显示启动 `app.py`，再经 x11vnc + websockify + noVNC 把虚拟桌面投到网页，使开发者在浏览器中即可查看并操作 RoboWorld 图形界面，方便网站浏览测试。
 
 ## 核心功能
 
 - 云端编码：code-server + CodeBuddy Code（保留原 node 工具链）
-- Python 运行时与 RobotWorld 依赖（含 PySide6/PyOpenGL GUI 库）
+- Python 运行时与 RoboWorld 依赖（含 PySide6/PyOpenGL GUI 库）
 - xvfb 虚拟显示下启动 `app.py` 图形界面
 - noVNC 网页暴露 GUI：x11vnc 采集桌面，websockify 桥接至 noVNC HTTP 端口
-- `.cnb.yml` vscode `launch` 改为启动上述试运行栈，使 Cloud Studio 预览即 RobotWorld GUI 网页
+- `.cnb.yml` vscode `launch` 改为启动上述试运行栈，使 Cloud Studio 预览即 RoboWorld GUI 网页
 
 ## 技术栈选择
 
@@ -49,7 +49,7 @@ todos:
 
 ## 实现方案
 
-保留 `node:20` 基础镜像（code-server / CodeBuddy / 插件生态均依赖 npm，避免改 python 基础再补 node），在其上用 apt 叠加 Python3.11 + 编译工具 + Qt xcb 运行库 + xvfb/x11vnc/websockify/novnc，再用 pip 装 RobotWorld 依赖；通过 `.ide/start.sh` 按顺序拉起「Xvfb :99 → `DISPLAY=:99 python3 app.py` → x11vnc(:99) → websockify(桥接至 noVNC :6080)」，`.cnb.yml` 的 `launch` 调用该脚本。
+保留 `node:20` 基础镜像（code-server / CodeBuddy / 插件生态均依赖 npm，避免改 python 基础再补 node），在其上用 apt 叠加 Python3.11 + 编译工具 + Qt xcb 运行库 + xvfb/x11vnc/websockify/novnc，再用 pip 装 RoboWorld 依赖；通过 `.ide/start.sh` 按顺序拉起「Xvfb :99 → `DISPLAY=:99 python3 app.py` → x11vnc(:99) → websockify(桥接至 noVNC :6080)」，`.cnb.yml` 的 `launch` 调用该脚本。
 
 关键决策与权衡：
 
@@ -84,7 +84,7 @@ flowchart LR
 
 ```
 .ide/
-├── Dockerfile   # [MODIFY] 在 node:20 模板上叠加 Python3.11、RobotWorld 依赖(PySide6/PyOpenGL)、
+├── Dockerfile   # [MODIFY] 在 node:20 模板上叠加 Python3.11、RoboWorld 依赖(PySide6/PyOpenGL)、
 │               #          xvfb/x11vnc/websockify/novnc；保留 code-server 与 CodeBuddy；CMD 调 start.sh
 └── start.sh     # [NEW] 编排 Xvfb→app.py→x11vnc→websockify/noVNC 的启动脚本(需可执行)
 .cnb.yml         # [MODIFY] vscode 段 launch: node index.js → launch: bash .ide/start.sh
@@ -111,4 +111,4 @@ exec websockify --web=/usr/share/novnc 6080 localhost:5900
 
 - **cloudStudio**
 - Purpose: 将改造后的 `.ide/Dockerfile` 开发容器部署到 Cloud Studio，实际拉起云端 IDE 与 noVNC 预览，验证 `.cnb.yml` vscode 段配置生效。
-- Expected outcome: 开发容器构建成功，浏览器中能打开 code-server 编辑代码，且 noVNC 端口可显示并操作 RobotWorld GUI，确认 `launch` 改正生效、无启动报错。
+- Expected outcome: 开发容器构建成功，浏览器中能打开 code-server 编辑代码，且 noVNC 端口可显示并操作 RoboWorld GUI，确认 `launch` 改正生效、无启动报错。

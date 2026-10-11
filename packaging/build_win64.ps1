@@ -1,4 +1,4 @@
-# RobotWorld Windows 64位打包脚本
+# RoboWorld Windows 64位打包脚本
 #
 # 本脚本位于 packaging/（P0-3 目录重整），因此：
 #   $PSScriptRoot = …/packaging
@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host " RobotWorld 打包脚本 (Windows 64-bit)" -ForegroundColor Cyan
+Write-Host " RoboWorld 打包脚本 (Windows 64-bit)" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -70,18 +70,18 @@ try {
 }
 
 # 检查打包结果
-if (Test-Path (Join-Path $DistDir "RobotWorld.exe")) {
+if (Test-Path (Join-Path $DistDir "RoboWorld.exe")) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
     Write-Host " 打包成功！" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "可执行文件位置: " -ForegroundColor Cyan -NoNewline
-    Write-Host (Join-Path $DistDir "RobotWorld.exe") -ForegroundColor White
+    Write-Host (Join-Path $DistDir "RoboWorld.exe") -ForegroundColor White
     Write-Host ""
 
     # 计算文件大小
-    $exePath = Join-Path $DistDir "RobotWorld.exe"
+    $exePath = Join-Path $DistDir "RoboWorld.exe"
     $fileSize = (Get-Item $exePath).Length / 1MB
     Write-Host "文件大小: $([math]::Round($fileSize, 2)) MB" -ForegroundColor Yellow
 } else {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RobotWorld Example: Welding Path with Weave Pattern
+RoboWorld Example: Welding Path with Weave Pattern
 Demonstrates Cartesian path generation for continuous processes.
 """
 

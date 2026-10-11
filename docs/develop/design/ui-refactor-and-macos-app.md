@@ -10,7 +10,7 @@
 
 - 按 PRD 重组界面（左侧资源库、右侧四标签、去掉场景 tab）
 - 修复因结构变动引发的功能回归
-- 让 macOS 显示 RobotWorld 的图标与名称（Dock）
+- 让 macOS 显示 RoboWorld 的图标与名称（Dock）
 
 **本次不做**
 
@@ -26,7 +26,7 @@
 | 各面板外套 `QScrollArea` | 内容自然高度超过标签页可视高度时会被裁切，本项目已两次踩坑 |
 | Dock 图标用 Qt 应用级图标 `QGuiApplication.setWindowIcon` | 用户选择零依赖方案，不引入 pyobjc |
 | Dock 名称改用 `.app` bundle | macOS Dock 名称取自 `CFBundleName`，Qt 层面无法覆盖进程名 |
-| 提供 `RobotWorld-Dev.app` 启动器 | 既让 Dock 名称正确，又保留"改代码免打包"的开发体验 |
+| 提供 `RoboWorld-Dev.app` 启动器 | 既让 Dock 名称正确，又保留"改代码免打包"的开发体验 |
 
 ## 3. 分期与任务
 
@@ -45,9 +45,9 @@
 - [x] `_set_window_icon` 追加应用级图标
 - [x] `app.spec` 新增 macOS `BUNDLE` 段（`CFBundleName` 等）
 - [x] 由 `logo.png` 生成 `logo.icns`（1024×1024）
-- [x] 打包验证 `dist/RobotWorld.app`
+- [x] 打包验证 `dist/RoboWorld.app`
 - [x] logo 替换为新设计并做圆角（1024×1024、四角透明）
-- [x] 新建 `RobotWorld-Dev.app` 开发启动器（已 gitignore）
+- [x] 新建 `RoboWorld-Dev.app` 开发启动器（已 gitignore）
 
 ### P0 — 设备轴与「关节」面板（已完成）
 
@@ -92,8 +92,8 @@
 | 回转轴几何响应 | `rot_deg` 0°→90°，旋转矩阵最大差异 1.0（非 0，未被过滤）✅ |
 | 轴滑块写回 | 拖到 90° → `obj.params["rot_deg"] = 90.0` ✅ |
 | 应用级图标已设置 | `QGuiApplication.windowIcon()` 非空 ✅ |
-| `.app` 的 Dock 名称 | `CFBundleName = RobotWorld` ✅ |
-| 开发启动器 Dock 名称 | `LSDisplayName = RobotWorld-Dev` ✅ |
+| `.app` 的 Dock 名称 | `CFBundleName = RoboWorld` ✅ |
+| 开发启动器 Dock 名称 | `LSDisplayName = RoboWorld-Dev` ✅ |
 
 ## 5. 风险
 

@@ -1,10 +1,10 @@
 ---
 name: robotworld-arch-guard
-description: RobotWorld（/Users/jayhan/RobotWorld，工业机器人离线编程软件）架构合规技能。任何涉及写代码、改代码、重构、评审的任务，编码前必须加载本技能：确定新代码归属层与模块、执行行数阈值与依赖方向自检、运行 tools/check_arch_rules.py 守护脚本。触发词：写代码/改代码/重构/新增功能/修 bug/代码评审/模块归属/拆分文件/架构检查。
+description: RoboWorld（/Users/jayhan/RoboWorld，工业机器人离线编程软件）架构合规技能。任何涉及写代码、改代码、重构、评审的任务，编码前必须加载本技能：确定新代码归属层与模块、执行行数阈值与依赖方向自检、运行 tools/check_arch_rules.py 守护脚本。触发词：写代码/改代码/重构/新增功能/修 bug/代码评审/模块归属/拆分文件/架构检查。
 version: 1.0.0
 ---
 
-# RobotWorld 架构守护 · 编码前强制自检
+# RoboWorld 架构守护 · 编码前强制自检
 
 > 规范全文：`docs/CODING_RULES.md`（v2）· 边界裁决：`AGENTS.md` · 架构依据：`docs/ARCHITECTURE.md`
 > 本技能是三份文档的**执行入口**：编码前过一遍，收尾跑一次守护脚本。

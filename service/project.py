@@ -71,7 +71,7 @@ PROJECT_SCHEMA = "service.project/1"
 PROJECT_EXTENSION = ".core"
 
 #: 文件对话框过滤器
-PROJECT_FILTER = tr("RobotWorld 工程 (*.core);;所有文件 (*)")
+PROJECT_FILTER = tr("RoboWorld 工程 (*.core);;所有文件 (*)")
 
 #: 段标题（进 i18n，同时用于报告与 CLI 输出）
 SECTION_TITLES: Dict[str, str] = {
@@ -551,7 +551,7 @@ class Project:
         schema = str(data.get("schema") or "")
         if schema != PROJECT_SCHEMA:
             raise ProjectError(
-                tr("不是 RobotWorld 工程文件（schema={got}，期望 {want}）").format(
+                tr("不是 RoboWorld 工程文件（schema={got}，期望 {want}）").format(
                     got=schema or tr("（缺失）"), want=PROJECT_SCHEMA
                 )
             )

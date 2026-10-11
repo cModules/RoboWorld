@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：真机连接（SSH / SFTP）全流程（v1.1.2）。
+"""RoboWorld 示例：真机连接（SSH / SFTP）全流程（v1.1.2）。
 
 相当一部分控制器不支持开放 TCP socket 给上位机自定协议，但都带着 SSH——
 对这类机器，"把程序文件放到控制器文件系统 + 让现场用一条命令加载它"就是

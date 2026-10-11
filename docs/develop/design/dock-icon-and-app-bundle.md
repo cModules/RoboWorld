@@ -1,6 +1,6 @@
 ---
 name: dock-icon-and-app-bundle
-overview: 让 RobotWorld 在 macOS 下显示正确的应用图标与名称（源码启动设 Qt 应用级图标，打包出带 CFBundleName/icns 的正式 RobotWorld.app），并把此前未提交的界面重构改动一并验证后提交推送到 cnb。
+overview: 让 RoboWorld 在 macOS 下显示正确的应用图标与名称（源码启动设 Qt 应用级图标，打包出带 CFBundleName/icns 的正式 RoboWorld.app），并把此前未提交的界面重构改动一并验证后提交推送到 cnb。
 todos:
   - id: add-app-icon
     content: 在 app.py 的 _set_window_icon 中追加 QGuiApplication.setWindowIcon 应用级图标
@@ -20,7 +20,7 @@ todos:
       - add-app-icon
       - spec-bundle
   - id: build-app
-    content: 若 pyinstaller 可用则打包 RobotWorld.app 并确认 Dock 名称生效
+    content: 若 pyinstaller 可用则打包 RoboWorld.app 并确认 Dock 名称生效
     status: completed
     dependencies:
       - spec-bundle
@@ -36,12 +36,12 @@ todos:
 
 ## 产品概述
 
-RobotWorld 以源码方式 `python app.py` 启动时，macOS 把进程识别为 Python 解释器，Dock 上显示的是 python 图标、悬浮名称为 `python3.11`。需要改为显示 RobotWorld 的 logo 图标与程序名 `RobotWorld`。
+RoboWorld 以源码方式 `python app.py` 启动时，macOS 把进程识别为 Python 解释器，Dock 上显示的是 python 图标、悬浮名称为 `python3.11`。需要改为显示 RoboWorld 的 logo 图标与程序名 `RoboWorld`。
 
 ## 核心功能
 
 1. **应用级图标**：`_set_window_icon()` 在设置窗口图标的同时设置**应用级**图标，使非 bundle 进程的 Dock 图标取用 logo（仅用 Qt API，不引入 pyobjc、不做原生调用）
-2. **正式 `.app` 打包**：`app.spec` 增加 macOS `BUNDLE` 段（`CFBundleName` / `CFBundleDisplayName`），并生成 `logo.icns`，使打包产物 `RobotWorld.app` 的 Dock 图标与悬浮名称由 Info.plist 确定生效
+2. **正式 `.app` 打包**：`app.spec` 增加 macOS `BUNDLE` 段（`CFBundleName` / `CFBundleDisplayName`），并生成 `logo.icns`，使打包产物 `RoboWorld.app` 的 Dock 图标与悬浮名称由 Info.plist 确定生效
 3. **同批提交**：把此前已完成并验证的界面重构改动（左侧资源库、右侧四标签、去掉场景 tab、球体组件、滚动容器）与本次图标改动一并提交并推送到 cnb
 
 ## 边界说明
@@ -89,8 +89,8 @@ flowchart LR
     A["_set_window_icon()<br/>app.py:2515"] --> B["QGuiApplication.setWindowIcon<br/>（应用级，影响 Dock）"]
     C["logo.png"] --> D["sips + iconutil"]
     D --> E["logo.icns"]
-    E --> F["app.spec BUNDLE<br/>CFBundleName=RobotWorld"]
-    F --> G["dist/RobotWorld.app<br/>Dock 图标+名称确定生效"]
+    E --> F["app.spec BUNDLE<br/>CFBundleName=RoboWorld"]
+    F --> G["dist/RoboWorld.app<br/>Dock 图标+名称确定生效"]
     B --> H["源码启动：尽力覆盖"]
     H --> I["提交并推送 cnb"]
     G --> I
@@ -99,14 +99,14 @@ flowchart LR
 ## 目录结构
 
 ```
-RobotWorld/
+RoboWorld/
 ├── app.py                                   # [MODIFY] _set_window_icon()（约 2515 行）：在现有
 │                                           #          self.setWindowIcon(icon) 之后追加
 │                                           #          QtGui.QGuiApplication.setWindowIcon(icon)，
 │                                           #          实现 macOS 非 bundle 进程的 Dock 图标覆盖；
 │                                           #          保留 sys._MEIPASS 分支与 logo 缺失守卫
 ├── app.spec                                 # [MODIFY] 文件末尾新增 macOS BUNDLE 段：
-│                                           #          name='RobotWorld.app'、icon='logo.icns'
+│                                           #          name='RoboWorld.app'、icon='logo.icns'
 │                                           #          （不存在时退化为 None）、
 │                                           #          bundle_identifier='com.openrobot.work.robotworld'、
 │                                           #          info_plist 含 CFBundleName / CFBundleDisplayName /
@@ -127,7 +127,7 @@ RobotWorld/
         源码启动（python app.py）时 macOS 把进程当作 Python 解释器，Dock 显示
         python 图标与 "python3.11"。设置**应用级**图标后，非 bundle 进程的
         Dock 图标会取用该图标。Dock 名称由进程名决定，Qt 层面无法覆盖 ——
-        正式发布请打包成 RobotWorld.app，由 Info.plist 的 CFBundleName 确定。
+        正式发布请打包成 RoboWorld.app，由 Info.plist 的 CFBundleName 确定。
         """
         import sys
         logo_path = Path(__file__).parent / "logo.png"
@@ -148,12 +148,12 @@ RobotWorld/
 # macOS: 生成正式 .app —— Dock 名称与图标由 Info.plist + icns 确定
 app = BUNDLE(
     exe,
-    name='RobotWorld.app',
+    name='RoboWorld.app',
     icon='logo.icns' if os.path.exists(os.path.join(spec_dir, 'logo.icns')) else None,
     bundle_identifier='com.openrobot.work.robotworld',
     info_plist={
-        'CFBundleName': 'RobotWorld',
-        'CFBundleDisplayName': 'RobotWorld',
+        'CFBundleName': 'RoboWorld',
+        'CFBundleDisplayName': 'RoboWorld',
         'CFBundleShortVersionString': '0.2.0',
         'NSHighResolutionCapable': True,
     },

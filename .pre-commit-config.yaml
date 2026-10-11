@@ -1,4 +1,4 @@
-# RobotWorld 本地守门钩子——与 CI（.cnb.yml）和 AGENTS.md 同一套规则。
+# RoboWorld 本地守门钩子——与 CI（.cnb.yml）和 AGENTS.md 同一套规则。
 #
 # 启用一次即可：
 #   pip install pre-commit

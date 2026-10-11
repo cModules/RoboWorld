@@ -90,7 +90,7 @@ class MainWindow(
         self.project = Project() if _HAS_PROJECT else None
         #: 有未保存改动（标题里的"•未保存"）
         self._project_dirty = False
-        self.setWindowTitle(f"RobotWorld Terminal v{_CORE_VERSION}")
+        self.setWindowTitle(f"RoboWorld Terminal v{_CORE_VERSION}")
         self.resize(1400, 900)
         self._set_window_icon()
         self.setup_menu()
@@ -146,7 +146,7 @@ class MainWindow(
                 self.status_logo.setPixmap(
                     pixmap.scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
-                self.status_logo.setToolTip(tr("RobotWorld"))
+                self.status_logo.setToolTip(tr("RoboWorld"))
         self.status_logo.setFixedSize(22, 20)
 
         self.status_cycle = QtWidgets.QLabel(tr("节拍 —"))
@@ -416,7 +416,7 @@ class MainWindow(
         进程的 Dock 图标会取用该图标。
 
         Dock **名称**由进程名决定，Qt 层面无法覆盖——正式发布需打包成
-        ``RobotWorld.app``，由 Info.plist 的 ``CFBundleName`` 确定（见 app.spec）。
+        ``RoboWorld.app``，由 Info.plist 的 ``CFBundleName`` 确定（见 app.spec）。
         """
         import sys
 

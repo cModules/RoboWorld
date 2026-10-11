@@ -36,7 +36,7 @@ todos:
 
 ## 用户需求
 
-在 RobotWorld 的 3D 视口（GLWidget）中为工作单元场景对象（工作台、控制柜、机器人底座等）增加直观的「右键拾取 + 坐标系 gizmo 拖拽」交互，并与左侧「选中对象位姿」编辑器实时双向同步。
+在 RoboWorld 的 3D 视口（GLWidget）中为工作单元场景对象（工作台、控制柜、机器人底座等）增加直观的「右键拾取 + 坐标系 gizmo 拖拽」交互，并与左侧「选中对象位姿」编辑器实时双向同步。
 
 ## 产品概述
 
@@ -105,7 +105,7 @@ flowchart LR
 ## 目录结构
 
 ```
-/Users/jayhan/RobotWorld/
+/Users/jayhan/RoboWorld/
 └── olp.py   # [MODIFY] 视口 GLWidget：新增 objectSelected 信号、_ray_from_mouse /
              #          _ray_plane_z / _project 辅助方法、_pick_object 拾取；
              #          新增 _draw_gizmo / _gizmo_hit_mode；mousePressEvent 增加

@@ -116,7 +116,7 @@ flowchart TB
 ## 目录结构
 
 ```
-RobotWorld/
+RoboWorld/
 ├── domain/world/components.py   # [MODIFY] 1) 新增 AxisSpec 数据类；
 │                                      #          2) ComponentSpec 增加 axes 字段及
 │                                      #             axis_param_keys() / plain_params()；

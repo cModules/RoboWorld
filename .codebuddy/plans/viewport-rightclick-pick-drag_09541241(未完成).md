@@ -34,7 +34,7 @@ todos:
 
 ## 用户需求
 
-在 RobotWorld 的 3D 视口中，通过鼠标交互选中并移动工作单元里的场景对象（工作台、控制柜、机器人底座等），并能在左侧「选中对象位姿」编辑器中实时编辑位姿。
+在 RoboWorld 的 3D 视口中，通过鼠标交互选中并移动工作单元里的场景对象（工作台、控制柜、机器人底座等），并能在左侧「选中对象位姿」编辑器中实时编辑位姿。
 
 ## 产品概述
 
@@ -96,7 +96,7 @@ flowchart LR
 ## 目录结构
 
 ```
-/Users/jayhan/RobotWorld/
+/Users/jayhan/RoboWorld/
 └── olp.py   # [MODIFY] 视口 GLWidget：新增 objectSelected 信号、_ray_from_mouse、
              #          _ray_plane_z 辅助方法、_pick_object 拾取；mousePressEvent 增加
              #          Qt.RightButton 选中分支并记下拖动起点；mouseMoveEvent 增加右键

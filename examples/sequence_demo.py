@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RobotWorld Example: 工艺时序（动态时序）一条命令跑通
+RoboWorld Example: 工艺时序（动态时序）一条命令跑通
 
 演示 ``service.sequence`` 的完整使用路径——设备树侧的工序编排如何落到两个
 既有出口，全程不新增任何指令语法：

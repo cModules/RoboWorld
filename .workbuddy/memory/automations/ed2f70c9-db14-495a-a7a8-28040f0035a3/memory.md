@@ -36,7 +36,7 @@
 - 产出：`examples/grasping_workstation_demo.py`（无 GUI 全流程：模板→IK 示教点→自动插夹爪 IO→校验+节拍 6.33s→4 品牌出码，与 GUI 同 `demo_pick_place_points` 通路）；`tests/test_demo_script.py`（4 测试，子进程真实运行示例）；`tools/capture_grasp_screenshots.py` + docs/screenshots/ 3 张新截图（真实 Cocoa 会话 widget.grab()）；README「Grasping workstation」小节 + 徽章 267
 - 测试：267 passed + 2 skipped（基线 263 → 267，无回归）
 - 发布：演示站同链接重新发布 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host（新增抓取工作站截图小节 + 无头示例命令行）
-- 里程碑打包：app.spec 修 PyInstaller 6 兼容（删 win_no_prefer_redirects/a.zipped_data；onefile 用 EXE(pyz,scripts,binaries,datas)）+ **补回被误排除的 scipy**（kinematics.py 顶层 import，旧 spec 会让打包 app 运动学全挂）+ hiddenimports 加 jinja2；产出 dist/RobotWorld.app（66MB）冒烟 10s 存活；zip=dist/RobotWorld-macOS-20260913.zip（64MB）
+- 里程碑打包：app.spec 修 PyInstaller 6 兼容（删 win_no_prefer_redirects/a.zipped_data；onefile 用 EXE(pyz,scripts,binaries,datas)）+ **补回被误排除的 scipy**（kinematics.py 顶层 import，旧 spec 会让打包 app 运动学全挂）+ hiddenimports 加 jinja2；产出 dist/RoboWorld.app（66MB）冒烟 10s 存活；zip=dist/RoboWorld-macOS-20260913.zip（64MB）
 - 阻塞：百度网盘上传——连接器本会话未连接（connector-status 只有 agent-mail）且其能力不含本地文件上传，已标注队列「里程碑打包记录」；通知里已给用户替代选项（微信/飞书文件直发）
 - 通知：lark-cli bot → ou_...56ff1 ok:true（om_x100b655e4f7b54a0dee90e34c9eede6），已带「抓取工作站能力展示已就绪」标注
 - 坑：①PyInstaller `--clean` 会触发 safe-delete 批量删除门禁（删 pyinstaller 缓存 127 文件被拦），去掉 --clean 即可；②venv 缺 PyOpenGL/PyInstaller，清华源 403 用 -i https://pypi.org/simple 装；③lark-cli --markdown 对多行富文本很稳（比 --text 更适合通知）
@@ -111,7 +111,7 @@
 - 里程碑打包（本轮重点）：**修掉两个打包期缺陷** —— ①`app.spec` pathex 缺 `python/` → PyInstaller 解析不到 `orolp`，冻结版启动后 app.py 的 try/except **静默降级**，机器人库/场景/OLP 全失效（此前各里程碑包都是空壳，只验了进程存活）；②`orolp.cam` 的软依赖 `OCP` 被打进包，66MB→166MB。修正后：45 个 orolp 模块进包、OCP 排除、datas 剔除 __pycache__、体积回 66MB；`orolp/world/templates.py` 资源根改为冻结感知（`sys._MEIPASS`）；新增 `tests/test_packaging_spec.py` 9 项守住这些约束
 - 测试：430 passed + 1 skipped（基线 421 → 430，无回归）
 - 发布：演示站重生成并同链接重发布 https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host （verified true）
-- 打包产物：`dist/RobotWorld.app`（66MB，版本号 0.3.4）+ `dist/RobotWorld-macOS-20260914.zip`（67.8MB）；冒烟启动存活
+- 打包产物：`dist/RoboWorld.app`（66MB，版本号 0.3.4）+ `dist/RoboWorld-macOS-20260914.zip`（67.8MB）；冒烟启动存活
 - 阻塞：百度网盘分享仍未连通（本会话 connector-status 只有 agent-mail；网盘连接器能力也不含本地文件上传）——同一原因不重复通知，已在通知里给替代方案（飞书直发）
 - 记账：BUILD_QUEUE（v0.3.4 勾选 + 新增 2026-09-14 里程碑条目 + 基线 430）、ROADMAP（§0 能力表 + §3 v0.3.4 勾选 + 基线 430）、README（badge 430、标定行、新增「桌面打包」行）、打包说明.md（新增 macOS 打包小节与三个坑）
 - 通知：lark-cli bot → ou_...56ff1 --markdown，exit 0（结构与既往 ok:true 同构；bot 无历史查询权限无法二次核验，按惯例视为成功）
@@ -126,7 +126,7 @@
 - **演示诚实性修正（值得记）**：双机示例原称"冲突真实存在"，但其自身输出一直是"并行 0 处干涉"（两机在时间轴上从未同时进交接区）；且把"耗时占串行比例"写成"节省比例"。现改为**双口径并列**：净空 0（只问撞没撞）并行 8.67s/0 处；净空 60mm（问敢不敢跑）同刻齐发 **17 处近失、最近 +22.9mm 擦肩**；贪心推迟 B 4.00s 清零、12.67s（比串行 15.96s 省 21%）。测试断言锁死"净空 0 不干涉 / 净空 60 必须有近失 / 最近处必须为正间距"
 - 版本号口径统一：`orolp.__version__` / `pyproject` / GUI 标题 0.1.0 → **1.0.1**（此前与文档脱节）
 - 发布：演示站新增 v1.0.1 小节（双机布局俯视图取自示例真实常量 + 净空口径对比表），同链接重发布 verified=true
-- 里程碑打包：`dist/RobotWorld-macOS-20260914-v1.0.1.zip`（65MB，CFBundleShortVersionString 1.0.1）；冒烟 offscreen 存活 14s；冻结包内 **46 个 orolp 模块**（上轮 45，+multirobot）齐全、OCP 未入包
+- 里程碑打包：`dist/RoboWorld-macOS-20260914-v1.0.1.zip`（65MB，CFBundleShortVersionString 1.0.1）；冒烟 offscreen 存活 14s；冻结包内 **46 个 orolp 模块**（上轮 45，+multirobot）齐全、OCP 未入包
 - 阻塞：百度网盘分享仍不可用（本会话 connector-status 仅 agent-mail）——同一原因不重复通知
 - 下轮：v1.0.2 力控柔顺（若用户投 STEP 则优先 v0.2.3）。**待用户拍板**：`waitTime` 对 planner 不可见（节拍少算 + 驻留冲突看不见，属既有契约故未擅改，已记入 BUILD_QUEUE 想法区）；`ENVELOPE_TOLERANCE_MM` 是否逐机器人可配
 - 坑：①`Interference` 字段是 `separation_mm`（不是 `separation`）；②`pip -m PyInstaller` 与 `pyi-archive_viewer` 只能看 CArchive 的 toc，验证模块要靠 `CArchiveReader` 取出 `PYZ.pyz` 再用 `ZlibArchiveReader` 读；③`lark-cli` bot 无历史读取权限（`--user-id` 需 `--as user`，而 user token 未授权）→ 发送成功无法二次核验，只能按 exit 0 + `_notice` 结构判定
@@ -148,7 +148,7 @@
 - 产出：新增 `python/orolp/twinsync.py`（约 1100 行）——TwinSnapshot/TwinTrace 偏差时间序列（capture_from_session 复用 DebugSession.deviation；JSON/JSONL 往返，JSONL=元数据行+逐行快照，NaN→null 保证严格 JSON）；PlantModel/PlantLink 合成真机模型（零位偏置/传动比误差/编码器噪声/一阶伺服滞后，稳态误差 τ·ω 解析核对）；align_traces 最近邻+窗口对齐 → compare_traces/TwinReport 跨源差分 + speed_split 把偏差拆成**标定分量 vs 伺服分量** + format_causes 给整治方向；deviation_chart_svg 零依赖曲线（容差带/超差点/峰值/dark-light）；CloudTransport+MemoryCloudStore/LocalCloudStore+CloudLink 落地 ControllerLink 预留云通道（程序轨迹上下行、.meta.json 索引、真机状态上报与 status_age/is_fresh 新鲜度、键规范化防穿越）；link.py 加 supports_cloud/publish_trace/fetch_trace 钩子；debug.py 用签名探测把时刻透传给需要它的连接（老签名行为零变化）；`examples/twin_sync_demo.py`；`tests/test_twinsync.py` **100 测试**
 - 测试：**622 passed + 1 skipped**（基线 522 → 622，无回归）
 - 发布：演示站加 v1.0.3 小节（真实偏差曲线 SVG + 两种"真机"参数对比表 + 成因提示 + JSONL 格式），同链接重发布 verified=true https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host
-- 里程碑打包：`dist/RobotWorld.app`（66MB，版本 **1.0.3**）+ `dist/RobotWorld-macOS-20260914-v1.0.3.zip`（65MB）；冻结包内 **48 个 orolp 模块**（46→48，+compliance +twinsync）、OCP 未入包；冒烟存活 14s。**版本口径统一**：orolp.__version__ / pyproject（上轮漏改，仍是 1.0.1）/ app.spec CFBundleShortVersionString / app.py GUI 标题 全部 1.0.3
+- 里程碑打包：`dist/RoboWorld.app`（66MB，版本 **1.0.3**）+ `dist/RoboWorld-macOS-20260914-v1.0.3.zip`（65MB）；冻结包内 **48 个 orolp 模块**（46→48，+compliance +twinsync）、OCP 未入包；冒烟存活 14s。**版本口径统一**：orolp.__version__ / pyproject（上轮漏改，仍是 1.0.1）/ app.spec CFBundleShortVersionString / app.py GUI 标题 全部 1.0.3
 - 顺带修：`tests/test_packaging_spec.py` 两个用例单独跑必 ModuleNotFoundError（依赖别的测试先插 sys.path）——文件内自行插 python/ 路径
 - 阻塞：百度网盘分享仍不可用（本会话 connector-status 仅 agent-mail）——同一原因不重复通知
 - 通知：lark-cli bot → ou_...56ff1 --markdown ok:true（om_x100b654e291a98a8c4a98cc73b2bf15）。**失误（第二次犯）**：第一次发送的返回值被 lark-cli 的"有新版本"提示块挤掉、只看到 update 段，于是又发了一遍 → 用户收到两条重复消息。**正确做法：发送时就把输出直接 grep**（`lark-cli im +messages-send ... 2>&1 | grep -E '"ok"|message_id'`），一次调用拿到结果，绝不为了确认而重发
@@ -159,7 +159,7 @@
 - 任务：Could 区 **v1.0.4 插件接口** ✅ → **Roadmap §2（Must + Should + Could）全部完成，唯余 v0.2.3 等用户投 STEP**
 - 产出：新增 `python/orolp/plugins.py`——三扩展点（post/kinematics/renderer）+ Registry/Spec（登记只存元信息、工厂 `"module:attr"` 延迟导入）+ api_compatible（主版本必须相等）+ 失败隔离（PluginLoadError）+ check_kinematics 契约校验（必需即拒/可选聚合成 1 条警告）+ 纯数据覆盖层（LineSegments/PointCloud/FrameMarker，PointCloud 构造校验 (N,3)）+ OverlayContext.from_trajectory/collect_overlays + importlib.metadata 入口点发现（单个 spec/列表/提供函数三种写法，来源由宿主判定）；集成 `post.get_post_processor`（精确名→品牌回退）、`Robot(kinematics_plugin=…)`（失败自动回退内置并记错误）、`app.py` GLWidget 覆盖层绘制 + View 菜单三项；`examples/plugins_demo.py`；`tests/test_plugins.py` **127 测试**
 - 测试：**749 passed + 1 skipped**（基线 622 → 749，无回归）
-- 里程碑打包：`dist/RobotWorld.app`（66MB，版本 **1.0.4**）+ `dist/RobotWorld-macOS-20260914-v1.0.4.zip`（65MB）；冻结包 **49 个 orolp 模块**（48→49，+plugins）、OCP 未入包、冒烟存活 14s 输出为空；版本四口径（orolp.__version__ / pyproject / app.spec / GUI 标题）统一 1.0.4
+- 里程碑打包：`dist/RoboWorld.app`（66MB，版本 **1.0.4**）+ `dist/RoboWorld-macOS-20260914-v1.0.4.zip`（65MB）；冻结包 **49 个 orolp 模块**（48→49，+plugins）、OCP 未入包、冒烟存活 14s 输出为空；版本四口径（orolp.__version__ / pyproject / app.spec / GUI 标题）统一 1.0.4
 - 发布：演示站新增「插件接口」小节，同链接重发布 verified=true https://f1b8fd6f91ea40d7b56c733d46aea300.app.workbuddy.host
 - 记账：BUILD_QUEUE（v1.0.4 勾选 + 基线 749 + 里程碑打包记录 + **新增 8 项候选任务清单**，因为 §2 已清空）、ROADMAP（§0 表 + §2 第 12 条 + §3 v1.0.4 + 关键缺口）、README（badge 749 + 插件接口行 + v1.0.2/v1.0.4 清单行 + **修正 `abb_rapid`→`abb_irc5`、`fanuc_tp`→`fanuc_r30ib` 两处错误后处理名**）
 - 通知：`lark-cli im +messages-send --as bot --user-id ou_...56ff1 --markdown` ok:true（om_x100b654eaaebf4b4ddc115870651994）。**已按新规矩：发送时直接 grep 输出，一次调用拿到结果，没有为确认而重发**
@@ -475,7 +475,7 @@
 
 ## 2026-09-15（第三十七轮·版本对齐打包）
 - 任务：**版本对齐打包 v1.2.4 ✅**（用户 "continue" 授权续跑，按第 5b 条「包版本与代码脱节」执行此前四次请拍板的遗留项）
-- 产物：`dist/RobotWorld.app`（71MB，版本 1.2.4）+ `dist/RobotWorld-macOS-20260915-v1.2.4.zip`（70MB）
+- 产物：`dist/RoboWorld.app`（71MB，版本 1.2.4）+ `dist/RoboWorld-macOS-20260915-v1.2.4.zip`（70MB）
 - 四项验证全过：bundle 版本 1.2.4 / **61 个 orolp 模块**（v1.0.4 里程碑 49，+12 全在；**paramiko 首次进包**）/ OCP 未入包 / offscreen 冒烟存活 14s / 版本四口径一致
 - **安装包分发新通路**：百度网盘连接器 SKILL.md 复核确认不含本地上传（老阻塞不变）——把 zip 放进 `deploy/web` 随演示站静态发布，安装包可直接从演示站下载（curl Range 核验 200 / 73,237,377 B）
 - 记账：BUILD_QUEUE「里程碑打包记录」新增 2026-09-15 条目（Edit 时曾误删 `---`+最后更新行头，回读发现后已修复——插条目用「上一条目末尾」做锚点后必须回读）
@@ -605,7 +605,7 @@
 
 ## 2026-09-16（第五十一轮，用户 "Please continue" 触发）
 - 任务：**版本对齐打包 v1.3.6** ✅（用户 continue 授权续跑，按第 5b 条「包版本与代码脱节」执行待拍板遗留项——与第三十七轮 v1.2.4 打包同一先例；本轮无代码改动，基线 1678 passed + 6 skipped 不变）
-- 产物：`dist/RobotWorld.app`（71MB，CFBundleShortVersionString **1.3.6**）+ `dist/RobotWorld-macOS-20260916-v1.3.6.zip`（**73.3MB**）
+- 产物：`dist/RoboWorld.app`（71MB，CFBundleShortVersionString **1.3.6**）+ `dist/RoboWorld-macOS-20260916-v1.3.6.zip`（**73.3MB**）
 - 四项验证全过：①bundle 版本 1.3.6；②冻结包 **66 个 orolp 模块**（v1.2.4 包 61，project_templates/session 均在；CArchiveReader→PYZ 落盘→ZlibArchiveReader 口径）+ paramiko/scipy/numpy/PySide6/jinja2/yaml 在、**OCP 未入包**；③offscreen 冒烟存活 14s 无报错；④版本三口径一致（GUI 标题从库版本派生）
 - 分发：zip 放入 deploy/web 替换 v1.2.4 旧包（rm 旧 zip + cp 新 zip），同链接重发布 verified=true；线上核验新 zip 200 / 73,345,313B。**坑：删掉本地文件后旧包 URL 仍 200（CDN 缓存 eo-cache-status: HIT），过期自然失效——核验新包以 content-length 为准**
 - 记账：BUILD_QUEUE（里程碑打包记录新条目 + 想法区 (c) 划账 + 尾行 prepend）、ROADMAP（关键缺口句更新为「包与代码已对齐 1.3.6」）、README（桌面打包行更新为 ✅ v1.3.6 + 分发链接）

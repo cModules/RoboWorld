@@ -230,7 +230,7 @@ def generate_scl(
     a = L.append
 
     a(f"(* ============================================================ *)")
-    a(f"    RobotWorld 自动生成 —— 西门子 SCL 单元控制逻辑")
+    a(f"    RoboWorld 自动生成 —— 西门子 SCL 单元控制逻辑")
     a(f"    程序名 : {program_name}")
     a(f"    设备数 : {len(cell.devices)}")
     a(f"    生成于 : {time.strftime('%Y-%m-%d %H:%M:%S')}")

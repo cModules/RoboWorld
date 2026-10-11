@@ -1,4 +1,4 @@
-# Contributing to RobotWorld
+# Contributing to RoboWorld
 
 Thank you for your interest in making industrial robot programming accessible to everyone!
 
@@ -33,8 +33,8 @@ For C++ core contributions:
 ## Development Setup
 
 ```bash
-git clone https://github.com/your-org/openrobolp.git
-cd openrobolp
+git clone https://github.com/cModules/RoboWorld.git
+cd RoboWorld
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,all]"

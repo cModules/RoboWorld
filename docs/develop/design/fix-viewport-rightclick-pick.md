@@ -81,7 +81,7 @@ V[:3, 3] = -(V[:3, :3] @ eye)
 ## 目录结构
 
 ```
-/Users/jayhan/RobotWorld/
+/Users/jayhan/RoboWorld/
 └── olp.py   # [MODIFY] GLWidget._view_proj_matrix：视图矩阵旋转改行赋值；
              #          mousePressEvent / mouseMoveEvent / mouseReleaseEvent：
              #          增加 Control+左键 作为右键别名（self._right_like 标志）。

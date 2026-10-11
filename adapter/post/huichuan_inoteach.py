@@ -60,7 +60,7 @@ class HuiChuanInoTeachPostProcessor(BasePostProcessor):
         raise PostProcessError(tr("InoTeach 不支持的运动类型: {type}").format(type=motion.type))
 
     def _get_template(self) -> str:
-        return """# RobotWorld generated InoTeach program
+        return """# RoboWorld generated InoTeach program
 # Robot: {{ meta.robot_name|default('Huichuan') }}
 # Version: {{ meta.version|default('0.1.0') }}
 

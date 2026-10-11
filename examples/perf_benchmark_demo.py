@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RobotWorld 示例：程序规模与性能基准（v1.1.8）。
+"""RoboWorld 示例：程序规模与性能基准（v1.1.8）。
 
 一条命令跑出四件事，全部是现场实算的数字（没有写死的常数）：
 
@@ -93,7 +93,7 @@ def fk_equivalence(robot: Robot, n_configs: int = 300) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="RobotWorld 规模与性能基准")
+    parser = argparse.ArgumentParser(description="RoboWorld 规模与性能基准")
     parser.add_argument("--motions", type=int, default=120, help="基准程序的运动条数")
     parser.add_argument(
         "--sizes", default="25,50,100,200", help="规模表的运动条数（逗号分隔）"
@@ -101,7 +101,7 @@ def main() -> int:
     args = parser.parse_args()
 
     print("=" * 66)
-    print("RobotWorld 规模与性能基准（v1.1.8）")
+    print("RoboWorld 规模与性能基准（v1.1.8）")
     print("=" * 66)
 
     robot = Robot(str(URDF), "UR5e")

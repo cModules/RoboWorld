@@ -64,7 +64,7 @@ MacBook 触控板用户在 3D 视口里右键（或 Control+左键）选中场�
 ## 目录结构
 
 ```
-/Users/jayhan/RobotWorld/
+/Users/jayhan/RoboWorld/
 └── olp.py   # [MODIFY] GLWidget._gizmo_screen_geom：新增 z_strip/z_tip_r、hit 9→10；
              #          _gizmo_hit_mode：Z 顶端圆盘 + 加宽竖条优先判定；
              #          _draw_gizmo：新增 disk 助手、Z 轴加粗并绘制顶端抓手圆盘。

@@ -106,7 +106,7 @@ flowchart LR
 ## 目录结构
 
 ```
-RobotWorld/
+RoboWorld/
 ├── tools/
 │   └── archive_plans.py      # [NEW] 归档脚本。扫描 .codebuddy/plans 下的 plan 文件，
                               #       解析 YAML frontmatter 判定是否完成（todos 全为

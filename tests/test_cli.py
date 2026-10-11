@@ -36,7 +36,7 @@ def test_doctor_reports_ok_in_a_healthy_env(capsys):
     out = capsys.readouterr().out
 
     assert code == 0, f"环境自检失败：\n{out}"
-    assert "RobotWorld" in out
+    assert "RoboWorld" in out
     assert "Python" in out
     assert "预置工作站" in out or "workcell" in out.lower()
 
@@ -151,4 +151,4 @@ def test_module_entry_point_runs_in_a_clean_process():
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr
-    assert "RobotWorld" in proc.stdout
+    assert "RoboWorld" in proc.stdout

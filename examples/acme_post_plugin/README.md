@@ -1,6 +1,6 @@
 # core-plugin-acme-post
 
-RobotWorld 的**第一方示例插件包**：一个真正可以 `pip install` 的插件，用于验证
+RoboWorld 的**第一方示例插件包**：一个真正可以 `pip install` 的插件，用于验证
 `adapter.plugins` 从 `importlib.metadata` 发现插件的真实路径（而非测试注入的假入口点）。
 
 ```bash

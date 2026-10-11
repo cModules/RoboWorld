@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-生成 RobotWorld 使用说明的 Word 文档
+生成 RoboWorld 使用说明的 Word 文档
 """
 
 from docx import Document
@@ -16,8 +16,8 @@ def create_document():
     doc = Document()
 
     # 设置文档属性
-    doc.core_properties.title = "RobotWorld 使用说明"
-    doc.core_properties.author = "RobotWorld Team"
+    doc.core_properties.title = "RoboWorld 使用说明"
+    doc.core_properties.author = "RoboWorld Team"
     doc.core_properties.subject = "机器人离线编程软件使用手册"
     doc.core_properties.created = datetime.now()
     doc.core_properties.version = "v0.1.0"
@@ -55,7 +55,7 @@ def add_title_page(doc):
     # 标题
     title = doc.add_paragraph()
     title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    title_run = title.add_run("RobotWorld")
+    title_run = title.add_run("RoboWorld")
     title_run.font.name = "微软雅黑"
     title_run._element.rPr.rFonts.set(qn("w:eastAsia"), "微软雅黑")
     title_run.font.size = Pt(32)
@@ -85,7 +85,7 @@ def add_title_page(doc):
     # 版权信息
     copyright = doc.add_paragraph()
     copyright.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    copyright_run = copyright.add_run("© 2026 RobotWorld Team. All rights reserved.")
+    copyright_run = copyright.add_run("© 2026 RoboWorld Team. All rights reserved.")
     copyright_run.font.name = "微软雅黑"
     copyright_run._element.rPr.rFonts.set(qn("w:eastAsia"), "微软雅黑")
     copyright_run.font.size = Pt(10)
@@ -129,7 +129,7 @@ def add_section_1(doc):
     heading.runs[0]._element.rPr.rFonts.set(qn("w:eastAsia"), "微软雅黑")
 
     p1 = doc.add_paragraph()
-    p1.add_run("RobotWorld 是一款基于 Python 和 PySide6 开发的机器人离线编程软件，")
+    p1.add_run("RoboWorld 是一款基于 Python 和 PySide6 开发的机器人离线编程软件，")
     p1.add_run("提供直观的 3D 可视化界面，支持机器人模型加载、路径规划、")
     p1.add_run("仿真演示等功能，帮助用户快速完成机器人离线编程任务。")
 
@@ -192,7 +192,7 @@ def add_section_3(doc):
 
     p = doc.add_paragraph()
     p.add_run("双击 ")
-    p.add_run("RobotWorld.exe").bold = True
+    p.add_run("RoboWorld.exe").bold = True
     p.add_run(" 文件即可直接运行，无需安装任何依赖。")
 
     # 3.2 加载机器人模型
@@ -396,6 +396,6 @@ def add_section_7(doc):
 
 if __name__ == "__main__":
     doc = create_document()
-    output_path = "dist/RobotWorld使用说明.docx"
+    output_path = "dist/RoboWorld使用说明.docx"
     doc.save(output_path)
     print(f"Word 文档已生成：{output_path}")

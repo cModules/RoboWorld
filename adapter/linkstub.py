@@ -529,7 +529,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """``python -m adapter.linkstub``：在本地起一个打桩控制器。"""
     parser = argparse.ArgumentParser(
         prog="python -m adapter.linkstub",
-        description="本机回环打桩控制器（core-socket v1）：无真机验收 RobotWorld 的部署/回读/孪生链路",
+        description="本机回环打桩控制器（core-socket v1）：无真机验收 RoboWorld 的部署/回读/孪生链路",
     )
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     parser.add_argument(

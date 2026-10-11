@@ -29,5 +29,5 @@ assets/models/          # 2026-09-26 由仓库根 models/ 并入 assets/（与 a
 
 ## License Note
 
-Robot CAD models may have separate licenses from the RobotWorld codebase.
+Robot CAD models may have separate licenses from the RoboWorld codebase.
 Always verify redistribution rights before including proprietary meshes.

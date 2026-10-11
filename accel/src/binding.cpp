@@ -9,7 +9,7 @@ namespace py = pybind11;
 using namespace accel;
 
 PYBIND11_MODULE(accel_native, m) {
-    m.doc() = "RobotWorld Core Engine - Python Bindings";
+    m.doc() = "RoboWorld Core Engine - Python Bindings";
 
     // JointLimits
     py::class_<JointLimits>(m, "JointLimits")

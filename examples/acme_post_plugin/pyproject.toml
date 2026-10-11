@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "core-plugin-acme-post"
 version = "1.0.0"
-description = "RobotWorld 第一方示例插件：ACME-V2 品牌后处理器（通过 adapter.plugins 入口点被发现）"
+description = "RoboWorld 第一方示例插件：ACME-V2 品牌后处理器（通过 adapter.plugins 入口点被发现）"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }

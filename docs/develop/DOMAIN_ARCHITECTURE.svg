@@ -1,8 +1,8 @@
 <svg viewBox="0 0 680 540" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
-  <title>RobotWorld 领域架构方案</title>
+  <title>RoboWorld 领域架构方案</title>
   <desc>App壳之下的七大业务域（robot/workcell/programming/process/control/plc/simulation）加共享内核与post适配器注册表，依赖方向app到domains到kernel</desc>
   <rect x="0" y="0" width="680" height="540" fill="#FFFFFF"/>
-  <text x="40" y="30" font-size="14" font-weight="500" fill="#2C2C2A" font-family="PingFang SC, sans-serif">RobotWorld 领域架构方案（7 业务域 + 内核 + App 壳）</text>
+  <text x="40" y="30" font-size="14" font-weight="500" fill="#2C2C2A" font-family="PingFang SC, sans-serif">RoboWorld 领域架构方案（7 业务域 + 内核 + App 壳）</text>
 
   <rect x="40" y="44" width="600" height="56" rx="12" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
   <text x="60" y="66" font-size="13" font-weight="500" fill="#0C447C" font-family="PingFang SC, sans-serif">App 壳 · app/（全项目唯一 PySide6 归宿）</text>

@@ -1692,7 +1692,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """``python -m service.perf`` 入口。"""
     parser = argparse.ArgumentParser(
         prog="python -m service.perf",
-        description=tr("RobotWorld 规划/校验规模基准"),
+        description=tr("RoboWorld 规划/校验规模基准"),
     )
     parser.add_argument("--robot", default=None, help=tr("机器人 URDF 路径"))
     parser.add_argument("--motions", type=int, default=200, help=tr("单次基准的运动条数"))
