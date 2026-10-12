@@ -15,7 +15,7 @@
 | 插件机制 | `adapter/plugins.py`（PluginRegistry + entry_points + API 版本门控） | **设计成熟**，是架构亮点 |
 | 测试 | `tests/` 62 文件 / 1,651 个测试函数，纯 assert 风格 | 覆盖广但组织松散 |
 | 打包 | pyproject `packages = ["core", "core.post"]` 漏 render/world/robot_library；入口点 `app.cli:main` 指向不存在的 cli.py | **打包已损坏** |
-| 发布 | PyInstaller 单可执行（Win/macOS）+ Docker 无头冒烟 | 形态清晰 |
+| 发布 | PyInstaller 单可执行（Win/macOS/Linux）+ 三端安装器（Inno Setup / dmg / XDG 桌面条目+MIME）+ Docker 无头冒烟 | 形态清晰 |
 
 **三个必须先解决的问题**（按序）：① 打包配置漂移 ② app.py 单体 ③ C++/Python 边界名存实亡。
 
