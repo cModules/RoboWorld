@@ -108,7 +108,7 @@ assets/vendor/
 RobotWorld-Dev.app/
 .codebuddy/rules/tcb/
 
-# Agents rules， skills
+# cicd& Agents rules， skills
 .cnb.yml
 .cnb/
 .codebuddy/
