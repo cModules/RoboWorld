@@ -84,6 +84,11 @@ if (Test-Path (Join-Path $DistDir "RoboWorld.exe")) {
     $exePath = Join-Path $DistDir "RoboWorld.exe"
     $fileSize = (Get-Item $exePath).Length / 1MB
     Write-Host "文件大小: $([math]::Round($fileSize, 2)) MB" -ForegroundColor Yellow
+    Write-Host ""
+    # 绿色版能跑，但没人替它告诉 Windows「.rwproj 归它打开」——想双击打开工程，
+    # 还得再包一层安装器（见 packaging\build_installer_win.ps1）。
+    Write-Host "下一步：需要『双击 .rwproj 直接打开』时，运行" -ForegroundColor Cyan
+    Write-Host "        packaging\build_installer_win.ps1 生成安装器" -ForegroundColor White
 } else {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Red

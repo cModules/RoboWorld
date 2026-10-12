@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=RoboWorld
+Name[zh_CN]=RoboWorld
+GenericName=Robot Offline Programming
+GenericName[zh_CN]=机器人离线编程
+Comment=Open-source offline programming software for industrial robots
+Comment[zh_CN]=开源工业机器人离线编程软件
+# Exec 里的 %f 必须有：没有它，文件管理器只会启动一个空窗口，
+# 双击工程文件变成"程序开了，但没打开我的文件"。%F（多个）反而不要用——
+# 单实例只能收一个路径（见 app/single_instance.py），多选会让多余的文件被丢掉。
+Exec=roboworld %f
+TryExec=roboworld
+Icon=roboworld
+Terminal=false
+Categories=Development;Engineering;Science;Education;
+Keywords=robot;offline;programming;urdf;simulation;
+Keywords[zh_CN]=机器人;离线编程;仿真;
+# 与 packaging/linux/roboworld-project.xml 的 <mime-type> 同名，
+# 两边对不上时桌面环境不会把 .rwproj 列进本程序的"打开方式"。
+MimeType=application/x-roboworld-project;

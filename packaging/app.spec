@@ -27,6 +27,18 @@ import sys
 sys.path.insert(0, _repo_root)
 from support import __version__ as _VERSION           # noqa: E402
 
+# 文件关联的口径同样从代码读，不在本文件手写：
+#   * 扩展名   —— service.project.PROJECT_EXTENSIONS（工程格式的一部分）
+#   * UTI/MIME —— app.app_identity（与 Windows ProgID、bundle id 同源）
+# 三端安装器（packaging/windows/setup.iss、packaging/linux/*）引用的是同一批常量，
+# 由 tests/test_installer.py 静态守住。写死在打包脚本里的后果是
+# 「菜单能存 .rwproj、双击却没反应」——而且三端各错一次。
+from app.app_identity import PROJECT_MIME_TYPE, PROJECT_TYPE_NAME, PROJECT_UTI  # noqa: E402
+from service.project import PROJECT_EXTENSIONS  # noqa: E402
+
+# plist 里的扩展名不带点（CFBundleTypeExtensions / UTTypeTagSpecification 的口径）
+_PROJECT_SUFFIXES = [ext.lstrip('.') for ext in PROJECT_EXTENSIONS]
+
 a = Analysis(
     # 入口是根启动壳 main.py（原 app.py：改名是为了不与顶层 GUI 包 app/ 同名——
     # 同目录下重名时 Python 取**包**，`import app` 会从"启动壳"悄悄变成"GUI 包"）
@@ -181,5 +193,30 @@ app = BUNDLE(
         'CFBundleDisplayName': 'RoboWorld',
         'CFBundleShortVersionString': _VERSION,
         'NSHighResolutionCapable': True,
+        # 工程文件关联（双击 .rwproj 打开本应用）：
+        #   * CFBundleDocumentTypes —— 声明"我能编辑这类文件"；
+        #   * UTExportedTypeDeclarations —— 定义这个 UTI 本身是什么。
+        # 缺前者：LaunchServices 不知道 .rwproj 归谁，双击问"用什么打开"；
+        # 缺后者：系统不认识这个 UTI，文件在 Finder 里显示成"文稿"。
+        # 两段都缺时应用照常能开（只是双击不关联），所以这条只能静态守。
+        'CFBundleDocumentTypes': [
+            {
+                'CFBundleTypeName': PROJECT_TYPE_NAME,
+                'CFBundleTypeRole': 'Editor',
+                'LSItemContentTypes': [PROJECT_UTI],
+                'CFBundleTypeExtensions': _PROJECT_SUFFIXES,
+            },
+        ],
+        'UTExportedTypeDeclarations': [
+            {
+                'UTTypeIdentifier': PROJECT_UTI,
+                'UTTypeDescription': PROJECT_TYPE_NAME,
+                'UTTypeConformsTo': ['public.data'],
+                'UTTypeTagSpecification': {
+                    'public.filename-extension': _PROJECT_SUFFIXES,
+                    'public.mime-type': PROJECT_MIME_TYPE,
+                },
+            },
+        ],
     },
 )

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  RoboWorld 工程文件的 MIME 定义（XDG shared-mime-info）。
+
+  三个 glob 必须与 service.project.PROJECT_EXTENSIONS 一致（由
+  tests/test_installer.py 静态守住）：漏一个，那种后缀的文件在文件管理器里
+  就没有类型、双击也不会关联到 RoboWorld。
+
+  sub-class-of 用 application/json：工程文件是 JSON（schema
+  "service.project/1"），声明继承关系后，把它当文本打开、文本编辑器识别等
+  行为都自动继承，不必重复定义。
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-roboworld-project">
+    <comment>RoboWorld project</comment>
+    <comment xml:lang="zh_CN">RoboWorld 工程文件</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.rwproj"/>
+    <glob pattern="*.robotproj"/>
+    <glob pattern="*.core"/>
+  </mime-type>
+</mime-info>

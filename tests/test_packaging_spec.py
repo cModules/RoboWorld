@@ -175,3 +175,23 @@ def test_templates_repo_root_prefers_source_tree_without_meipass():
     root = templates.repo_root()
     assert (root / "assets" / "models").is_dir()
     assert (root / "main.py").is_file()
+
+
+def test_bundle_identifier_matches_app_identity():
+    """macOS 的 bundle id 必须与 :data:`app.app_identity.APPLICATION_ID` 同源。
+
+    三端身份（Windows AppUserModelID / macOS bundle id / 单实例 socket 名）各写
+    一份的后果见 ``app/app_identity.py``：任务栏把两个窗口分到两组、Jump List 的
+    "最近"挂到别的条目下、文件关联指向一个不存在的身份——三种都表现为"随机的"。
+
+    spec 里那一份由这条断言守住（与"仓库根算错"同一条纪律：错的打包配置
+    不会让任何单元测试变红，只能静态守）。
+    """
+    from app.app_identity import APPLICATION_ID
+
+    match = re.search(r"bundle_identifier\s*=\s*'([^']+)'", _spec_text())
+    assert match, "app.spec 缺少 bundle_identifier（macOS 文件关联靠它）"
+    assert match.group(1) == APPLICATION_ID, (
+        f"spec 的 bundle_identifier {match.group(1)!r} 与 APPLICATION_ID "
+        f"{APPLICATION_ID!r} 不一致：三端身份会分裂"
+    )
