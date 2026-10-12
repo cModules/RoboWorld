@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from service.project import (
     PROJECT_EXTENSION,
+    PROJECT_EXTENSIONS,
     PROJECT_SCHEMA,
     SECTION_NAMES,
     LoadReport,
@@ -100,7 +101,9 @@ def _full_project() -> Project:
 
 def test_schema_and_section_names():
     assert PROJECT_SCHEMA == "service.project/1"
-    assert PROJECT_EXTENSION == ".core"
+    # 主扩展名 2026-10-12 由 .core 改为 .rwproj（格式不变，.core 退为兼容别名）
+    assert PROJECT_EXTENSION == ".rwproj"
+    assert PROJECT_EXTENSIONS == (".rwproj", ".robotproj", ".core")
     assert SECTION_NAMES == (
         "scene",
         "program",

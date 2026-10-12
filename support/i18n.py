@@ -1203,7 +1203,9 @@ _CATALOG_EN: dict[str, str] = {
     "示教点语义含未知值（{msg}），已按默认语义重建": (
         "Point semantics contain an unknown value ({msg}); rebuilt with default " "semantics"
     ),
-    "RoboWorld 工程 (*.core);;所有文件 (*)": "RoboWorld project (*.core);;All Files (*)",
+    "RoboWorld 工程 (*.rwproj *.robotproj *.core);;所有文件 (*)": (
+        "RoboWorld project (*.rwproj *.robotproj *.core);;All Files (*)"
+    ),
     "示教程序": "Teach program",
     "各机示教程序": "Per-robot teach programs",
     "各机示教程序段必须是对象": "Per-robot teach programs section must be an object",

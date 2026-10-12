@@ -192,11 +192,12 @@ except Exception as _exc:  # pragma: no cover
     reset_all_cache_stats = None
 
 # --------------------------------------------------------------------------- #
-# 工程文件（.core）与工艺时序
+# 工程文件（.rwproj，兼容 .robotproj / .core）与工艺时序
 # --------------------------------------------------------------------------- #
 try:
     from service.project import (
         PROJECT_EXTENSION,
+        PROJECT_EXTENSIONS,
         PROJECT_FILTER,
         Project,
         ProjectError,
@@ -211,7 +212,10 @@ except Exception as _exc:  # pragma: no cover
     Project = None
     ProjectError = ValueError
     PROJECT_FILTER = ""
-    PROJECT_EXTENSION = ".core"
+    # 降级值必须与 service.project 同口径：这里若仍写 .core，工程层不可用时会
+    # 把"保存"默认存成已被取代的后缀，用户拿着文件去问"为什么打不开"
+    PROJECT_EXTENSION = ".rwproj"
+    PROJECT_EXTENSIONS = (".rwproj", ".robotproj", ".core")
     cell_snapshot = None
     cell_from_snapshot = None
 

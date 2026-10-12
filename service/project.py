@@ -51,6 +51,7 @@ from support.i18n import tr
 __all__ = [
     "PROJECT_SCHEMA",
     "PROJECT_EXTENSION",
+    "PROJECT_EXTENSIONS",
     "PROJECT_FILTER",
     "SECTION_NAMES",
     "SECTION_TITLES",
@@ -67,11 +68,26 @@ __all__ = [
 #: 格式标识，改名会让老工程"看起来不认识"——包名换 core 不改数据格式。
 PROJECT_SCHEMA = "service.project/1"
 
-#: 工程文件扩展名
-PROJECT_EXTENSION = ".core"
+#: 工程文件扩展名（**主**扩展名）：新建/另存一律用它。
+#:
+#: 2026-10-12 由 ``.core`` 更名为 ``.rwproj``：``.core`` 太泛（与各类软件撞名），
+#: 在资源管理器里既没有专属图标、双击也不知道该交给谁；``.rwproj`` 才自解释，
+#: 也便于在 Windows/macOS/Linux 三端注册文件关联。
+#: **格式一个字节都没变**——schema 仍是 :data:`PROJECT_SCHEMA`，老工程照常打开。
+PROJECT_EXTENSION = ".rwproj"
+
+#: 全部可识别的工程扩展名：主扩展名 + 别名（顺序即优先级）。
+#:
+#: * ``.robotproj``：给"文档/习惯里已经这么叫"的情况留的别名；
+#: * ``.core``：**历史扩展名**，已存盘的老工程必须能继续打开。
+#:
+#: 判定"这是不是工程文件"一律只用这个元组（见 :mod:`app.startup_args`），
+#: 别处不许再写一份后缀表——两处漂移的典型症状是"菜单能打开、双击没反应"。
+#: 大小写不敏感：Windows 上资源管理器会给 ``A.RWPROJ`` 这种大写后缀。
+PROJECT_EXTENSIONS: Tuple[str, ...] = (".rwproj", ".robotproj", ".core")
 
 #: 文件对话框过滤器
-PROJECT_FILTER = tr("RoboWorld 工程 (*.core);;所有文件 (*)")
+PROJECT_FILTER = tr("RoboWorld 工程 (*.rwproj *.robotproj *.core);;所有文件 (*)")
 
 #: 段标题（进 i18n，同时用于报告与 CLI 输出）
 SECTION_TITLES: Dict[str, str] = {
