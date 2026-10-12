@@ -1,8 +1,8 @@
 """工程文件与会话状态（ADR-002 拆解第 8 步）。
 
-承接 .core 工程的存取与会话周边状态：保存/打开、最近打开、崩溃自动恢复快照、
-从模板新建。方法体从 ``main.py`` 原样搬出，可选依赖的降级探测复制到本模块，
-不依赖入口脚本的模块级状态。
+承接 .rwproj 工程（兼容 .robotproj / .core）的存取与会话周边状态：保存/打开、
+最近打开、崩溃自动恢复快照、从模板新建。方法体从 ``main.py`` 原样搬出，可选
+依赖的降级探测复制到本模块，不依赖入口脚本的模块级状态。
 
 工程 IO 的一条硬规则：**只收界面里真的有的东西**——没有场景就不写场景段，
 而不是写一段空的；载入时同理，缺哪段就如实报"已跳过"，不猜、不静默丢。
@@ -46,6 +46,7 @@ from app.window.capabilities import (
 )
 from PySide6.QtCore import Qt
 
+from app.platform_win import add_recent_document as _add_recent_document
 from domain.world.templates import REPO_ROOT as _REPO_ROOT
 from support.i18n import tr
 
@@ -403,6 +404,10 @@ class ProjectSessionMixin:
         recents.add(str(path))
         recents.save()
         self._rebuild_recent_menu()
+        # 同步报给系统外壳：Windows 任务栏 Jump List 的"最近"分类由 Shell 自己
+        # 维护，只有把路径报给它才会出现在那儿。数据真源仍是 RecentProjects
+        # （应用内菜单读它），这里不是第二份列表
+        _add_recent_document(str(path))
 
     def _rebuild_recent_menu(self) -> None:
         """按最近打开记录重建子菜单；失效条目置灰（不悄悄藏）。"""

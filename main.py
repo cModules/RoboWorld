@@ -54,6 +54,7 @@ from app.views.robot_renderer import (  # noqa: E402
     HOME_POSE_PATTERN_DEG,
     RobotRenderer,
 )
+from app.launcher import run_app  # noqa: E402
 from app.window.main_window import MainWindow  # noqa: E402
 from domain.pose import matrix_to_rpy as _matrix_to_rpy  # noqa: E402
 
@@ -147,13 +148,10 @@ def main():
     # 必须在构造任何窗口之前挂好：窗口构造期抛异常也算
     _install_crash_handler()
 
-    app = QtWidgets.QApplication(sys.argv)
-
-    urdf_path = sys.argv[1] if len(sys.argv) > 1 else None
-    window = MainWindow(urdf_path)
-    window.show()
-
-    sys.exit(app.exec())
+    # 启动编排在 app/launcher.py（系统身份 / 单实例转交 / 双击打开工程）。
+    # 这里保持"启动壳"的口径：argv[1] 不再无条件当 URDF——双击 .rwproj 时
+    # 它是工程文件，按老写法会被当成机器人模型去解析
+    sys.exit(run_app(sys.argv))
 
 
 if __name__ == "__main__":
