@@ -22,7 +22,9 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "python"))
+# 分层包（domain/ service/ adapter/ …）就在仓库根；这里曾指向 core 时代的 python/ 布局，
+# 该目录随 ADR-008 一起删除，导致本示例直接运行即 ModuleNotFoundError。
+sys.path.insert(0, str(REPO))
 
 from service.program import ProgramBuilder  # noqa: E402
 from domain.pose import Pose
