@@ -44,8 +44,11 @@ pip install PySide6 PyOpenGL
 
 **运行方式：**
 ```bash
-python examples/pick_and_place.py
+PYTHONPATH=. python examples/pick_and_place.py
 ```
+
+> 分层包（`domain` / `service` / `adapter` …）位于仓库根，而脚本在 `examples/` 下，
+> 因此需要把仓库根加入模块搜索路径。
 
 **输出内容：**
 - 估算的节拍时间
@@ -58,13 +61,14 @@ python examples/pick_and_place.py
 
 **代码要点：**
 ```python
-import core as orp
+from domain.pose import Pose
+from domain.robot import Robot
 
 # 加载机器人
-robot = orp.Robot("assets/models/ur/ur5e.urdf", name="UR5_1")
+robot = Robot("examples/assets/test_6dof.urdf", name="TestRobot_6DOF")
 
 # 设置工具坐标系
-robot.tool = orp.Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
+robot.tool = Pose.from_xyz_rpy(0, 0, 150, 0, 0, 0)
 
 # 链式运动编程
 program = (

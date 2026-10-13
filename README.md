@@ -4,8 +4,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-1684%20passed-brightgreen.svg)](#核心能力)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#安装与快速开始)
+[![Tests](https://img.shields.io/badge/tests-1846%20passed-brightgreen.svg)](#tests)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#install)
 
 **开源机器人编程与仿真平台**
 
@@ -13,11 +13,15 @@
 
 打开应用即可看到 3D 视口、机器人与零件资源库、设备树、属性编辑器、路径代码预览和导出面板：载入 URDF，拖动关节检查姿态，编辑示教点，校验轨迹，再导出目标控制器程序。
 
-[⬇️ 下载与安装](#安装与快速开始) · [🖼 查看界面与功能](#界面与功能) · [📖 用户手册](docs/manual/INDEX.md) · [GitHub 仓库](https://github.com/cModules/RoboWorld) · [提交 Issue](https://github.com/cModules/RoboWorld/issues)
+[⬇️ 下载与安装](#install) · [🖼 查看界面与功能](#ui) · [📖 用户手册](docs/manual/INDEX.md) · [GitHub 仓库](https://github.com/cModules/RoboWorld) · [提交 Issue](https://github.com/cModules/RoboWorld/issues)
 
 **关键词**：industrial robotics · offline programming · robot simulation · robotics digital twin · trajectory planning · motion planning · inverse kinematics · collision checking · multi-robot coordination · force control · CAD/CAM · PLC · URDF · Python · PySide6
 
 ---
+
+<!-- 显式锚点：标题带 emoji，GitHub 自动生成的 id 会附带前导连字符且随渲染实现而变，
+     导航链接因此指向这里的固定 id（#ui / #install / #tests）而不依赖自动生成规则。 -->
+<a id="ui"></a>
 
 ## 🖥️ 界面与功能
 
@@ -52,7 +56,7 @@ GUI 就是一个 `main.py`：加载任意 URDF，左侧「资源库」选设备�
 ![离线编程](docs/screenshots/offline_programming.png)
 
 - **导出打包** 标签：程序摘要（节拍、TCP 路径、轨迹点数），**校验程序 (F7)** 检查可达性 / 限位 / 干涉，**回放** 连续运行，**停止** 中断。
-- 后端对接 `core.Planner`，使用真实运动学，而非模拟。
+- 规划与校验走 `service.planner`（真实运动学 + 梯形 / S 曲线速度规划），而非模拟。
 
 ### 厂商 CAD 接入 · JAKA Zu5 真机网格
 ![JAKA Zu5 真机](docs/screenshots/jaka_zu5_real.png)
@@ -107,6 +111,8 @@ python examples/vision_pick_demo.py --noise 1.0 --code   # 放大标定噪声 + 
 
 ---
 
+<a id="install"></a>
+
 ## 🚀 安装与快速开始
 
 ### 1. 下载或获取代码
@@ -127,11 +133,11 @@ conda activate robotworld
 ```
 也可使用任意 virtualenv——支持 Python **3.9 ~ 3.12**。
 
-### 3. 安装依赖 + `core` 包
+### 3. 安装依赖（可编辑安装）
 ```bash
 pip install -e ".[gui]"
 ```
-该命令一次性安装核心（numpy / scipy / jinja2 / pyyaml / pydantic）**与** GUI（PySide6 / PyOpenGL），并以可编辑方式安装 `core` 包本身。无需编译 C++——纯 Python 运动学回退已随包发布，并由 807 测试套件守护。
+该命令一次性安装核心依赖（numpy / scipy / jinja2 / pyyaml / pydantic）**与** GUI（PySide6 / PyOpenGL），并以可编辑方式安装 RoboWorld 的各分层包（`domain` / `service` / `adapter` / `app` / `support`）。无需编译 C++——纯 Python 运动学回退已随包发布，并由 1846 个测试守护。
 
 若位于较慢的 PyPI 镜像后：
 ```bash
@@ -161,30 +167,41 @@ docker run -p 6080:6080 robotworld      # 浏览器打开 http://localhost:6080 
 
 ### 5. 第一个程序（无 GUI，纯脚本）
 ```python
-# examples/olp_full_workflow.py — 端到端可运行示例
-from core import Robot, Program, Planner
-from adapter.post import process as post_process
+# 与 examples/olp_full_workflow.py 同源：无 GUI，纯脚本跑通全链路
+import numpy as np
+from domain.robot import Robot
 from domain.link import FileLink, SimLink
+from service.program import ProgramBuilder
 from service.debug import DebugSession
 
+# 1) 载入机器人（URDF）
 robot = Robot("assets/models/ur/ur5e/ur5e.urdf", name="UR5")
+
+# 2) 编程序：目标位姿取自真实关节角的**正解**，因此换品牌也一定可达，
+#    不必为每个品牌手调笛卡尔坐标
+pose_b = robot.forward_kinematics(np.array([30.0, -30.0, 30.0, -30.0, 30.0, 0.0]))
 prog = (
-    Program(robot)
-    .moveJ([0, -1.5708, 1.5708, -1.5708, 1.5708, 0])
-    .moveL_to((0.50, 0.20, 0.30, 0, 0, 0))
-    .moveL_to((0.50, 0.30, 0.30, 0, 0, 0))
+    ProgramBuilder(robot)
+    .moveJ([0.0] * robot.dof, speed=40)     # 关节插补
+    .moveL(pose_b, speed=60, blend=10)      # 直线插补（blend = 过渡半径 mm）
+    .build()
 )
-Planner().plan(prog)                       # 展开 + 节拍 + 校验
-print(post_process(prog, "ur_polyscope"))  # 输出 URScript
 
-link = FileLink(out_dir="out/")            # 离线导出 + manifest.json
-prog.deploy(link, "ur_polyscope", name="pick_and_place")
+# 3) 校验：可达性 / 关节限位 / 奇异 / 干涉，并给出节拍
+report = prog.validate()
+print(report.ok, report.num_motions, f"{report.cycle_time:.2f}s")
 
-# SimLink：通过运动学回读（真机换成 ControllerLink 即可对接控制器）
+# 4) 出码 + 部署：FileLink 离线导出程序与 manifest.json（换成 ControllerLink 即上真机）
+print(prog.to_post("ur_polyscope"))        # 输出 URScript
+link = FileLink("out/")
+link.connect()
+print(prog.deploy(link, "ur_polyscope", name="pick_and_place").handle)
+
+# 5) 在线调试：在仿真连接上播放，读回位姿与规划值比对偏差
 sim = SimLink(robot)
-dbg = DebugSession(prog, sim)
-for deviation in dbg.play():
-    print(deviation)                       # mm + deg 与规划值的偏差
+sim.connect()
+summary = DebugSession(prog.simulate(), sim, robot=robot).run()
+print(summary["max_pos_deviation_mm"], "mm /", summary["max_rot_deviation_deg"], "deg")
 ```
 
 ---
@@ -199,10 +216,12 @@ for deviation in dbg.play():
 │  右标签：属性 / 代码预览 / 导出打包（内含「路径示教」子页）     │
 │  GLWidget 视口 · 关节滑块 · 对象位姿/参数编辑 · 路径代码编辑器 │
 ├───────────────────────────────────────────────────────────────┤
-│  Python API — `core` 包                                       │
+│  Python API — 分层包（domain / service / adapter）            │
 │  ──────────────────────────────────────────────────────────── │
-│  Robot · Pose · Motion(JOINT/LINEAR/CIRCULAR/SPLINE)          │
-│  Program · Planner · SimulationWorld · Link · DebugSession    │
+│  domain：Robot · Pose · Link · 运动学 / 碰撞 / 包络           │
+│  service：ProgramBuilder · Program · TrajectoryPlanner        │
+│  service：DebugSession · SimulationWorld · 场景与工程         │
+│  adapter：post（Jinja2 后处理）· plugins · robot_library      │
 ├───────────────────────────────────────────────────────────────┤
 │  运动学核心                                                    │
 │  ──────────────────────────────────────────────────────────── │
@@ -223,10 +242,12 @@ for deviation in dbg.play():
 
 ---
 
+<a id="tests"></a>
+
 ## 🧪 测试
 
 ```bash
-pytest tests/    # 1728 个测试，覆盖运动学 / 后处理 / link（含真机 Socket 与 SSH 通路及打桩控制器）/ PLC↔机器人 IO 点表 / 驻留段时间轴 / 轨迹编辑器圆弧编辑 / 场景拖拽摆放 / 规模与性能基准（FK 常量缓存等价性 + motion_at 二分对拍）/ 干涉检查采样口径与几何缓存（内核对拍 + 三级漏斗账本）/ 增量重算（内容寻址缓存 + 逐位等价 + 起点进键的回归守卫）/ debug / 厂商 CAD / 标定与手眼 / 多机器人 / 力控 / 数字孪生 / 插件接口 / 云通道 / 程序版本对比 / 插件包 / 包络容差 / i18n / 真机连接面板（Socket + SSH 双传输与取回核对）/ 真机 CAD 链路（合成装配体端到端 + OCP 版本兼容层 + 静态守卫）/ 干涉检查结果缓存（场景签名键 + 拖入路径正确性守卫 + 基准诚实性）/ 力矩校验结果缓存（模型内容签名键 + 命中等价 + 计时诚实性）/ 缓存可观测性（三类缓存统一快照 + 关闭态如实呈现 + GUI 缓存状态对话框）/ 界面架构验收（左侧双 Tab 与右侧三标签结构 + 小窗口不裁切换算 + 一键演示后按钮可达性 + en 标签译文）/ 工艺时序（序列模型与七类校验 + 机器人/PLC 双出口 + 与 `steps_from_program` 逐字段等价 + `to_plc_steps → generate_scl` 端到端出码 + JSON 往返 + 泳道编辑器 offscreen 行为）/ 动态时序使用体验（示例脚本子进程验收）/ 零件库与预置场景库（模板零干涉 + 零件库导入 + 面板 offscreen）/ 工程文件 `.rwproj`（兼容 `.robotproj` / `.core`；六段信封 + 逐段容错 + 未知段保真 + 原子写入 + GUI 打开/保存工程与未保存标记）/ 会话支撑（最近打开 + 自动恢复 + 恢复询问 + 干净退出清快照）/ 工程模板（三个内置模板 + 8 点抓取循环真实 IK + 全新构建）/ 打包配置
+pytest tests/    # 1846 个测试，覆盖运动学 / 后处理 / link（含真机 Socket 与 SSH 通路及打桩控制器）/ PLC↔机器人 IO 点表 / 驻留段时间轴 / 轨迹编辑器圆弧编辑 / 场景拖拽摆放 / 规模与性能基准（FK 常量缓存等价性 + motion_at 二分对拍）/ 干涉检查采样口径与几何缓存（内核对拍 + 三级漏斗账本）/ 增量重算（内容寻址缓存 + 逐位等价 + 起点进键的回归守卫）/ debug / 厂商 CAD / 标定与手眼 / 多机器人 / 力控 / 数字孪生 / 插件接口 / 云通道 / 程序版本对比 / 插件包 / 包络容差 / i18n / 真机连接面板（Socket + SSH 双传输与取回核对）/ 真机 CAD 链路（合成装配体端到端 + OCP 版本兼容层 + 静态守卫）/ 干涉检查结果缓存（场景签名键 + 拖入路径正确性守卫 + 基准诚实性）/ 力矩校验结果缓存（模型内容签名键 + 命中等价 + 计时诚实性）/ 缓存可观测性（三类缓存统一快照 + 关闭态如实呈现 + GUI 缓存状态对话框）/ 界面架构验收（左侧双 Tab 与右侧三标签结构 + 小窗口不裁切换算 + 一键演示后按钮可达性 + en 标签译文）/ 工艺时序（序列模型与七类校验 + 机器人/PLC 双出口 + 与 `steps_from_program` 逐字段等价 + `to_plc_steps → generate_scl` 端到端出码 + JSON 往返 + 泳道编辑器 offscreen 行为）/ 动态时序使用体验（示例脚本子进程验收）/ 零件库与预置场景库（模板零干涉 + 零件库导入 + 面板 offscreen）/ 工程文件 `.rwproj`（兼容 `.robotproj` / `.core`；六段信封 + 逐段容错 + 未知段保真 + 原子写入 + GUI 打开/保存工程与未保存标记）/ 会话支撑（最近打开 + 自动恢复 + 恢复询问 + 干净退出清快照）/ 工程模板（三个内置模板 + 8 点抓取循环真实 IK + 全新构建）/ 打包配置
 ```
 CI 工作流位于 `.github/workflows/ci.yml`。
 

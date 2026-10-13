@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-1684%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1846%20passed-brightgreen.svg)](#testing)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#installation-and-quick-start)
 
 **Open-source robot programming and simulation platform**
@@ -127,11 +127,11 @@ conda activate robotworld
 ```
 Any virtualenv works too — Python **3.9 to 3.12** are supported.
 
-### 3. Install dependencies + the `core` package
+### 3. Install dependencies (editable install)
 ```bash
 pip install -e ".[gui]"
 ```
-This installs the core (numpy / scipy / jinja2 / pyyaml / pydantic) **and** the GUI extras (PySide6 / PyOpenGL), and installs the `core` package itself in editable mode. No C++ compilation needed — the pure-Python kinematics fallback ships with the package and is guarded by the test suite.
+This installs the core dependencies (numpy / scipy / jinja2 / pyyaml / pydantic) **and** the GUI extras (PySide6 / PyOpenGL), and installs RoboWorld's layered packages (`domain` / `service` / `adapter` / `app` / `support`) in editable mode. No C++ compilation needed — the pure-Python kinematics fallback ships with the package and is guarded by 1846 tests.
 
 Behind a slow PyPI mirror:
 ```bash
@@ -161,30 +161,42 @@ docker run -p 6080:6080 robotworld      # open http://localhost:6080 to see the 
 
 ### 5. Your first program (no GUI, script only)
 ```python
-# examples/olp_full_workflow.py — a runnable end-to-end example
-from core import Robot, Program, Planner
-from adapter.post import process as post_process
+# Same source as examples/olp_full_workflow.py: the whole pipeline, no GUI
+import numpy as np
+from domain.robot import Robot
 from domain.link import FileLink, SimLink
+from service.program import ProgramBuilder
 from service.debug import DebugSession
 
+# 1) Load the robot (URDF)
 robot = Robot("assets/models/ur/ur5e/ur5e.urdf", name="UR5")
+
+# 2) Write the program. The target pose comes from the **forward kinematics** of a
+#    real joint configuration, so it stays reachable for any brand — no per-brand
+#    hand-tuned Cartesian coordinates.
+pose_b = robot.forward_kinematics(np.array([30.0, -30.0, 30.0, -30.0, 30.0, 0.0]))
 prog = (
-    Program(robot)
-    .moveJ([0, -1.5708, 1.5708, -1.5708, 1.5708, 0])
-    .moveL_to((0.50, 0.20, 0.30, 0, 0, 0))
-    .moveL_to((0.50, 0.30, 0.30, 0, 0, 0))
+    ProgramBuilder(robot)
+    .moveJ([0.0] * robot.dof, speed=40)     # joint interpolation
+    .moveL(pose_b, speed=60, blend=10)      # linear interpolation (blend = radius, mm)
+    .build()
 )
-Planner().plan(prog)                       # expand + cycle time + validation
-print(post_process(prog, "ur_polyscope"))  # prints URScript
 
-link = FileLink(out_dir="out/")            # offline export + manifest.json
-prog.deploy(link, "ur_polyscope", name="pick_and_place")
+# 3) Validate: reachability / joint limits / singularities / collisions + cycle time
+report = prog.validate()
+print(report.ok, report.num_motions, f"{report.cycle_time:.2f}s")
 
-# SimLink reads joint values back through kinematics (swap in ControllerLink for real hardware)
+# 4) Generate code and deploy. FileLink exports offline (swap in ControllerLink for real hardware)
+print(prog.to_post("ur_polyscope"))        # URScript
+link = FileLink("out/")
+link.connect()
+print(prog.deploy(link, "ur_polyscope", name="pick_and_place").handle)
+
+# 5) Online debugging: play on a simulated link and compare feedback against the plan
 sim = SimLink(robot)
-dbg = DebugSession(prog, sim)
-for deviation in dbg.play():
-    print(deviation)                       # deviation from the planned value, in mm and deg
+sim.connect()
+summary = DebugSession(prog.simulate(), sim, robot=robot).run()
+print(summary["max_pos_deviation_mm"], "mm /", summary["max_rot_deviation_deg"], "deg")
 ```
 
 ---
@@ -199,10 +211,12 @@ for deviation in dbg.play():
 │  Right tabs: Properties / Code preview / Export (Teach page)       │
 │  GLWidget viewport · Joint sliders · Pose editor · Path editor     │
 ├────────────────────────────────────────────────────────────────────┤
-│  Python API — the `core` package                                   │
+│  Python API — layered packages (domain / service / adapter)        │
 │  ────────────────────────────────────────────────────────────────  │
-│  Robot · Pose · Motion (JOINT/LINEAR/CIRCULAR/SPLINE)              │
-│  Program · Planner · SimulationWorld · Link · DebugSession         │
+│  domain: Robot · Pose · Link · kinematics / collision              │
+│  service: ProgramBuilder · Program · TrajectoryPlanner             │
+│  service: DebugSession · SimulationWorld · scene & project         │
+│  adapter: post (Jinja2) · plugins · robot_library                  │
 ├────────────────────────────────────────────────────────────────────┤
 │  Kinematics core                                                   │
 │  ────────────────────────────────────────────────────────────────  │
@@ -226,7 +240,7 @@ Key extension points:
 ## Testing
 
 ```bash
-pytest tests/    # 1728 tests covering kinematics / post-processing / link (including real Socket and SSH paths with a stubbed controller) / PLC↔robot IO maps / dwell-time timeline / circular-arc editing in the trajectory editor / scene drag-and-drop placement / scale and performance benchmarks / interference-check sampling conventions and geometry caching / incremental recomputation (content-addressed cache, bit-exactness, start-point-in-key regression guard) / debug / vendor CAD / calibration and hand-eye / multi-robot / force control / digital twin / plugin interface / cloud channel / program diffing / envelope tolerance / i18n / real-machine connection panel / real-machine CAD pipeline / interference-result caching / torque-result caching / cache observability / UI architecture acceptance / process sequence (sequence model, seven validations, robot+PLC outputs, JSON round-trip, swimlane editor offscreen behavior) / dynamic-timing UX / part library and preset scenes / project files `.rwproj` (compatible with `.robotproj` / `.core`; six-section envelope, per-section fault tolerance, unknown-section fidelity, atomic writes, GUI open/save with dirty flag) / session support (recent files, auto-recovery, recovery prompt, snapshot cleanup on clean exit) / project templates / packaging configuration
+pytest tests/    # 1846 tests covering kinematics / post-processing / link (including real Socket and SSH paths with a stubbed controller) / PLC↔robot IO maps / dwell-time timeline / circular-arc editing in the trajectory editor / scene drag-and-drop placement / scale and performance benchmarks / interference-check sampling conventions and geometry caching / incremental recomputation (content-addressed cache, bit-exactness, start-point-in-key regression guard) / debug / vendor CAD / calibration and hand-eye / multi-robot / force control / digital twin / plugin interface / cloud channel / program diffing / envelope tolerance / i18n / real-machine connection panel / real-machine CAD pipeline / interference-result caching / torque-result caching / cache observability / UI architecture acceptance / process sequence (sequence model, seven validations, robot+PLC outputs, JSON round-trip, swimlane editor offscreen behavior) / dynamic-timing UX / part library and preset scenes / project files `.rwproj` (compatible with `.robotproj` / `.core`; six-section envelope, per-section fault tolerance, unknown-section fidelity, atomic writes, GUI open/save with dirty flag) / session support (recent files, auto-recovery, recovery prompt, snapshot cleanup on clean exit) / project templates / packaging configuration
 ```
 CI workflow lives in `.github/workflows/ci.yml`.
 
