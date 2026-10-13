@@ -95,7 +95,7 @@ python examples/vision_pick_demo.py --noise 1.0 --code # stronger calibration no
 
 | Brand | Controller | Post-processor | Production CAD |
 |---|---|---|---|
-| Universal Robots | PolyScope 5 / 6 | `ur_polyscope` | ✅ UR3 / UR5 / UR10 / UR3e / UR5e / UR10e / UR16e |
+| Universal Robots | PolyScope 5 / 6 | `ur_polyscope` | 🔄 procedural models ur3e / ur5e / ur10e / ur16e, awaiting STEP |
 | JAKA | Zu App | `jaka_zu` | ✅ **Zu3 / Zu5 / Zu7 / Zu12 / Zu18 / Zu20 / Zu30** (vendor STEP → meshes) |
 | KUKA | KRC4 | `kuka_krc4` | 🔄 pipeline ready, awaiting STEP |
 | ABB | IRC5 | `abb_irc5` | 🔄 pipeline ready, awaiting STEP |
@@ -162,6 +162,7 @@ docker run -p 6080:6080 robotworld      # open http://localhost:6080 to see the 
 ### 5. Your first program (no GUI, script only)
 ```python
 # Same source as examples/olp_full_workflow.py: the whole pipeline, no GUI
+# Here: KUKA KR16-2 (a launch brand; JAKA works the same way)
 import numpy as np
 from domain.robot import Robot
 from domain.link import FileLink, SimLink
@@ -169,7 +170,7 @@ from service.program import ProgramBuilder
 from service.debug import DebugSession
 
 # 1) Load the robot (URDF)
-robot = Robot("assets/models/ur/ur5e/ur5e.urdf", name="UR5")
+robot = Robot("assets/models/kuka/kr16_2/kr16_2.urdf", name="KR16")
 
 # 2) Write the program. The target pose comes from the **forward kinematics** of a
 #    real joint configuration, so it stays reachable for any brand — no per-brand
@@ -187,10 +188,10 @@ report = prog.validate()
 print(report.ok, report.num_motions, f"{report.cycle_time:.2f}s")
 
 # 4) Generate code and deploy. FileLink exports offline (swap in ControllerLink for real hardware)
-print(prog.to_post("ur_polyscope"))        # URScript
+print(prog.to_post("kuka_krc4"))           # KUKA KRL (.src)
 link = FileLink("out/")
 link.connect()
-print(prog.deploy(link, "ur_polyscope", name="pick_and_place").handle)
+print(prog.deploy(link, "kuka_krc4", name="pick_and_place").handle)
 
 # 5) Online debugging: play on a simulated link and compare feedback against the plan
 sim = SimLink(robot)
@@ -198,6 +199,8 @@ sim.connect()
 summary = DebugSession(prog.simulate(), sim, robot=robot).run()
 print(summary["max_pos_deviation_mm"], "mm /", summary["max_rot_deviation_deg"], "deg")
 ```
+
+Switching brands means changing just two things — the model path and the post-processor name. For JAKA: `assets/models/jaka/zu5/zu5_real.urdf` (real vendor STEP meshes) + `jaka_zu`. See `examples/olp_full_workflow.py` for the models selectable with `--brand`.
 
 ---
 

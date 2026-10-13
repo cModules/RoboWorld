@@ -99,7 +99,7 @@ python examples/vision_pick_demo.py --noise 1.0 --code   # 放大标定噪声 + 
 
 | 品牌 | 控制器 | 后处理器 | 真机 CAD |
 |---|---|---|---|
-| Universal Robots | PolyScope 5 / 6 | `ur_polyscope` | ✅ UR3 / UR5 / UR10 / UR3e / UR5e / UR10e / UR16e |
+| Universal Robots | PolyScope 5 / 6 | `ur_polyscope` | 🔄 程序化模型 ur3e / ur5e / ur10e / ur16e，待 STEP |
 | JAKA | Zu App | `jaka_zu` | ✅ **Zu3 / Zu5 / Zu7 / Zu12 / Zu18 / Zu20 / Zu30**（厂商 STEP → 网格） |
 | KUKA | KRC4 | `kuka_krc4` | 🔄 流水线就绪，待 STEP |
 | ABB | IRC5 | `abb_irc5` | 🔄 流水线就绪，待 STEP |
@@ -168,6 +168,7 @@ docker run -p 6080:6080 robotworld      # 浏览器打开 http://localhost:6080 
 ### 5. 第一个程序（无 GUI，纯脚本）
 ```python
 # 与 examples/olp_full_workflow.py 同源：无 GUI，纯脚本跑通全链路
+# 这里用 KUKA KR16-2（首发品牌，节卡同理）
 import numpy as np
 from domain.robot import Robot
 from domain.link import FileLink, SimLink
@@ -175,7 +176,7 @@ from service.program import ProgramBuilder
 from service.debug import DebugSession
 
 # 1) 载入机器人（URDF）
-robot = Robot("assets/models/ur/ur5e/ur5e.urdf", name="UR5")
+robot = Robot("assets/models/kuka/kr16_2/kr16_2.urdf", name="KR16")
 
 # 2) 编程序：目标位姿取自真实关节角的**正解**，因此换品牌也一定可达，
 #    不必为每个品牌手调笛卡尔坐标
@@ -192,10 +193,10 @@ report = prog.validate()
 print(report.ok, report.num_motions, f"{report.cycle_time:.2f}s")
 
 # 4) 出码 + 部署：FileLink 离线导出程序与 manifest.json（换成 ControllerLink 即上真机）
-print(prog.to_post("ur_polyscope"))        # 输出 URScript
+print(prog.to_post("kuka_krc4"))           # 输出 KUKA KRL（.src）
 link = FileLink("out/")
 link.connect()
-print(prog.deploy(link, "ur_polyscope", name="pick_and_place").handle)
+print(prog.deploy(link, "kuka_krc4", name="pick_and_place").handle)
 
 # 5) 在线调试：在仿真连接上播放，读回位姿与规划值比对偏差
 sim = SimLink(robot)
@@ -203,6 +204,8 @@ sim.connect()
 summary = DebugSession(prog.simulate(), sim, robot=robot).run()
 print(summary["max_pos_deviation_mm"], "mm /", summary["max_rot_deviation_deg"], "deg")
 ```
+
+换品牌只需改两处——模型路径与后处理器名。例如节卡：`assets/models/jaka/zu5/zu5_real.urdf`（厂商 STEP 真机网格）+ `jaka_zu`；`--brand` 可切换的机型见 `examples/olp_full_workflow.py`。
 
 ---
 
