@@ -1,5 +1,7 @@
 # RoboWorld
 
+> 🌐 **语言 / Language**：**简体中文**（当前） · [English](./README_EN.md)
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/tests-1684%20passed-brightgreen.svg)](#核心能力)
