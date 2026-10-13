@@ -10,7 +10,7 @@
 
 运行::
 
-    python examples/olp_full_workflow.py [--brand ur] [--post ur_polyscope]
+    python examples/olp_full_workflow.py [--brand kuka] [--post kuka_krc4]
 """
 from __future__ import annotations
 
@@ -68,7 +68,8 @@ def build_program(robot: Robot):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="RoboWorld 离线编程全闭环示例")
-    ap.add_argument("--brand", default="ur", choices=list(BRANDS))
+    # 默认 KUKA：与 README 的示例保持同源（KUKA / 节卡是首发品牌，机型最全）
+    ap.add_argument("--brand", default="kuka", choices=list(BRANDS))
     ap.add_argument("--post", default=None, help="后处理器 full_name（默认按品牌推断）")
     args = ap.parse_args()
 
