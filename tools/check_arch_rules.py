@@ -111,7 +111,9 @@ LEGACY_DEBT = {
     "app/views/controller_panel.py": "已在 app/views：真机连接面板 683 行，类内继续拆",
     "app/views/gl_widget.py": "已在 app/views：类内继续拆（1992 行，方案见 BUILD_QUEUE B2）",
     "app/views/path_editor.py": "已在 app/views：类内继续拆（1298 行，方案见 BUILD_QUEUE B3）",
-    "app/views/program_panel.py": "已在 app/views：类内继续拆（2193 行，全仓最大单体，方案见 BUILD_QUEUE B1）",
+    # 2026-10-18 移除 ``app/views/program_panel.py``：B1 类内拆解完成，
+    # 降到 534 行（< 软限 600），实现按职责拆到 program_state/_ui/_robot/
+    # _playback/_grasp/_export/_editor/_validate 八个模块，主文件只留薄 stub。
     # 2026-09-27 移除 ``app/window/main_window.py``：C2 把导入桥收敛进
     # capabilities.py 后它降到 596 行（< 软限 600）——债务还完就下调，别留在清单里
     # 误导后人。下面这条仍在软限之上（601 行），保留。
@@ -181,7 +183,15 @@ CJK_BASELINE = {
     "app/views/controller_panel.py": 76,
     "app/views/gl_widget.py": 6,
     "app/views/path_editor.py": 84,
-    "app/views/program_panel.py": 138,
+    # program_panel.py 于 2026-10-18 类内拆解（B1）：137 条中文字面量随实现
+    # 搬到下列七个模块，panel 本体只剩薄 stub（0 条），总数守恒。
+    "app/views/program_editor.py": 25,
+    "app/views/program_export.py": 16,
+    "app/views/program_grasp.py": 32,
+    "app/views/program_playback.py": 4,
+    "app/views/program_robot.py": 1,
+    "app/views/program_ui.py": 42,
+    "app/views/program_validate.py": 17,
     "app/views/property_controls.py": 5,
     "app/views/property_panel.py": 7,
     "app/views/property_panel_ui.py": 31,

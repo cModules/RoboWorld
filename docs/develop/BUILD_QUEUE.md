@@ -215,8 +215,12 @@ S2 完成后把 v0.3.3 剩余部分（工艺模板库、waitDI 完整语义）�
 - [ ] **发现的小瑕疵（未修，本轮刻意保持"纯搬运"）**：`generate_robot_code` 的 docstring 开头是
   `与tr("保存路径代码")不同`——早期一次 i18n 批量替换把 docstring 里的"与保存路径代码不同"
   改坏了（docstring 不该含 `tr(...)`）。纯文案瑕疵、无功能影响，下次动这个文件时顺手改。
-- [ ] **Step 12（下一阶段）**：**B 组**——`app/views/program_panel.py`(2193) / `gl_widget.py`(1992) /
-  `path_editor.py`(1298) / `controller_panel.py`(683) 的类内拆解，方案已出（见本节 B 组小节）。
+- [x] **Step 12（B 组首个落地）**：`app/views/program_panel.py` 类内拆解完成（2026-10-18）——
+  拆出 8 个模块（`program_state`/`program_ui`/`program_robot`/`program_playback`/`program_grasp`/
+  `program_export`/`program_editor`/`program_validate`），原文件 2202 → **534 行**（< 600 软限，
+  已摘除 TECH_DEBT 并从 LEGACY_DEBT 移除），公开方法签名全保留（stub 转发至模块级函数），
+  1852 测试全绿，6 条守门测试已建（`tests/test_app_views_program_panel.py`）。
+  `gl_widget.py`(1992) / `path_editor.py`(1298) / `controller_panel.py`(683) 仍待拆。
   - ⚠️ **第二个事故——测试的"补丁目标"没跟着走（段错误）**：`tests/test_app_degraded_paths.py`
     原本写 `monkeypatch.setattr(main, "gl", _NullGL())` 再调 `main.GLWidget._draw_link_recursive`。
     类搬进 `app/views/gl_widget.py` 后，它查的是**自己模块**的 `gl` → **补丁成了空操作** →
