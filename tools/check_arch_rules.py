@@ -118,7 +118,10 @@ LEGACY_DEBT = {
     # capabilities.py 后它降到 596 行（< 软限 600）——债务还完就下调，别留在清单里
     # 误导后人。下面这条仍在软限之上（601 行），保留。
     "app/window/project_session.py": "ADR-002 第 8 步：工程/会话组（601 行；模板与自动保存两块可再分）",
-    "support/i18n.py": "词条数据外置（Phase 1）",
+    # 2026-10-18 移除 ``support/i18n.py``：词条数据外置（Phase 1）完成，逻辑代码
+    # 降至 118 行（< 软限 600），_CATALOG_EN 原样外置到 support/i18n_catalog.py
+    # ——债务还完就下调，见下方新登记的数据表条目。
+    "support/i18n_catalog.py": "词条数据表（2026-10-18 外置；非逻辑代码，行数=词条规模，1377 行超硬限属数据外置的既定形态，参考 CODING_RULES §3.2 过渡态）",
     "adapter/robot_library/primitives.py": "View 支撑拆分（Phase 1）",
     "adapter/robot_library/urdf_model.py": "View 支撑拆分（Phase 1）",
     "domain/collision.py": "Domain 拆分（Phase 2）",
@@ -157,7 +160,9 @@ HARD_LIMIT = 1000
 # **代码搬迁同样守恒**：搬走的方法条数在源文件下调、在目标文件立键，总数不变——
 # 例（拆 MainWindow 第 3 步）：main.py 217 → 189，app/window 新立 22 + 6 = 28。
 # --------------------------------------------------------------------------- #
-I18N_HOME = {"support/i18n.py"}
+# 词条之家 = i18n 逻辑 + 外置数据表（2026-10-18 外置）：两者都按 key 记账，
+# 豁免 H5 棘轮与 H9 统计（968 条中文 key 是数据不是硬编码文案）。
+I18N_HOME = {"support/i18n.py", "support/i18n_catalog.py"}
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 CJK_BASELINE = {
     "adapter/cloudhttp.py": 49,
@@ -367,7 +372,7 @@ def check_i18n_coverage(errors: list, warns: list) -> None:
         shown = key if len(key) <= 48 else key[:45] + "..."
         errors.append(
             f'H9 i18n 词条缺失（英文版会显示中文）："{shown}" —— {where}；'
-            f"请在 support/i18n.py 的 _CATALOG_EN 补英文译文"
+            f"请在 support/i18n_catalog.py 的 _CATALOG_EN 补英文译文"
         )
     if dynamic:
         warns.append(

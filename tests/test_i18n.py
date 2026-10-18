@@ -256,9 +256,11 @@ def test_catalog_has_no_duplicate_keys():
     用 ast 读字面量而不是正则扫文本：键里有 ``\\"`` 转义时正则会在转义引号处
     截断，把一条正常条目误判成两条"重复"。
     """
-    from support import i18n
+    from support import i18n_catalog
 
-    tree = ast.parse(Path(i18n.__file__).read_text(encoding="utf-8"))
+    # _CATALOG_EN 自 2026-10-18 起定义在 i18n_catalog.py（数据表外置，Phase 1），
+    # i18n.py 仅 re-export——重复键检测要读数据真身。
+    tree = ast.parse(Path(i18n_catalog.__file__).read_text(encoding="utf-8"))
     keys = []
     for node in ast.walk(tree):
         value = getattr(node, "value", None)
