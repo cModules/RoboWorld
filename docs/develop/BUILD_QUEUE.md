@@ -275,10 +275,11 @@ S2 完成后把 v0.3.3 剩余部分（工艺模板库、waitDI 完整语义）�
 - [ ] `core/__init__.py` 门面（447 行）让**内核依赖全部三层**（与"内核在最底层"矛盾）——
   它是兼容层，54 个文件在用旧写法 → ADR-006 补**退出条件**（如：新代码禁用
   `core.<上层模块>`，用棘轮统计调用点只许减，至 v2.0 移除 re-export）。
-- [ ] **34 个文件超 600 行软限**（其中 **14 个 >1000 行**；6 个 >1500：`main.py` 6219 ·
+- [ ] **33 个文件超 600 行软限**（其中 **13 个 >1000 行**；5 个 >1500：`main.py` 6219 ·
   `app/views/program_panel.py` 2198 ·
-  `service/planner.py` 1920 · `service/perf.py` 1830 · `service/twinsync.py` 1828 · `support/i18n.py` 1538）。
+  `service/perf.py` 1830 · `service/twinsync.py` 1828 · `support/i18n.py` 1538）。
   **分层搬迁不解决体积**——搬完还是这么大；按 ARCHITECTURE Phase 1/2 节奏每轮挑 1-2 个拆。
+  已完成：`service/planner.py` 1911→586（2026-10-18 拆出 types/math/dynamics/expand 四模块）。
 
 
 ## 新增功能想法（评审区）

@@ -137,7 +137,9 @@ LEGACY_DEBT = {
     "service/incremental.py": "Service 拆分（Phase 1）",
     "service/iomap.py": "Service 拆分（Phase 1）",
     "service/perf.py": "Service 拆分（Phase 1）",
-    "service/planner.py": "Service 拆分（Phase 1）",
+    # 2026-10-18 移除：service/planner.py 已拆成 planner_types/planner_math/
+    # planner_dynamics/planner_expand 四模块，主文件 1911 → 586 行（< 600 软限）。
+    # 留在清单里只会误导后人以为还有一件没做的事（棘轮的本意就是"还完债就下调"）。
     "service/progdiff.py": "Service 拆分（Phase 1）",
     "service/program.py": "Service 拆分（Phase 1）",
     "service/project.py": "Service 拆分（Phase 1）",
@@ -222,7 +224,13 @@ CJK_BASELINE = {
     "service/multirobot.py": 21,
     "service/perf.py": 78,
     "service/pickplace.py": 10,
-    "service/planner.py": 39,
+    # 2026-10-18 planner 拆分，39 条按搬运守恒重映射：planner 5 + types 17
+    # + math 1 + dynamics 5 + expand 11 = 39
+    "service/planner.py": 5,
+    "service/planner_dynamics.py": 5,
+    "service/planner_expand.py": 11,
+    "service/planner_math.py": 1,
+    "service/planner_types.py": 17,
     "service/plc_scl.py": 27,
     "service/process.py": 24,
     "service/progdiff.py": 29,
