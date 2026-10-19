@@ -99,6 +99,10 @@ if (Test-Path (Join-Path $DistDir "RoboWorld.exe")) {
     exit 1
 }
 
-Write-Host ""
-Write-Host "按任意键退出..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+# 交互终端才等按键：CI 里 stdin 是关闭的，ReadKey 会抛异常——打包明明成功，
+# 步骤却以失败收场。GitHub Actions 会自动设 CI=true。
+if (-not $env:CI) {
+    Write-Host ""
+    Write-Host "按任意键退出..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
