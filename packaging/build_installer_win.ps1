@@ -106,6 +106,10 @@ if (Test-Path $SetupExe) {
     exit 1
 }
 
-Write-Host ""
-Write-Host "按任意键退出..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+# 交互终端才等按键：CI 里 stdin 是关闭的，ReadKey 会抛异常——安装包明明编译
+# 成功，步骤却以失败收场（与 build_win64.ps1 同一个坑）。
+if (-not $env:CI) {
+    Write-Host ""
+    Write-Host "按任意键退出..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}

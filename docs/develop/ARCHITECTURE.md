@@ -295,4 +295,4 @@ app → service → domain ← adapter → domain
 | 可靠性 | 1,651 个既有测试是资产：拆解期**只加不减**；真机链路必须先过虚拟控制器回环 |
 | 可扩展性 | 插件注册表 + 后处理器模板 + controller_link 协议接口，三个可替换边界 |
 | 可观测性 | `service/debug.py` 已有基础；统一到结构化日志，禁 print（AI 规则 #9） |
-| 发布可靠性 | wheel 冒烟 CI + PyInstaller 每版本打包验证（Win/macOS 双平台） |
+| 发布可靠性 | wheel 冒烟 CI + PyInstaller 每版本打包验证（Win/macOS 双平台）；Windows 安装包由 `.github/workflows/windows-installer.yml` 自动产出（手动触发 / `v*` tag），macOS/Linux 打包仍走 `packaging/` 本地脚本 |

@@ -1,0 +1,51 @@
+name: Windows Installer
+
+# Windows 安装包发布流水线（PyInstaller 不支持跨平台打包，exe 必须在
+# Windows 环境产出——此前只能找一台 Windows 机器手工跑 packaging/ 下两个脚本）。
+#
+# 触发口径：
+# * workflow_dispatch —— Actions 页面手动触发（想出包随时点）；
+# * push tag v* —— 发版自动出包。
+# 日常 PR 不跑它：PyInstaller 全量打包要十几分钟，纯属浪费。
+#
+# Inno Setup 6 在 windows-latest runner 上预装（Program Files (x86)\Inno Setup 6），
+# build_installer_win.ps1 的候选搜索路径已覆盖，无需 choco install。
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-installer:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project and PyInstaller
+        # gui extra 必装：spec 的 hiddenimports 需要 PySide6/PyOpenGL（与 ci.yml
+        # build-python 同理）。不建 .venv：两个打包脚本找不到 .venv 时会自动
+        # 回退到 PATH 上的 python，即 setup-python 装的这个。
+        run: pip install -e ".[gui]" pyinstaller
+
+      - name: Build RoboWorld.exe (PyInstaller)
+        # 脚本内部自校验 dist\RoboWorld.exe 存在，失败即 exit 1。
+        run: ./packaging/build_win64.ps1
+        shell: pwsh
+
+      - name: Build installer (Inno Setup)
+        # 版本号由脚本从 support.__version__ 读出、经 /D 传给 setup.iss。
+        run: ./packaging/build_installer_win.ps1
+        shell: pwsh
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoboWorld-Windows-Setup
+          path: dist/RoboWorld-Setup-*.exe
+          if-no-files-found: error
