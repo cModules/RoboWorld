@@ -184,6 +184,25 @@ def test_installer_script_iscc_call_has_no_embedded_quotes():
     )
 
 
+def test_workflow_installs_chinese_isl_before_build():
+    """Windows Installer workflow 必须在编译安装器之前补中文语言文件。
+
+    runner 上 Chocolatey 预装的 Inno Setup 是精简包：有 Default.isl（英文）但
+    没有 Languages\\ChineseSimplified.isl，编译双语安装器时报
+    "Couldn't open include file"（2026-10-20 CI 实锤）。workflow 里加了
+    一步从 Inno 官方仓库下载该文件到 runner 的 Languages 目录——删掉这步
+    就会重新炸，这里静态守住顺序。
+    """
+    workflow = REPO_ROOT / ".github" / "workflows" / "windows-installer.yml"
+    assert workflow.is_file(), "缺 .github/workflows/windows-installer.yml"
+    text = workflow.read_text(encoding="utf-8")
+    isl_step = text.find("ChineseSimplified.isl")
+    build_step = text.find("run: ./packaging/build_installer_win.ps1")
+    assert isl_step != -1, "workflow 缺中文语言文件下载步骤"
+    assert build_step != -1, "workflow 缺安装器构建步骤"
+    assert isl_step < build_step, "中文语言文件下载必须在安装器构建之前"
+
+
 def test_windows_exe_icon_is_ico():
     """Windows EXE 图标必须是 .ico，且该文件必须入库。
 

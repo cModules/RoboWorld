@@ -38,6 +38,17 @@ jobs:
         run: ./packaging/build_win64.ps1
         shell: pwsh
 
+      - name: Install Inno Setup Chinese language file
+        # runner 上 Chocolatey 预装的 Inno Setup 是精简包：有 Default.isl（英文）
+        # 但没有 Languages\ChineseSimplified.isl，编译双语安装器时报
+        # "Couldn't open include file"（2026-10-20 CI 实锤）。runner 在 GitHub
+        # 数据中心，github.com 网络正常，直接下载官方语言文件补进去。
+        run: |
+          $langDir = "C:\Program Files (x86)\Inno Setup 6\Languages"
+          New-Item -ItemType Directory -Force -Path $langDir | Out-Null
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl" -OutFile "$langDir\ChineseSimplified.isl"
+        shell: pwsh
+
       - name: Build installer (Inno Setup)
         # 版本号由脚本从 support.__version__ 读出、经 /D 传给 setup.iss。
         run: ./packaging/build_installer_win.ps1
