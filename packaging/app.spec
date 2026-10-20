@@ -151,6 +151,14 @@ pyz = PYZ(a.pure)
 # Python 版本的）一并塞进安装包，既没用又白白撑大体积。
 a.datas = [d for d in a.datas if '__pycache__' not in str(d[0])]
 
+# Windows 的 EXE 图标必须直接给 .ico：PyInstaller 的 CopyIcons 只认 ico/exe，
+# 传 PNG 要 Pillow 现场转换——CI（pip install -e ".[gui]"）并不装 Pillow，
+# 转换抛 ValueError、整个打包以 exit 1 收场（2026-10-20 实锤）。
+# 即便装了 Pillow，转出的 ico 也只有单一尺寸，Explorer/任务栏缩放难看，
+# 因此入库一份多尺寸 logo.ico。macOS 的 Dock 图标由 BUNDLE 的 logo.icns 决定，
+# EXE 的 icon 在 darwin 上不进产物，保留 logo.png 即可。
+_ICON = os.path.join(_pkg_dir, 'logo.ico' if sys.platform == 'win32' else 'logo.png')
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -170,7 +178,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(_pkg_dir, 'logo.png'),
+    icon=_ICON,
 )
 
 # --------------------------------------------------------------------------- #

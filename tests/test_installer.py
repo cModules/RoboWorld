@@ -168,6 +168,24 @@ def test_installer_script_builds_from_code_version():
     assert "setup.iss" in text
 
 
+def test_windows_exe_icon_is_ico():
+    """Windows EXE 图标必须是 .ico，且该文件必须入库。
+
+    PyInstaller 的 CopyIcons 只认 ico/exe；传 PNG 时需要 Pillow 现场转换——
+    CI（``pip install -e \".[gui]\" pyinstaller``）并不装 Pillow，转换抛
+    ValueError、整个打包以 exit 1 收场（2026-10-20 实锤）。即便装了 Pillow，
+    转出的 ico 也只有单一尺寸，Explorer/任务栏缩放难看，因此入库一份多尺寸
+    ``logo.ico``，spec 按平台选路径。
+    """
+    ico = PACKAGING / "logo.ico"
+    assert ico.is_file(), "缺 packaging/logo.ico：Windows 打包时 EXE 图标无源"
+    # 简单文件头校验（ico = 0x00 0x00 0x01 0x00）
+    assert ico.read_bytes()[:4] == b"\x00\x00\x01\x00", "logo.ico 不是合法 ICO 文件"
+    # spec 在 win32 路径使用 logo.ico（sys.platform 条件写法或硬编码均可接受）
+    spec = _text(SPEC)
+    assert "logo.ico" in spec, "spec 的 Windows 图标未引用 logo.ico"
+
+
 # --------------------------------------------------------------------------- #
 # macOS（Info.plist，由 app.spec 生成）
 # --------------------------------------------------------------------------- #
