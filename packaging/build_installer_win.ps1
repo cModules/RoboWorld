@@ -75,9 +75,14 @@ Write-Host "编译器: $iscc" -ForegroundColor Green
 
 # 4. 编译。只传版本号：dist 路径用 setup.iss 里的相对默认值（..\..\dist），
 #    避免仓库路径含空格时 /D 传值的引号处理踩坑。
+#    IssFile 直接传变量、不要在字符串里嵌引号：pwsh 7.x（GitHub runner 默认）
+#    会把内嵌引号转义为路径的一部分，ISCC 收到带字面引号的文件名，报
+#    "The filename, directory name, or volume label syntax is incorrect"
+#    （Windows 错误 123，2026-10-20 CI 实锤）。PowerShell 会自动给含空格的
+#    路径加引号，无需手工嵌。
 Write-Host ""
 Write-Host "开始编译安装器..." -ForegroundColor Cyan
-& $iscc "/DMyAppVersion=$Version" "`"$IssFile`""
+& $iscc "/DMyAppVersion=$Version" $IssFile
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ISCC 编译失败（退出码 $LASTEXITCODE）" -ForegroundColor Red
     exit $LASTEXITCODE

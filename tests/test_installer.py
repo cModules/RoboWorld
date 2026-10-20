@@ -168,6 +168,22 @@ def test_installer_script_builds_from_code_version():
     assert "setup.iss" in text
 
 
+def test_installer_script_iscc_call_has_no_embedded_quotes():
+    """ISCC 的文件名参数不得在字符串里嵌引号。
+
+    pwsh 7.x（GitHub Actions 默认）把内嵌引号转义为路径的一部分，ISCC 收到
+    带字面引号字符的文件名，报 Windows 错误 123"The filename, directory name,
+    or volume label syntax is incorrect"（2026-10-20 CI 实锤）。本机
+    Windows PowerShell 5.1 的 Legacy 传参恰好容忍这种写法，所以只能静态守。
+    PowerShell 会自动给含空格的路径加引号，直接传变量即可。
+    """
+    text = _text(BUILD_INSTALLER_PS1)
+    assert '"`"$IssFile`""' not in text, (
+        "ISCC 调用在 IssFile 字符串里嵌了引号——pwsh 7 下路径会带字面引号导致"
+        " Windows 错误 123；请直接传 $IssFile"
+    )
+
+
 def test_windows_exe_icon_is_ico():
     """Windows EXE 图标必须是 .ico，且该文件必须入库。
 
