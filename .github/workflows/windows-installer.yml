@@ -60,3 +60,27 @@ jobs:
           name: RoboWorld-Windows-Setup
           path: dist/RoboWorld-Setup-*.exe
           if-no-files-found: error
+
+      - name: Package source code
+        # 把 tag 对应的源码打成 tar.gz，与安装包一起存档到飞书。
+        run: |
+          $version = (& python -c "from support import __version__; print(__version__)").Trim()
+          git archive --format=tar.gz --output="dist/RoboWorld-source-$version.tar.gz" HEAD
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Upload release artifacts to Feishu
+        # 把安装包 + 源代码包上传到飞书云空间的 <父文件夹>/<版本号>/ 下。
+        # 仅在配置了 FEISHU_* secrets 时执行；未配置则跳过（不影响发版）。
+        # 三个 secrets：FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_FOLDER_TOKEN（父文件夹 token）。
+        if: ${{ secrets.FEISHU_APP_ID != '' }}
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          python tools/upload_to_feishu.py `
+            --parent-token "${{ secrets.FEISHU_FOLDER_TOKEN }}" `
+            --version "$env:VERSION" `
+            "dist/RoboWorld-Setup-$env:VERSION.exe" `
+            "dist/RoboWorld-source-$env:VERSION.tar.gz"
+        shell: pwsh
