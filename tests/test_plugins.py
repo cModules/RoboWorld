@@ -1390,18 +1390,18 @@ def test_all_exports_are_importable():
         assert hasattr(P, name), f"__all__ 里的 {name} 不存在"
 
 
-def test_version_is_1_4_0():
+def test_version_is_0_1_40():
     """版本口径哨兵：升版时这里必须跟上。
 
     GUI 窗口标题自 v1.3.0 起**从包版本派生**（见 main.py），
     所以真正需要手工同步的只剩三处：``core/__init__.py`` / ``pyproject.toml`` /
     ``app.spec`` 的 ``CFBundleShortVersionString``。
 
-    v1.4.0 = MVP 发版口径（`app/features.py` 隐藏未成熟功能入口）。
+    v0.1.40 = MVP 发版口径（`app/features.py` 隐藏未成熟功能入口）。
     """
     from support import __version__
 
-    assert __version__ == "1.4.0"
+    assert __version__ == "0.1.40"
 
 
 def test_plugin_load_error_is_plain_dataclass():

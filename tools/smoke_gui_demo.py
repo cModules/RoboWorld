@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GUI 冒烟 / MVP 验收清单（v1.4.0）。
+"""GUI 冒烟 / MVP 验收清单（v0.1.40）。
 
 离屏（``QT_QPA_PLATFORM=offscreen``）跑完**对外承诺的那条闭环**：
 

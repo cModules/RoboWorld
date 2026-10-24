@@ -196,7 +196,7 @@ class ScenePanel(QtWidgets.QWidget):
         root.addWidget(self.stats_label)
 
         # ---- 工艺时序（动态时序：工序触发 / 信号等待 / 子程序调用，v1.3.1） ---- #
-        # v1.4.0 MVP：泳道图编辑器还在迭代（队列 P5），MVP 档整组不构建。
+        # v0.1.40 MVP：泳道图编辑器还在迭代（队列 P5），MVP 档整组不构建。
         # 隐藏的是**入口**而不是数据——工程里的时序段依旧保真载入
         # （见 ``app.MainWindow._apply_project`` 的"跳过"分支）。
         if _feature_enabled("sequence_editor"):

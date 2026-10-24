@@ -13,4 +13,4 @@ Adapter 抛出的错误与提示消息也要本地化（20 处 ``from support.i1
 #: 产品版本。**版本号唯一的代码来源**——`pyproject.toml` 用 `dynamic/attr` 从这里派生，
 #: `packaging/app.spec` 的 CFBundleShortVersionString 也读它。禁止改成反查
 #: `importlib.metadata`：那会破坏 setuptools 的静态解析，反过来要求先安装。
-__version__ = "1.4.0"
+__version__ = "0.1.40"
