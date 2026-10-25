@@ -203,6 +203,42 @@ def test_workflow_installs_chinese_isl_before_build():
     assert isl_step < build_step, "中文语言文件下载必须在安装器构建之前"
 
 
+def test_workflow_release_chain_is_tag_only_and_ordered():
+    """发布三段链：build → publish-release → upload-feishu。
+
+    口径（2026-10-24 用户确认）：
+    * 手动 Run workflow 只构建（不发 Release、不传飞书），避免试验性构建
+      污染发布面；
+    * 仅 push tag v* 时后两段才跑，且按 needs: 顺序串联（前段失败后续跳过）。
+
+    secrets 不能用在 job 级 if（GitHub 上下文限制），所以 job 级只判 tag，
+    FEISHU secrets 是否配置放在 step 级再判。
+    """
+    workflow = REPO_ROOT / ".github" / "workflows" / "windows-installer.yml"
+    assert workflow.is_file(), "缺 .github/workflows/windows-installer.yml"
+    text = workflow.read_text(encoding="utf-8")
+
+    # 三个 job 都在
+    for job in ("build-installer:", "publish-release:", "upload-feishu:"):
+        assert job in text, f"workflow 缺 job {job}"
+
+    # 后两段仅 tag 触发（手动 dispatch 时不跑）
+    tag_cond = "if: startsWith(github.ref, 'refs/tags/')"
+    pub_idx = text.find("publish-release:")
+    feishu_idx = text.find("upload-feishu:")
+    pub_section = text[pub_idx:feishu_idx]
+    feishu_section = text[feishu_idx:]
+    assert tag_cond in pub_section, "publish-release 必须限定 tag 触发"
+    assert tag_cond in feishu_section, "upload-feishu 必须限定 tag 触发"
+
+    # 顺序链：publish 依赖 build，feishu 依赖 publish
+    assert "needs: build-installer" in pub_section
+    assert "needs: publish-release" in feishu_section
+
+    # Release 步骤真实存在（此前 PR 描述提过但没落地，v0.1.40 那次就没建 Release）
+    assert "softprops/action-gh-release" in pub_section, "缺 Release 发布步骤"
+
+
 def test_windows_exe_icon_is_ico():
     """Windows EXE 图标必须是 .ico，且该文件必须入库。
 
