@@ -204,39 +204,85 @@ def test_workflow_installs_chinese_isl_before_build():
 
 
 def test_workflow_release_chain_is_tag_only_and_ordered():
-    """发布三段链：build → publish-release → upload-feishu。
+    """发布三段链：build → publish-release → upload-baidu-pan。
 
     口径（2026-10-24 用户确认）：
-    * 手动 Run workflow 只构建（不发 Release、不传飞书），避免试验性构建
+    * 手动 Run workflow 只构建（不发 Release、不传网盘），避免试验性构建
       污染发布面；
     * 仅 push tag v* 时后两段才跑，且按 needs: 顺序串联（前段失败后续跳过）。
 
     secrets 不能用在 job 级 if（GitHub 上下文限制），所以 job 级只判 tag，
-    FEISHU secrets 是否配置放在 step 级再判。
+    BAIDU secrets 是否配置放在 step 级再判。
     """
     workflow = REPO_ROOT / ".github" / "workflows" / "windows-installer.yml"
     assert workflow.is_file(), "缺 .github/workflows/windows-installer.yml"
     text = workflow.read_text(encoding="utf-8")
 
     # 三个 job 都在
-    for job in ("build-installer:", "publish-release:", "upload-feishu:"):
+    for job in ("build-installer:", "publish-release:", "upload-baidu-pan:"):
         assert job in text, f"workflow 缺 job {job}"
 
     # 后两段仅 tag 触发（手动 dispatch 时不跑）
     tag_cond = "if: startsWith(github.ref, 'refs/tags/')"
     pub_idx = text.find("publish-release:")
-    feishu_idx = text.find("upload-feishu:")
-    pub_section = text[pub_idx:feishu_idx]
-    feishu_section = text[feishu_idx:]
+    pan_idx = text.find("upload-baidu-pan:")
+    pub_section = text[pub_idx:pan_idx]
+    pan_section = text[pan_idx:]
     assert tag_cond in pub_section, "publish-release 必须限定 tag 触发"
-    assert tag_cond in feishu_section, "upload-feishu 必须限定 tag 触发"
+    assert tag_cond in pan_section, "upload-baidu-pan 必须限定 tag 触发"
 
-    # 顺序链：publish 依赖 build，feishu 依赖 publish
+    # 顺序链：publish 依赖 build，网盘依赖 publish
     assert "needs: build-installer" in pub_section
-    assert "needs: publish-release" in feishu_section
+    assert "needs: publish-release" in pan_section
 
     # Release 步骤真实存在（此前 PR 描述提过但没落地，v0.1.40 那次就没建 Release）
     assert "softprops/action-gh-release" in pub_section, "缺 Release 发布步骤"
+
+    # refresh_token 一次性：必须把刷新后的新值回写 Secret，否则下次发版失败
+    assert "new_refresh_token" in pan_section, "缺 refresh_token 回写"
+    assert "gh secret set BAIDU_REFRESH_TOKEN" in pan_section
+
+
+def test_baidu_pan_uploader_uses_official_three_step_flow():
+    """百度网盘上传脚本必须走 precreate → superfile2 → create 三步。
+
+    飞书有 ``upload_all`` 单请求接口，百度没有：官方 xpan 接口要求先提交
+    路径/大小/各 4MB 分片 MD5 拿 uploadid，再逐片上传，最后合并。跳步会被
+    服务端拒绝，同时少传 block_list 导致大文件永远传不上去。
+    """
+    script = REPO_ROOT / "tools" / "upload_to_baidu_pan.py"
+    assert script.is_file(), "缺 tools/upload_to_baidu_pan.py"
+    text = script.read_text(encoding="utf-8")
+    for step in ("method=precreate", "superfile2", "method=create"):
+        assert step in text, f"缺上传步骤：{step}"
+    assert "BLOCK_SIZE = 4 * 1024 * 1024" in text, "百度分片固定 4MB"
+    assert 'USER_AGENT = "pan.baidu.com"' in text, "缺 User-Agent 会被判 errno -6"
+
+
+def test_baidu_pan_block_md5_list_matches_4mb_chunks(tmp_path):
+    """block_list 必须是每个 4MB 分片的 MD5 数组，末片为余量。
+
+    这是 precreate 的关键参数：切分口径与服务端不一致会导致合并失败或
+    秒传失效。用 4MB+最小分片 的文件验证「整片 + 余量」两段都对。
+    """
+    import hashlib
+
+    from tools.upload_to_baidu_pan import BLOCK_SIZE, block_md5_list
+
+    assert BLOCK_SIZE == 4 * 1024 * 1024
+    payload = b"A" * BLOCK_SIZE + b"B" * 1024
+    target = tmp_path / "big.bin"
+    target.write_bytes(payload)
+
+    assert block_md5_list(target) == [
+        hashlib.md5(b"A" * BLOCK_SIZE).hexdigest(),
+        hashlib.md5(b"B" * 1024).hexdigest(),
+    ]
+
+    # 小于一片：只有一片
+    small = tmp_path / "small.bin"
+    small.write_bytes(b"C" * 10)
+    assert block_md5_list(small) == [hashlib.md5(b"C" * 10).hexdigest()]
 
 
 def test_windows_exe_icon_is_ico():
