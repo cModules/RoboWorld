@@ -3,11 +3,13 @@ name: Windows Installer
 # Windows 安装包发布流水线（PyInstaller 不支持跨平台打包，exe 必须在
 # Windows 环境产出——此前只能找一台 Windows 机器手工跑 packaging/ 下两个脚本）。
 #
-# 触发口径与三段链：
+# 触发口径与两段链：
 # * workflow_dispatch —— Actions 页面手动触发，**只跑 build-installer**
-#   （出包验证用，不发 Release、不传网盘，避免试验性构建污染发布面）；
-# * push tag v* —— 发版：build-installer → publish-release → upload-baidu-pan，
-#   三段按 needs: 顺序串联，前一段失败后续段自动跳过。
+#   （出包验证用，不发 Release，避免试验性构建污染发布面）；
+# * push tag v* —— 发版：build-installer → publish-release，按 needs: 串联。
+#
+# NAS 归档不在 CI 里做：GitHub 托管 runner 看不到本机挂载的 /Volumes 网络卷。
+# 发版后在本地跑 tools/archive_release.sh 把产物 rsync 过去。
 #
 # Inno Setup 6 在 windows-latest runner 上预装（Program Files (x86)\Inno Setup 6），
 # build_installer_win.ps1 的候选搜索路径已覆盖，无需 choco install。
@@ -61,7 +63,7 @@ jobs:
         shell: pwsh
 
       - name: Package source code
-        # 源码也随安装包一起进 artifact：下游网盘段直接下载，不用重新 archive。
+        # 源码也随安装包一起进 artifact：本地归档脚本直接取用，不用重新 archive。
         id: meta
         run: |
           $version = (& python -c "from support import __version__; print(__version__)").Trim()
@@ -96,66 +98,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: RoboWorld-Setup-*.exe
-
-  # ------------------------------------------------------------------ #
-  # 第三段：存档到百度网盘（仅 tag 触发，在 Release 之后）
-  # ------------------------------------------------------------------ #
-  upload-baidu-pan:
-    name: Archive release to Baidu Pan
-    needs: publish-release
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Download release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: RoboWorld-Windows-Setup
-
-      - name: Skip notice (secrets not configured)
-        if: ${{ secrets.BAIDU_APP_KEY == '' }}
-        run: echo "未配置 BAIDU_* secrets，跳过百度网盘上传。"
-
-      - name: Upload to Baidu Pan
-        # 把安装包 + 源代码包上传到 <BAIDU_TARGET_DIR>/<版本号>/。
-        # 仅 tag 触发且配置了 BAIDU_* secrets 时执行（secrets 不能用在 job 级 if，
-        # 所以 job 级只判 tag，这里 step 级再判 secrets）。
-        # secrets：BAIDU_APP_KEY / BAIDU_APP_SECRET / BAIDU_REFRESH_TOKEN
-        #         BAIDU_TARGET_DIR（可选，默认 /apps/RoboWorld/releases）
-        id: upload
-        if: ${{ secrets.BAIDU_APP_KEY != '' }}
-        env:
-          BAIDU_APP_KEY: ${{ secrets.BAIDU_APP_KEY }}
-          BAIDU_APP_SECRET: ${{ secrets.BAIDU_APP_SECRET }}
-          BAIDU_REFRESH_TOKEN: ${{ secrets.BAIDU_REFRESH_TOKEN }}
-          BAIDU_TARGET_DIR: ${{ secrets.BAIDU_TARGET_DIR }}
-        run: |
-          VER="${{ needs.build-installer.outputs.version }}"
-          TARGET="${BAIDU_TARGET_DIR:-/apps/RoboWorld/releases}"
-          python tools/upload_to_baidu_pan.py \
-            --target-dir "$TARGET" \
-            --version "$VER" \
-            "RoboWorld-Setup-$VER.exe" \
-            "RoboWorld-source-$VER.tar.gz"
-
-      - name: Persist rotated refresh_token
-        # 百度的 refresh_token 一次性：刷新后旧值立即失效。不回写的话下次发版必失败。
-        # 用 gh CLI 写回 Secret（它内部做 libsodium 加密，无需额外依赖）。
-        # 需要额外配 SECRETS_PAT（对仓库有 secrets:write 权限的 PAT）；未配置则只提示。
-        if: ${{ always() && steps.upload.outputs.new_refresh_token != '' }}
-        env:
-          GH_TOKEN: ${{ secrets.SECRETS_PAT }}
-          NEW_RT: ${{ steps.upload.outputs.new_refresh_token }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::未配置 SECRETS_PAT，请手动把 BAIDU_REFRESH_TOKEN 更新为下面这个新值："
-            echo "$NEW_RT"
-            exit 0
-          fi
-          gh secret set BAIDU_REFRESH_TOKEN --body "$NEW_RT"
-          echo "已自动回写 BAIDU_REFRESH_TOKEN"
